@@ -1,6 +1,6 @@
 Package: scRhythmBayes
 Type: Package
-Title: Phase-Resolved Circadian Analysis for Single-Cell Transcriptomes
+Title: Cell-Level Circadian Phase Inference and Rhythm-State Remodeling for Single-Cell Transcriptomes
 Version: 0.1.0
 Authors@R: c(
     person(
@@ -8,11 +8,19 @@ Authors@R: c(
       family = "Zhang",
       email = "3136708473@qq.com",
       role = c("aut", "cre")
+    ),
+    person(
+      given = "Liwei",
+      family = "Zhang",
+      email = "liweizzz@hotmail.com",
+      role = c("aut", "ths")
     )
   )
 Description: Tools for phase-resolved circadian analysis in heterogeneous
-    single-cell transcriptomic data, including cell-level phase inference,
-    gene-level rhythmic modelling, and differential rhythm-state analysis.
+    single-cell transcriptomic data. scRhythmBayes infers latent cell-level
+    circadian phase from seed rhythmic genes, estimates gene-level rhythmic
+    parameters, and assigns genes to interpretable differential rhythm-state
+    modules for condition- and cell-type-resolved circadian remodeling analysis.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
