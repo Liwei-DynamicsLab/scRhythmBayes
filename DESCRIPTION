@@ -1,0 +1,54 @@
+Package: scRhythmBayes
+Type: Package
+Title: Phase-Resolved Circadian Analysis for Single-Cell Transcriptomes
+Version: 0.1.0
+Authors@R: c(
+    person(
+      given = "Qian",
+      family = "Zhang",
+      email = "3136708473@qq.com",
+      role = c("aut", "cre")
+    )
+  )
+Description: Tools for phase-resolved circadian analysis in heterogeneous
+    single-cell transcriptomic data, including cell-level phase inference,
+    gene-level rhythmic modelling, and differential rhythm-state analysis.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Depends:
+    R (>= 4.2.0)
+Imports:
+    Matrix,
+    dplyr,
+    tibble,
+    tidyr,
+    future,
+    furrr,
+    purrr,
+    readr,
+    mvtnorm,
+    ggplot2,
+    ggrepel,
+    scales,
+    mgcv,
+    ComplexHeatmap,
+    circlize,
+    RColorBrewer,
+    grid,
+    stats,
+    methods,
+    magrittr,
+    dtw,
+    circular,
+    rlang
+Suggests:
+    Seurat (>= 4.0.0),
+    SeuratObject (>= 4.0.0),
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+
+
+
