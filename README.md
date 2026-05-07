@@ -180,4 +180,4 @@ This package is released under the MIT License.
 
 ## Authors
 
-Qian Zhang and Liwei Zhang.
+ Liwei Zhang and Qian Zhang and Chengyu Li
