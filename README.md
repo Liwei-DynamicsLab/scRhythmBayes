@@ -11,13 +11,14 @@ The package provides tools for cell-level circadian phase inference, gene-level 
 <p align="center">
   <img src="man/figures/readme.png" width="760">
 </p>
+
 ## Installation
 
 The package can be installed from GitHub:
 
 ```r
 install.packages("remotes")
-remotes::install_github("Liwei-Zhang/scRhythmBayes")
+remotes::install_github("Liwei-DynamicsLab/scRhythmBayes")
 ```
 
 Load the package:
