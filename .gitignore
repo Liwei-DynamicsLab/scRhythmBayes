@@ -6,3 +6,6 @@ renv.lock
 .DS_Store
 *.tar.gz
 *.Rcheck
+.Rprofile
+.Rhistory
+.Rproj.user/
