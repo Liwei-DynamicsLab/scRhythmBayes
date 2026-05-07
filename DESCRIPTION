@@ -16,6 +16,8 @@ Authors@R: c(
       role = c("aut", "ths")
     )
   )
+Author: Qian Zhang [aut, cre], Liwei Zhang [aut, ths]
+Maintainer: Qian Zhang <3136708473@qq.com>
 Description: Tools for phase-resolved circadian analysis in heterogeneous
     single-cell transcriptomic data. scRhythmBayes infers latent cell-level
     circadian phase from seed rhythmic genes, estimates gene-level rhythmic
