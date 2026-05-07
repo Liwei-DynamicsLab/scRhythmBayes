@@ -7,14 +7,14 @@ Authors@R: c(
       given = "Qian",
       family = "Zhang",
       email = "3136708473@qq.com",
-      role = c("aut", "cre")，
+      role = c("aut", "cre"),
       comment = c("Equal contribution")
     ),
     person(
       given = "Chenyu",
       family = "Li",
       email = "lichenyu768@gmail.com",
-      role = c("aut", "cre"),
+      role = "aut",
       comment = c("Equal contribution")
     ),
     person(
@@ -24,8 +24,6 @@ Authors@R: c(
       role = c("aut", "ths")
     )
   )
-Author: Qian Zhang [aut, cre](Equal contribution), Chenyu Li [aut，cre](Equal contribution), Liwei Zhang [aut, ths]
-Maintainer: Qian Zhang <3136708473@qq.com>
 Description: Tools for phase-resolved circadian analysis in heterogeneous
     single-cell transcriptomic data. scRhythmBayes infers latent cell-level
     circadian phase from seed rhythmic genes, estimates gene-level rhythmic
@@ -67,8 +65,4 @@ Suggests:
     SeuratObject (>= 4.0.0),
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
-
-
-
-
 
