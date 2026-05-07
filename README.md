@@ -1,4 +1,6 @@
-# scRhythmBayes
+# scRhythmBayes <img src="man/figures/logo.png" align="right" width="160">
+
+[![R-CMD-check](https://github.com/Liwei-DynamicsLab/scRhythmBayes/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/Liwei-DynamicsLab/scRhythmBayes/actions/workflows/R-CMD-check.yaml)
 
 **Phase-resolved circadian analysis for single-cell transcriptomes**
 
@@ -6,6 +8,9 @@
 
 The package provides tools for cell-level circadian phase inference, gene-level rhythmic modelling, rhythm module analysis, one-vs-rest cell-type-specific rhythm-state analysis, DTW-based phase-distribution similarity analysis, phase-concentration rho analysis, and visualization.
 
+<p align="center">
+  <img src="man/figures/readme.png" width="760">
+</p>
 ## Installation
 
 The package can be installed from GitHub:
