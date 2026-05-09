@@ -1,0 +1,341 @@
+---
+title: "Basic workflow: from cell phase inference to rhythm-state modules"
+author: "Qian Zhang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{Basic workflow: from cell phase inference to rhythm-state modules}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+# Overview
+
+This tutorial demonstrates the core workflow of `scRhythmBayes` using the built-in example dataset.
+
+`scRhythmBayes` is designed for phase-resolved circadian analysis of single-cell transcriptomic data. The core workflow contains three main steps:
+
+1. **Cell-level circadian phase inference**
+   Infer latent circadian phase for each cell.
+
+2. **Gene-level rhythmic parameter inference**
+   Estimate gene-level rhythmic parameters, including mesor, mean expression, amplitude, phase, dropout rate, likelihood-ratio statistics, and FDR.
+
+3. **Differential rhythm-state module analysis**
+   Classify genes into interpretable rhythm-state remodeling modules between two biological groups.
+
+This basic tutorial focuses on the main two-condition workflow. Extension analyses, including one-vs-rest rhythmic program discovery, DTW-based phase-distribution similarity, and circular phase-concentration rho analysis, are described in separate tutorials.
+
+# Load package
+
+```{r load-package}
+library(scRhythmBayes)
+```
+
+# Load example data
+
+`scRhythmBayes` includes an example dataset for demonstrating the full workflow.
+
+```{r load-data}
+data("srb_example_data")
+
+names(srb_example_data)
+```
+
+The example object contains two components:
+
+```{r data-components}
+dim(srb_example_data$Count)
+dim(srb_example_data$meta)
+```
+
+- `srb_example_data$Count`: a gene-by-cell sparse count matrix.
+- `srb_example_data$meta`: cell-level metadata.
+
+```{r show-metadata}
+head(srb_example_data$meta)
+```
+
+The metadata contains:
+
+| Column | Description |
+|---|---|
+| `cell` | Cell identifier |
+| `ZT` | Sampling Zeitgeber time |
+| `celltype` | Cell-type label |
+| `condition` | Condition or group label |
+| `T_true` | Simulated true circadian time in hours |
+| `Theta_true` | Simulated true circadian phase in radians |
+
+`T_true` and `Theta_true` are included only for simulation-based validation. Real single-cell datasets usually do not contain these columns.
+
+For convenience, define the input count matrix and metadata:
+
+```{r define-inputs}
+count <- srb_example_data$Count
+metadata <- srb_example_data$meta
+```
+
+# Step 1: infer cell-level circadian phase
+
+The first step is to infer a latent circadian phase for each cell.
+
+```{r infer-cell-phase}
+res_phase <- infer_cell_phase(
+  count = count,
+  metadata = metadata,
+  ZT_by = "ZT",
+  strata_by = "celltype",
+  Species = "mouse",
+  setseed = 1,
+  Verbose = FALSE
+)
+
+head(res_phase)
+```
+
+The phase inference result contains one row per cell.
+
+| Column | Description |
+|---|---|
+| `cell` | Cell identifier |
+| `ZT_input` | Observed sampling Zeitgeber time |
+| `stratum` | Stratum used during phase inference |
+| `theta_pred` | Inferred circadian phase in radians |
+| `ZT_pred` | Inferred circadian phase converted to 24-hour time |
+| `Rbar` | Aggregate phase concentration statistic |
+| `r_cell` | Cell-level phase reliability weight |
+
+The inferred phase can be used as the cell-level temporal coordinate for downstream rhythmic parameter estimation.
+
+# Step 2: select one cell type for two-condition module analysis
+
+The core rhythm-state module workflow is designed for two-group comparison within a defined biological context. In this example, we perform a condition comparison within one cell type.
+
+```{r select-celltype}
+cell_use <- as.character(metadata$celltype) == "1"
+
+count_use <- count[, cell_use, drop = FALSE]
+metadata_use <- metadata[cell_use, , drop = FALSE]
+res_phase_use <- res_phase[cell_use, , drop = FALSE]
+
+dim(count_use)
+table(metadata_use$condition)
+```
+
+Here, cells from cell type `1` are used to compare condition `A` and condition `B`.
+
+# Step 3: estimate gene-level rhythmic parameters
+
+Next, estimate gene-level rhythmic parameters using the inferred cell phases.
+
+```{r infer-gene-param}
+res_param <- infer_gene_param(
+  count = count_use,
+  metadata = metadata_use,
+  theta_pred = res_phase_use$theta_pred,
+  r_cell = res_phase_use$r_cell,
+  strata_by = "condition",
+  B = 10,
+  n_worker = 1,
+  setseed = 1,
+  Verbose = FALSE
+)
+```
+
+The result includes long-format and wide-format parameter tables.
+
+```{r show-param-long}
+head(res_param$param_long)
+```
+
+```{r show-param-wide}
+head(res_param$param_wide)
+```
+
+The long-format table stores gene-level rhythmic estimates for each group.
+
+Common parameters include:
+
+| Column | Description |
+|---|---|
+| `gene` | Gene name |
+| `condition` | Group or condition |
+| `Mesor` | Baseline rhythmic expression level |
+| `Mean` | Mean expression level |
+| `Amplitude` | Circadian oscillation amplitude |
+| `Phase` | Gene-level rhythmic phase in radians |
+| `Alpha` | Dispersion-related parameter |
+| `Dropout_rate` | Estimated dropout rate |
+| `LRT_stat` | Likelihood-ratio test statistic |
+| `P_value` | Nominal rhythmicity test P value |
+| `FDR` | Multiple-testing adjusted rhythmicity significance |
+
+The wide-format table is used by the rhythm-state module analysis.
+
+# Step 4: infer differential rhythm-state modules
+
+The module analysis compares rhythmic parameters between two groups and assigns genes to interpretable rhythm-state remodeling classes.
+
+```{r infer-module}
+res_module <- infer_rhythm_module(
+  param_wide = res_param$param_wide,
+  compare_by = "condition",
+  group1 = "A",
+  group2 = "B",
+  out_dir = NULL,
+  Verbose = FALSE
+)
+
+head(res_module$module_result)
+```
+
+The module result contains gene-level group comparison statistics and posterior module assignments.
+
+Important columns include:
+
+| Column | Description |
+|---|---|
+| `gene` | Gene name |
+| `group1`, `group2` | Compared groups |
+| `FDR_A`, `FDR_B` | Rhythmicity FDR in each group |
+| `Amplitude_A`, `Amplitude_B` | Rhythmic amplitude in each group |
+| `Phase_A`, `Phase_B` | Rhythmic phase in each group |
+| `delta_phi_rad` | Phase shift between groups in radians |
+| `module_name` | Assigned rhythm-state remodeling module |
+| `post_max` | Maximum posterior module probability |
+| `margin` | Difference between top posterior probabilities |
+
+The module analysis is intended to summarize whether genes remain rhythmic, gain or lose rhythmicity, shift phase, change amplitude, or show other rhythm-state remodeling patterns between conditions.
+
+# Step 5: visualize rhythm-state modules with heatmap
+
+The module heatmap summarizes expression patterns for genes assigned to rhythm-state modules.
+
+```{r module-heatmap, eval=FALSE}
+hm_module <- plot_module_heatmap(
+  count = count_use,
+  res_phase = res_phase_use,
+  gene_meta = res_module$module_result,
+  metadata = metadata_use,
+  group_by = "condition",
+  group1 = "A",
+  group2 = "B"
+)
+
+hm_module
+plot(hm_module, module_id = 0)
+```
+
+The heatmap object can be plotted by selecting a module ID. For example, `module_id = 0` displays genes assigned to module 0.
+
+The exact module labels and interpretation depend on the module definitions used by the package.
+
+# Step 6: visualize module-level rhythmic remodeling in polar space
+
+The polar plot visualizes rhythmic remodeling in terms of amplitude and phase.
+
+```{r module-polar, eval=FALSE}
+p_polar <- plot_module_polar(
+  gene_meta = res_module$module_result,
+  module_id = 7,
+  group1 = "A",
+  group2 = "B"
+)
+
+p_polar$plot
+```
+
+This plot is useful for inspecting how genes in a selected module are distributed in rhythmic parameter space.
+
+# Recommended core workflow
+
+The minimal recommended workflow is:
+
+```{r recommended-workflow, eval=FALSE}
+data("srb_example_data")
+
+count <- srb_example_data$Count
+metadata <- srb_example_data$meta
+
+res_phase <- infer_cell_phase(
+  count = count,
+  metadata = metadata,
+  ZT_by = "ZT",
+  strata_by = "celltype",
+  Species = "mouse",
+  setseed = 1,
+  Verbose = FALSE
+)
+
+cell_use <- as.character(metadata$celltype) == "1"
+
+res_param <- infer_gene_param(
+  count = count[, cell_use, drop = FALSE],
+  metadata = metadata[cell_use, , drop = FALSE],
+  theta_pred = res_phase$theta_pred[cell_use],
+  r_cell = res_phase$r_cell[cell_use],
+  strata_by = "condition",
+  B = 10,
+  n_worker = 1,
+  setseed = 1,
+  Verbose = FALSE
+)
+
+res_module <- infer_rhythm_module(
+  param_wide = res_param$param_wide,
+  compare_by = "condition",
+  group1 = "A",
+  group2 = "B",
+  out_dir = NULL,
+  Verbose = FALSE
+)
+```
+
+# Output summary
+
+The core workflow produces three main result objects:
+
+| Object | Description |
+|---|---|
+| `res_phase` | Cell-level inferred circadian phase and reliability statistics |
+| `res_param` | Gene-level rhythmic parameter estimates |
+| `res_module` | Differential rhythm-state module assignments |
+
+# Notes for real datasets
+
+For real single-cell datasets, users should provide:
+
+1. A gene-by-cell count matrix.
+2. Cell-level metadata.
+3. A sampling time column, such as `ZT`.
+4. A stratum column for phase inference, such as cell type, sample, tissue region, or another biologically meaningful grouping variable.
+5. A group or condition column for downstream comparison.
+
+The recommended analysis strategy is:
+
+- infer cell phases globally or within appropriate strata;
+- estimate gene-level rhythmic parameters within a biologically interpretable context;
+- run module analysis for defined two-group comparisons;
+- use extension workflows for multi-cell-type or phase-distribution questions.
+
+# Session information
+
+```{r session-info}
+sessionInfo()
+```
