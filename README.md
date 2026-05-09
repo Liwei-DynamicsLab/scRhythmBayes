@@ -513,30 +513,17 @@ p_rho_sample$plot
 
 ## Tutorials
 
-Detailed tutorials are provided as separate documents. These tutorials are designed to mirror the main analysis branches of `scRhythmBayes` and will be expanded with step-by-step examples, output interpretation, and figure-generation workflows.
+Detailed tutorials are available from the package website.
 
 ### Core workflow
 
-- [Basic workflow: from cell phase to rhythm-state modules](tutorial/basic-workflow.md)
+- [Basic workflow: from cell phase inference to rhythm-state modules](https://Liwei-DynamicsLab.github.io/scRhythmBayes/articles/basic-workflow.html)
 
 ### Extension analyses
 
-- [Rhythm-state module analysis](tutorial/module-analysis.md)
-- [One-vs-rest rhythmic program discovery](tutorial/ovr-analysis.md)
-- [DTW and rho phase-prioritization analysis](tutorial/phase-prioritization-dtw-rho.md)
-
-## Main functions
-
-### Core workflow
-
-| Function | Description |
-|---|---|
-| `infer_cell_phase()` | Infer cell-level circadian phase |
-| `infer_gene_param()` | Estimate gene-level rhythmic parameters |
-| `infer_rhythm_module()` | Infer differential rhythm-state modules |
-| `plot_module_heatmap()` | Plot rhythm-state module heatmap |
-| `plot_module_polar()` | Plot rhythm modules on polar coordinates |
-
+- [Rhythm-state module analysis](https://Liwei-DynamicsLab.github.io/scRhythmBayes/articles/module-analysis.html)
+- [One-vs-rest rhythmic program discovery](https://Liwei-DynamicsLab.github.io/scRhythmBayes/articles/ovr-analysis.html)
+- [DTW and rho phase-prioritization analysis](https://Liwei-DynamicsLab.github.io/scRhythmBayes/articles/phase-prioritization-dtw-rho.html)
 ### Phase visualization
 
 | Function | Description |
