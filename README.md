@@ -510,20 +510,23 @@ Plot sample-level rho values:
 p_rho_sample <- plot_phase_rho(rho_res_sample)
 p_rho_sample$plot
 ```
-
 ## Tutorials
 
-Detailed tutorials are available from the package website.
+Detailed tutorials are available through the pkgdown documentation website. These tutorials mirror the main analysis branches of `scRhythmBayes` and include step-by-step examples, output interpretation, and figure-generation workflows.
 
 ### Core workflow
 
-- [Basic workflow: from cell phase inference to rhythm-state modules](https://Liwei-DynamicsLab.github.io/scRhythmBayes/articles/basic-workflow.html)
+- [Basic workflow: from cell phase inference to rhythm-state modules](https://liwei-dynamicslab.github.io/scRhythmBayes/articles/basic-workflow.html)
 
 ### Extension analyses
 
-- [Rhythm-state module analysis](https://Liwei-DynamicsLab.github.io/scRhythmBayes/articles/module-analysis.html)
-- [One-vs-rest rhythmic program discovery](https://Liwei-DynamicsLab.github.io/scRhythmBayes/articles/ovr-analysis.html)
-- [DTW and rho phase-prioritization analysis](https://Liwei-DynamicsLab.github.io/scRhythmBayes/articles/phase-prioritization-dtw-rho.html)
+- [Rhythm-state module analysis](https://liwei-dynamicslab.github.io/scRhythmBayes/articles/module-analysis.html)
+- [One-vs-rest rhythmic program discovery](https://liwei-dynamicslab.github.io/scRhythmBayes/articles/ovr-analysis.html)
+- [DTW and rho phase-prioritization analysis](https://liwei-dynamicslab.github.io/scRhythmBayes/articles/phase-prioritization-dtw-rho.html)
+
+The full documentation website is available at:
+
+- [scRhythmBayes documentation](https://liwei-dynamicslab.github.io/scRhythmBayes/)
 ### Phase visualization
 
 | Function | Description |
