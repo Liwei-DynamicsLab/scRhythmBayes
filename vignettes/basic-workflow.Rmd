@@ -565,7 +565,7 @@ Recommended analysis strategy:
 - run module analysis for defined two-group comparisons;
 - use one-vs-rest analysis for cell-type-specific rhythmic programs;
 - use DTW and rho analyses for phase-distribution and phase-prioritization questions.
-
+,
 # Session information
 
 ```{r session-info}

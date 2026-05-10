@@ -1,0 +1,222 @@
+---
+title: "Rhythm-state module analysis"
+author: "Qian Zhang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{Rhythm-state module analysis}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r module-setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+
+# Overview
+
+This tutorial describes the rhythm-state module branch of `scRhythmBayes`.
+
+This branch is the main workflow for a **two-group rhythm-state comparison within a defined biological context**, for example condition `A` versus condition `B` within one cell type.
+
+The workflow is:
+
+1. infer cell-level circadian phase;
+2. select a biological context for comparison;
+3. estimate gene-level rhythmic parameters for the two groups;
+4. infer differential rhythm-state modules;
+5. visualize module-level remodeling using heatmaps and polar plots.
+
+# Load package and example data
+
+```{r module-load}
+library(scRhythmBayes)
+
+data("srb_example_data")
+
+count <- srb_example_data$Count
+metadata <- srb_example_data$meta
+```
+
+```{r module-data-summary}
+dim(count)
+head(metadata)
+table(metadata$celltype, metadata$condition)
+```
+
+# Step 1: infer cell-level circadian phase
+
+```{r module-phase}
+res_phase <- infer_cell_phase(
+  count = count,
+  metadata = metadata,
+  ZT_by = "ZT",
+  strata_by = "celltype",
+  Species = "mouse",
+  setseed = 1,
+  Verbose = FALSE
+)
+
+head(res_phase)
+```
+
+The output `res_phase` contains one row per cell. The key columns are `theta_pred`, the inferred phase in radians, and `r_cell`, the cell-level phase reliability weight.
+
+# Step 2: select one cell type for two-condition analysis
+
+```{r module-select}
+cell_use <- as.character(metadata$celltype) == "1"
+
+count_use <- count[, cell_use, drop = FALSE]
+metadata_use <- metadata[cell_use, , drop = FALSE]
+res_phase_use <- res_phase[cell_use, , drop = FALSE]
+
+dim(count_use)
+table(metadata_use$condition)
+```
+
+This example compares condition `A` and condition `B` within cell type `1`.
+
+# Step 3: estimate gene-level rhythmic parameters
+
+```{r module-param}
+res_param <- infer_gene_param(
+  count = count_use,
+  metadata = metadata_use,
+  theta_pred = res_phase_use$theta_pred,
+  r_cell = res_phase_use$r_cell,
+  strata_by = "condition",
+  B = 10,
+  n_worker = 1,
+  setseed = 1,
+  Verbose = FALSE
+)
+```
+
+```{r module-param-long}
+head(res_param$param_long)
+```
+
+```{r module-param-wide}
+head(res_param$param_wide)
+```
+
+The long-format table stores rhythmic parameters for each group. The wide-format table is used for paired module comparison.
+
+| Column | Meaning |
+|---|---|
+| `Mesor` | Baseline rhythmic expression level |
+| `Mean` | Mean expression level |
+| `Amplitude` | Circadian oscillation amplitude |
+| `Phase` | Rhythmic phase in radians |
+| `FDR` | Adjusted rhythmicity significance |
+
+# Step 4: infer differential rhythm-state modules
+
+```{r module-infer}
+res_module <- infer_rhythm_module(
+  param_wide = res_param$param_wide,
+  compare_by = "condition",
+  group1 = "A",
+  group2 = "B",
+  out_dir = NULL,
+  Verbose = FALSE
+)
+
+head(res_module$module_result)
+```
+
+```{r module-counts}
+table(res_module$module_result$module_name, useNA = "ifany")
+```
+
+The module result summarizes whether genes remain rhythmic, gain rhythmicity, lose rhythmicity, shift phase, change amplitude, or show other rhythm-state remodeling patterns.
+
+# Step 5: plot the module heatmap
+
+```{r module-heatmap}
+hm_module <- plot_module_heatmap(
+  count = count_use,
+  res_phase = res_phase_use,
+  gene_meta = res_module$module_result,
+  metadata = metadata_use,
+  group_by = "condition",
+  group1 = "A",
+  group2 = "B"
+)
+
+hm_module
+plot(hm_module, module_id = 0)
+```
+
+The heatmap shows expression patterns ordered by inferred cell phase and separated by condition.
+
+# Step 6: plot rhythm remodeling in polar space
+
+```{r module-polar}
+p_polar <- plot_module_polar(
+  gene_meta = res_module$module_result,
+  module_id = 7,
+  group1 = "A",
+  group2 = "B"
+)
+
+p_polar$plot
+```
+
+The polar plot displays rhythmic remodeling in amplitude-phase space. Phase is represented by angular position and amplitude by radial distance.
+
+# Recommended minimal workflow
+
+```{r module-minimal, eval=FALSE}
+res_phase <- infer_cell_phase(
+  count = count,
+  metadata = metadata,
+  ZT_by = "ZT",
+  strata_by = "celltype",
+  Species = "mouse",
+  setseed = 1,
+  Verbose = FALSE
+)
+
+cell_use <- as.character(metadata$celltype) == "1"
+
+res_param <- infer_gene_param(
+  count = count[, cell_use, drop = FALSE],
+  metadata = metadata[cell_use, , drop = FALSE],
+  theta_pred = res_phase$theta_pred[cell_use],
+  r_cell = res_phase$r_cell[cell_use],
+  strata_by = "condition",
+  B = 10,
+  n_worker = 1,
+  setseed = 1,
+  Verbose = FALSE
+)
+
+res_module <- infer_rhythm_module(
+  param_wide = res_param$param_wide,
+  compare_by = "condition",
+  group1 = "A",
+  group2 = "B",
+  out_dir = NULL,
+  Verbose = FALSE
+)
+```
+
+# Session information
+
+```{r module-session}
+sessionInfo()
+```

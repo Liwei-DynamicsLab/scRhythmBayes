@@ -1,0 +1,192 @@
+---
+title: "One-vs-rest rhythmic program discovery"
+author: "Qian Zhang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{One-vs-rest rhythmic program discovery}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r ovr-setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+
+# Overview
+
+This tutorial describes one-vs-rest rhythmic program discovery in `scRhythmBayes`.
+
+The one-vs-rest branch is designed for heterogeneous tissues and multi-cell-type datasets. It compares one target cell type against all remaining cell types and identifies cell-type-specific rhythmic programs.
+
+This branch is an extension from the gene-level rhythmic parameter layer. It is different from module analysis: module analysis is for a predefined two-condition comparison, while OVR is for cell-type-specific discovery.
+
+# Load package and example data
+
+```{r ovr-load}
+library(scRhythmBayes)
+
+data("srb_example_data")
+
+count <- srb_example_data$Count
+metadata <- srb_example_data$meta
+```
+
+```{r ovr-data-summary}
+dim(count)
+head(metadata)
+table(metadata$celltype)
+```
+
+# Step 1: infer cell-level circadian phase
+
+```{r ovr-phase}
+res_phase <- infer_cell_phase(
+  count = count,
+  metadata = metadata,
+  ZT_by = "ZT",
+  strata_by = "celltype",
+  Species = "mouse",
+  setseed = 1,
+  Verbose = FALSE
+)
+
+head(res_phase)
+```
+
+# Step 2: estimate gene-level parameters by cell type
+
+```{r ovr-param}
+res_ovr_param <- infer_gene_param(
+  count = count,
+  metadata = metadata,
+  theta_pred = res_phase$theta_pred,
+  r_cell = res_phase$r_cell,
+  strata_by = "celltype",
+  B = 10,
+  n_worker = 1,
+  setseed = 1,
+  Verbose = FALSE
+)
+```
+
+```{r ovr-param-long}
+head(res_ovr_param$param_long)
+```
+
+# Step 3: run one-vs-rest analysis
+
+```{r ovr-infer}
+res_ovr <- infer_ovr_rhythm(
+  param_long = res_ovr_param$param_long,
+  group_by = "celltype",
+  q_cut = 0.05,
+  amp_cut = 0.25,
+  Verbose = FALSE
+)
+
+head(res_ovr$ovr_result)
+```
+
+```{r ovr-summary}
+table(res_ovr$ovr_result$rhythm_pattern, useNA = "ifany")
+table(res_ovr$ovr_result$target_specific_flag, useNA = "ifany")
+```
+
+# Interpret the OVR result
+
+| Column | Meaning |
+|---|---|
+| `gene` | Gene name |
+| `TargetCellType` | Target cell type being tested |
+| `RestCellTypes` | Pooled non-target cell types |
+| `rhythm_pattern` | One-vs-rest rhythm-state pattern |
+| `FDR_group1` | Rhythmicity FDR in the target group |
+| `FDR_group2` | Rhythmicity FDR in the pooled rest group |
+| `Mean_group1`, `Mean_group2` | Mean expression in target and rest |
+| `Amplitude_group1`, `Amplitude_group2` | Rhythmic amplitude in target and rest |
+| `Phase_group1`, `Phase_group2` | Rhythmic phase in target and rest |
+| `Delta_Mean` | Target-minus-rest mean difference |
+| `Delta_Amp` | Target-minus-rest amplitude difference |
+| `target_specific_flag` | Whether the gene is classified as target-specific |
+
+# Step 4: plot the OVR heatmap
+
+```{r ovr-heatmap}
+ht_ovr <- plot_ovr_heatmap(
+  count = count,
+  res_phase = res_phase,
+  ovr_result = res_ovr$ovr_result,
+  metadata = metadata,
+  celltype_by = "celltype",
+  Verbose = FALSE
+)
+
+ht_ovr
+plot(ht_ovr)
+```
+
+The heatmap visualizes cell-type-associated rhythmic programs across the heterogeneous dataset.
+
+# Step 5: extract target-specific candidates
+
+```{r ovr-candidates}
+target_specific <- res_ovr$ovr_result[
+  res_ovr$ovr_result$target_specific_flag %in% TRUE,
+]
+
+head(target_specific)
+```
+
+If no target-specific genes are detected in a small example dataset, this does not indicate function failure. The result depends on the signal strength, the filtering thresholds, and the simulated structure of the example data.
+
+# Recommended minimal workflow
+
+```{r ovr-minimal, eval=FALSE}
+res_ovr_param <- infer_gene_param(
+  count = count,
+  metadata = metadata,
+  theta_pred = res_phase$theta_pred,
+  r_cell = res_phase$r_cell,
+  strata_by = "celltype",
+  B = 10,
+  n_worker = 1,
+  setseed = 1,
+  Verbose = FALSE
+)
+
+res_ovr <- infer_ovr_rhythm(
+  param_long = res_ovr_param$param_long,
+  group_by = "celltype",
+  q_cut = 0.05,
+  amp_cut = 0.25,
+  Verbose = FALSE
+)
+
+ht_ovr <- plot_ovr_heatmap(
+  count = count,
+  res_phase = res_phase,
+  ovr_result = res_ovr$ovr_result,
+  metadata = metadata,
+  celltype_by = "celltype",
+  Verbose = FALSE
+)
+```
+
+# Session information
+
+```{r ovr-session}
+sessionInfo()
+```

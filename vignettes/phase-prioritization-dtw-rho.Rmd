@@ -1,0 +1,243 @@
+---
+title: "DTW and rho phase-prioritization analysis"
+author: "Qian Zhang"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{DTW and rho phase-prioritization analysis}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r phaseprior-setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+
+# Overview
+
+This tutorial describes two phase-level extension analyses:
+
+1. DTW-based phase-distribution similarity;
+2. circular phase-concentration rho analysis.
+
+These analyses are useful for prioritizing cell types or conditions that show phase-distribution remodeling before downstream gene-level modeling.
+
+# Load package and example data
+
+```{r phaseprior-load}
+library(scRhythmBayes)
+
+data("srb_example_data")
+
+count <- srb_example_data$Count
+metadata <- srb_example_data$meta
+```
+
+```{r phaseprior-data-summary}
+dim(count)
+head(metadata)
+table(metadata$celltype, metadata$condition)
+```
+
+# Step 1: infer cell-level circadian phase
+
+```{r phaseprior-phase}
+res_phase <- infer_cell_phase(
+  count = count,
+  metadata = metadata,
+  ZT_by = "ZT",
+  strata_by = "celltype",
+  Species = "mouse",
+  setseed = 1,
+  Verbose = FALSE
+)
+
+head(res_phase)
+```
+
+# Part I: DTW-based phase-distribution similarity
+
+## Run DTW similarity analysis
+
+```{r dtw-run}
+dtw_res <- run_dtw_similarity(
+  res_phase = res_phase,
+  metadata = metadata,
+  celltype_by = "celltype",
+  group_by = "condition",
+  min_cell = 10,
+  Verbose = FALSE
+)
+
+dtw_res
+```
+
+```{r dtw-histogram}
+head(dtw_res$histogram)
+```
+
+```{r dtw-similarity}
+dtw_res$similarity
+```
+
+| Output | Meaning |
+|---|---|
+| `data` | Merged cell-level phase and metadata table |
+| `histogram` | Circular phase histogram for each celltype-by-group combination |
+| `distance` | Pairwise DTW distance matrix |
+| `similarity` | Scaled 0-to-1 DTW similarity matrix |
+| `annotation` | Annotation table for heatmap rows and columns |
+
+A higher similarity value indicates a more similar inferred phase-distribution profile.
+
+## Plot DTW heatmap
+
+```{r dtw-heatmap}
+ht_dtw <- plot_dtw_heatmap(
+  dtw_res = dtw_res
+)
+
+ht_dtw
+plot(ht_dtw)
+```
+
+# Part II: circular phase-concentration rho analysis
+
+## Run group-level rho analysis
+
+```{r rho-group-run}
+rho_res <- run_phase_rho(
+  res_phase = res_phase,
+  metadata = metadata,
+  celltype_by = "celltype",
+  group_by = "condition",
+  theta_by = "theta_pred",
+  group_levels = c("A", "B"),
+  min_cell = 10,
+  Verbose = FALSE
+)
+
+rho_res
+```
+
+```{r rho-group-table}
+rho_res$rho_group
+```
+
+## Plot group-level rho
+
+```{r rho-group-plot}
+p_rho <- plot_phase_rho(rho_res)
+
+p_rho$plot
+```
+
+A larger rho indicates stronger phase concentration. A smaller rho indicates a more dispersed phase distribution.
+
+# Part III: sample-level rho analysis
+
+The example dataset does not contain real biological sample IDs. The following code creates artificial sample labels for demonstration only.
+
+```{r rho-create-sample}
+set.seed(1)
+
+meta_rho_test <- metadata
+
+if (!"cell" %in% colnames(meta_rho_test)) {
+  meta_rho_test$cell <- rownames(meta_rho_test)
+}
+
+meta_rho_test$Sample <- NA_character_
+
+sample_per_group <- 4
+
+split_key <- interaction(
+  meta_rho_test$celltype,
+  meta_rho_test$condition,
+  drop = TRUE
+)
+
+for (kk in levels(split_key)) {
+  idx <- which(split_key == kk)
+
+  meta_rho_test$Sample[idx] <- sample(
+    paste0("S", seq_len(sample_per_group)),
+    size = length(idx),
+    replace = TRUE
+  )
+}
+
+head(meta_rho_test)
+```
+
+## Run sample-level rho analysis
+
+```{r rho-sample-run}
+rho_res_sample <- run_phase_rho(
+  res_phase = res_phase,
+  metadata = meta_rho_test,
+  celltype_by = "celltype",
+  group_by = "condition",
+  sample_by = "Sample",
+  theta_by = "theta_pred",
+  group_levels = c("A", "B"),
+  min_cell = 10,
+  Verbose = FALSE
+)
+
+head(rho_res_sample$rho_sample)
+```
+
+## Plot sample-level rho
+
+```{r rho-sample-plot}
+p_rho_sample <- plot_phase_rho(rho_res_sample)
+
+p_rho_sample$plot
+```
+
+# Recommended minimal workflow
+
+```{r phaseprior-minimal, eval=FALSE}
+dtw_res <- run_dtw_similarity(
+  res_phase = res_phase,
+  metadata = metadata,
+  celltype_by = "celltype",
+  group_by = "condition",
+  min_cell = 10,
+  Verbose = FALSE
+)
+
+ht_dtw <- plot_dtw_heatmap(dtw_res = dtw_res)
+
+rho_res <- run_phase_rho(
+  res_phase = res_phase,
+  metadata = metadata,
+  celltype_by = "celltype",
+  group_by = "condition",
+  theta_by = "theta_pred",
+  group_levels = c("A", "B"),
+  min_cell = 10,
+  Verbose = FALSE
+)
+
+p_rho <- plot_phase_rho(rho_res)
+```
+
+# Session information
+
+```{r phaseprior-session}
+sessionInfo()
+```
