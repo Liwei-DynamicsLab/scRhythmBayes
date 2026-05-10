@@ -527,6 +527,19 @@ Detailed tutorials are available through the pkgdown documentation website. Thes
 The full documentation website is available at:
 
 - [scRhythmBayes documentation](https://liwei-dynamicslab.github.io/scRhythmBayes/)
+
+## Main functions
+
+### Core workflow
+
+| Function | Description |
+|---|---|
+| `infer_cell_phase()` | Infer cell-level circadian phase |
+| `infer_gene_param()` | Estimate gene-level rhythmic parameters |
+| `infer_rhythm_module()` | Infer differential rhythm-state modules |
+| `plot_module_heatmap()` | Plot rhythm-state module heatmap |
+| `plot_module_polar()` | Plot rhythm modules on polar coordinates |
+
 ### Phase visualization
 
 | Function | Description |
@@ -565,5 +578,4 @@ This package is released under the MIT License.
 
 ## Authors
 
-Liwei Zhang, Qian Zhang, and Chenyu Li.
-
+Qian Zhang, Chenyu Li, and Liwei Zhang.
