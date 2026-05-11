@@ -82,9 +82,7 @@
   <div class="col-md-9 contents">
     <div class="page-header toc-ignore">
       <h1 data-toc-skip>Rhythm-state module analysis</h1>
-                        <h4 data-toc-skip class="author">Qian Zhang</h4>
             
-            <h4 data-toc-skip class="date">2026-05-10</h4>
       
 
       <div class="hidden name"><code>module-analysis.Rmd</code></div>
@@ -98,19 +96,22 @@
 </h2>
 <p>This tutorial describes the rhythm-state module branch of
 <code>scRhythmBayes</code>.</p>
-<p>This branch is the main workflow for a <strong>two-group rhythm-state
-comparison within a defined biological context</strong>, for example
-condition <code>A</code> versus condition <code>B</code> within one cell
-type.</p>
-<p>The workflow is:</p>
+<p>The module branch is the main workflow for a <strong>two-group
+rhythm-state comparison within a defined biological context</strong>. A
+typical use case is condition <code>A</code> versus condition
+<code>B</code> within one selected cell type.</p>
+<p>The workflow has five steps:</p>
 <ol style="list-style-type: decimal">
 <li>infer cell-level circadian phase;</li>
-<li>select a biological context for comparison;</li>
+<li>select the biological context for comparison;</li>
 <li>estimate gene-level rhythmic parameters for the two groups;</li>
 <li>infer differential rhythm-state modules;</li>
 <li>visualize module-level remodeling using heatmaps and polar
 plots.</li>
 </ol>
+<p>This tutorial focuses on the condition comparison within cell type
+<code>1</code>. For direct cell-type comparisons or one-vs-rest
+discovery, see the basic workflow and OVR tutorials.</p>
 </div>
 <div class="section level2">
 <h2 id="load-package-and-example-data">Load package and example data<a class="anchor" aria-label="anchor" href="#load-package-and-example-data"></a>
@@ -140,10 +141,47 @@ plots.</li>
 <span><span class="co">#&gt;   2 501 499</span></span>
 <span><span class="co">#&gt;   3 501 499</span></span>
 <span><span class="co">#&gt;   4 502 498</span></span></code></pre></div>
+<p>The required inputs are:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Object</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>count</code></td>
+<td>Gene-by-cell count matrix</td>
+</tr>
+<tr class="even">
+<td><code>metadata</code></td>
+<td>Cell-level metadata containing sampling time, cell type, and
+condition</td>
+</tr>
+<tr class="odd">
+<td><code>ZT</code></td>
+<td>Sampling Zeitgeber time column used for phase inference</td>
+</tr>
+<tr class="even">
+<td><code>celltype</code></td>
+<td>Cell-type label used as the phase-inference stratum</td>
+</tr>
+<tr class="odd">
+<td><code>condition</code></td>
+<td>Two-group comparison variable for module analysis</td>
+</tr>
+</tbody>
+</table>
 </div>
 <div class="section level2">
 <h2 id="step-1-infer-cell-level-circadian-phase">Step 1: infer cell-level circadian phase<a class="anchor" aria-label="anchor" href="#step-1-infer-cell-level-circadian-phase"></a>
 </h2>
+<p>The module workflow starts from inferred cell phases. These phases
+are used as latent temporal coordinates for fitting gene-level rhythmic
+parameters.</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_phase</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_cell_phase.html">infer_cell_phase</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count</span>,</span>
@@ -165,13 +203,53 @@ plots.</li>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Cell00004        0 1           0.829    3.17  0.991  0.990</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Cell00005        0 1           6.26    23.9   0.995  0.999</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">6</span> Cell00006        0 1           0.553    2.11  0.998  0.999</span></span></code></pre></div>
-<p>The output <code>res_phase</code> contains one row per cell. The key
-columns are <code>theta_pred</code>, the inferred phase in radians, and
-<code>r_cell</code>, the cell-level phase reliability weight.</p>
+<p>The output <code>res_phase</code> contains one row per cell.</p>
+<table class="table">
+<thead><tr class="header">
+<th>Column</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>cell</code></td>
+<td>Cell identifier</td>
+</tr>
+<tr class="even">
+<td><code>ZT_input</code></td>
+<td>Observed sampling Zeitgeber time</td>
+</tr>
+<tr class="odd">
+<td><code>stratum</code></td>
+<td>Stratum used during phase inference</td>
+</tr>
+<tr class="even">
+<td><code>theta_pred</code></td>
+<td>Inferred cell-level circadian phase in radians</td>
+</tr>
+<tr class="odd">
+<td><code>ZT_pred</code></td>
+<td>Inferred phase converted to 24-hour time</td>
+</tr>
+<tr class="even">
+<td><code>Rbar</code></td>
+<td>Aggregate phase concentration statistic</td>
+</tr>
+<tr class="odd">
+<td><code>r_cell</code></td>
+<td>Cell-level phase reliability weight</td>
+</tr>
+</tbody>
+</table>
+<p>The two key columns for downstream modeling are
+<code>theta_pred</code> and <code>r_cell</code>.</p>
 </div>
 <div class="section level2">
 <h2 id="step-2-select-one-cell-type-for-two-condition-analysis">Step 2: select one cell type for two-condition analysis<a class="anchor" aria-label="anchor" href="#step-2-select-one-cell-type-for-two-condition-analysis"></a>
 </h2>
+<p>The recommended module-analysis design is to compare two groups
+within a defined biological context. Here, we select cell type
+<code>1</code> and compare condition <code>A</code> versus condition
+<code>B</code>.</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">cell_use</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">metadata</span><span class="op">$</span><span class="va">celltype</span><span class="op">)</span> <span class="op">==</span> <span class="st">"1"</span></span>
 <span></span>
@@ -185,12 +263,58 @@ columns are <code>theta_pred</code>, the inferred phase in radians, and
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt;   A   B </span></span>
 <span><span class="co">#&gt; 502 498</span></span></code></pre></div>
-<p>This example compares condition <code>A</code> and condition
-<code>B</code> within cell type <code>1</code>.</p>
+<p>This subset contains only cells from cell type <code>1</code>. The
+downstream model estimates rhythmic parameters separately for condition
+<code>A</code> and condition <code>B</code>.</p>
 </div>
 <div class="section level2">
 <h2 id="step-3-estimate-gene-level-rhythmic-parameters">Step 3: estimate gene-level rhythmic parameters<a class="anchor" aria-label="anchor" href="#step-3-estimate-gene-level-rhythmic-parameters"></a>
 </h2>
+<div class="section level3">
+<h3 id="input">Input<a class="anchor" aria-label="anchor" href="#input"></a>
+</h3>
+<p>The gene-level model requires the selected count matrix, selected
+metadata, inferred cell phase, cell-level reliability weight, and a
+grouping variable.</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Argument</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>count</code></td>
+<td>Gene-by-cell count matrix for the selected cell subset</td>
+</tr>
+<tr class="even">
+<td><code>metadata</code></td>
+<td>Metadata for the same cells</td>
+</tr>
+<tr class="odd">
+<td><code>theta_pred</code></td>
+<td>Inferred cell phase from <code>res_phase</code>
+</td>
+</tr>
+<tr class="even">
+<td><code>r_cell</code></td>
+<td>Cell-level phase reliability weight</td>
+</tr>
+<tr class="odd">
+<td><code>strata_by</code></td>
+<td>Grouping variable for gene-level parameter estimation, here
+<code>condition</code>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section level3">
+<h3 id="run-gene-level-parameter-inference">Run gene-level parameter inference<a class="anchor" aria-label="anchor" href="#run-gene-level-parameter-inference"></a>
+</h3>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_param</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_gene_param.html">infer_gene_param</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count_use</span>,</span>
@@ -203,6 +327,10 @@ columns are <code>theta_pred</code>, the inferred phase in radians, and
 <span>  setseed <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>  Verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level3">
+<h3 id="inspect-output-tables">Inspect output tables<a class="anchor" aria-label="anchor" href="#inspect-output-tables"></a>
+</h3>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_param</span><span class="op">$</span><span class="va">param_long</span><span class="op">)</span></span>
 <span><span class="co">#&gt;     gene condition      Mesor Amplitude    Phase      Alpha Dropout_rate</span></span>
@@ -243,37 +371,87 @@ columns are <code>theta_pred</code>, the inferred phase in radians, and
 <p>The long-format table stores rhythmic parameters for each group. The
 wide-format table is used for paired module comparison.</p>
 <table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Output</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>param_long</code></td>
+<td>Long-format gene-level rhythmic parameter estimates for each
+group</td>
+</tr>
+<tr class="even">
+<td><code>param_wide</code></td>
+<td>Wide-format paired parameter table for downstream module
+analysis</td>
+</tr>
+<tr class="odd">
+<td><code>bootstrap_res</code></td>
+<td>Bootstrap results if available</td>
+</tr>
+</tbody>
+</table>
+<p>Common columns include:</p>
+<table class="table">
 <thead><tr class="header">
 <th>Column</th>
 <th>Meaning</th>
 </tr></thead>
 <tbody>
 <tr class="odd">
+<td><code>gene</code></td>
+<td>Gene name</td>
+</tr>
+<tr class="even">
 <td><code>Mesor</code></td>
 <td>Baseline rhythmic expression level</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td><code>Mean</code></td>
 <td>Mean expression level</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td><code>Amplitude</code></td>
 <td>Circadian oscillation amplitude</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td><code>Phase</code></td>
 <td>Rhythmic phase in radians</td>
 </tr>
+<tr class="even">
+<td><code>Alpha</code></td>
+<td>Dispersion-related parameter</td>
+</tr>
 <tr class="odd">
+<td><code>Dropout_rate</code></td>
+<td>Estimated dropout rate</td>
+</tr>
+<tr class="even">
+<td><code>LRT_stat</code></td>
+<td>Likelihood-ratio test statistic</td>
+</tr>
+<tr class="odd">
+<td><code>P_value</code></td>
+<td>Nominal rhythmicity test P value</td>
+</tr>
+<tr class="even">
 <td><code>FDR</code></td>
 <td>Adjusted rhythmicity significance</td>
 </tr>
 </tbody>
 </table>
 </div>
+</div>
 <div class="section level2">
 <h2 id="step-4-infer-differential-rhythm-state-modules">Step 4: infer differential rhythm-state modules<a class="anchor" aria-label="anchor" href="#step-4-infer-differential-rhythm-state-modules"></a>
 </h2>
+<p>The module model compares rhythmic parameters between two groups and
+assigns genes to interpretable rhythm-state remodeling classes.</p>
 <div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_module</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_rhythm_module.html">infer_rhythm_module</a></span><span class="op">(</span></span>
 <span>  param_wide <span class="op">=</span> <span class="va">res_param</span><span class="op">$</span><span class="va">param_wide</span>,</span>
@@ -313,10 +491,72 @@ wide-format table is used for paired module comparison.</p>
 <p>The module result summarizes whether genes remain rhythmic, gain
 rhythmicity, lose rhythmicity, shift phase, change amplitude, or show
 other rhythm-state remodeling patterns.</p>
+<p>Important output columns include:</p>
+<table class="table">
+<thead><tr class="header">
+<th>Column</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>gene</code></td>
+<td>Gene name</td>
+</tr>
+<tr class="even">
+<td><code>compare_by</code></td>
+<td>Comparison variable</td>
+</tr>
+<tr class="odd">
+<td>
+<code>group1</code>, <code>group2</code>
+</td>
+<td>Compared groups</td>
+</tr>
+<tr class="even">
+<td>
+<code>FDR_A</code>, <code>FDR_B</code>
+</td>
+<td>Rhythmicity FDR in each group</td>
+</tr>
+<tr class="odd">
+<td>
+<code>Amplitude_A</code>, <code>Amplitude_B</code>
+</td>
+<td>Rhythmic amplitude in each group</td>
+</tr>
+<tr class="even">
+<td>
+<code>Phase_A</code>, <code>Phase_B</code>
+</td>
+<td>Rhythmic phase in each group</td>
+</tr>
+<tr class="odd">
+<td><code>delta_phi_rad</code></td>
+<td>Phase shift between groups in radians</td>
+</tr>
+<tr class="even">
+<td><code>module_name</code></td>
+<td>Assigned rhythm-state remodeling module</td>
+</tr>
+<tr class="odd">
+<td><code>post_max</code></td>
+<td>Maximum posterior module probability</td>
+</tr>
+<tr class="even">
+<td><code>margin</code></td>
+<td>Difference between top posterior probabilities</td>
+</tr>
+</tbody>
+</table>
 </div>
 <div class="section level2">
-<h2 id="step-5-plot-the-module-heatmap">Step 5: plot the module heatmap<a class="anchor" aria-label="anchor" href="#step-5-plot-the-module-heatmap"></a>
+<h2 id="step-5-visualize-rhythm-state-modules">Step 5: visualize rhythm-state modules<a class="anchor" aria-label="anchor" href="#step-5-visualize-rhythm-state-modules"></a>
 </h2>
+<div class="section level3">
+<h3 id="build-the-module-heatmap-object">Build the module heatmap object<a class="anchor" aria-label="anchor" href="#build-the-module-heatmap-object"></a>
+</h3>
+<p>The module heatmap summarizes phase-ordered expression patterns for
+genes assigned to rhythm-state modules.</p>
 <div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">hm_module</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_module_heatmap.html">plot_module_heatmap</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count_use</span>,</span>
@@ -347,16 +587,54 @@ other rhythm-state remodeling patterns.</p>
 <span><span class="co">#&gt; module4         A     ok</span></span>
 <span><span class="co">#&gt; module5         A     ok</span></span>
 <span><span class="co">#&gt; module6         A     ok</span></span>
-<span><span class="co">#&gt; module7         A     ok</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span></code></pre></div>
-<p><img src="module-analysis_files/figure-html/module-heatmap-1.png" class="r-plt" alt="" width="672"></p>
+<span><span class="co">#&gt; module7         A     ok</span></span></code></pre></div>
+</div>
+<div class="section level3">
+<h3 id="plot-selected-module-heatmaps">Plot selected module heatmaps<a class="anchor" aria-label="anchor" href="#plot-selected-module-heatmaps"></a>
+</h3>
+<p>The following plots display selected module IDs. This keeps the
+tutorial compact while still showing the heatmap output format.</p>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span></code></pre></div>
+<p><img src="module-analysis_files/figure-html/module-heatmap-0-1.png" class="r-plt" alt="" width="85%"></p>
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></code></pre></div>
+<p><img src="module-analysis_files/figure-html/module-heatmap-1-1.png" class="r-plt" alt="" width="85%"></p>
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">7</span><span class="op">)</span></span></code></pre></div>
+<p><img src="module-analysis_files/figure-html/module-heatmap-7-1.png" class="r-plt" alt="" width="85%"></p>
 <p>The heatmap shows expression patterns ordered by inferred cell phase
-and separated by condition.</p>
+and separated by condition. It is useful for checking whether genes
+assigned to a module show coherent phase-resolved expression patterns
+across the compared groups.</p>
+</div>
+<div class="section level3">
+<h3 id="optional-plot-all-eight-module-heatmaps">Optional: plot all eight module heatmaps<a class="anchor" aria-label="anchor" href="#optional-plot-all-eight-module-heatmaps"></a>
+</h3>
+<p>If a complete visual inspection is needed, all eight module IDs can
+be plotted.</p>
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">2</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">3</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">4</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">6</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">7</span><span class="op">)</span></span></code></pre></div>
+<p>Keeping the full set as <code>eval = FALSE</code> can reduce vignette
+build time and avoid generating an overly long article page. If the goal
+is a fully visual GitHub Pages tutorial, these lines can be split into
+separate evaluated chunks.</p>
+</div>
 </div>
 <div class="section level2">
 <h2 id="step-6-plot-rhythm-remodeling-in-polar-space">Step 6: plot rhythm remodeling in polar space<a class="anchor" aria-label="anchor" href="#step-6-plot-rhythm-remodeling-in-polar-space"></a>
 </h2>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<p>The polar plot displays rhythmic remodeling in amplitude-phase space.
+Phase is represented by angular position and amplitude by radial
+distance.</p>
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">p_polar</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_module_polar.html">plot_module_polar</a></span><span class="op">(</span></span>
 <span>  gene_meta <span class="op">=</span> <span class="va">res_module</span><span class="op">$</span><span class="va">module_result</span>,</span>
 <span>  module_id <span class="op">=</span> <span class="fl">7</span>,</span>
@@ -365,16 +643,20 @@ and separated by condition.</p>
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">p_polar</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
-<p><img src="module-analysis_files/figure-html/module-polar-1.png" class="r-plt" alt="" width="672"></p>
-<p>The polar plot displays rhythmic remodeling in amplitude-phase space.
-Phase is represented by angular position and amplitude by radial
-distance.</p>
+<p><img src="module-analysis_files/figure-html/module-polar-1.png" class="r-plt" alt="" width="85%"></p>
+<p>This plot is useful for inspecting how genes in a selected module are
+distributed by rhythmic amplitude and phase.</p>
 </div>
 <div class="section level2">
 <h2 id="recommended-minimal-workflow">Recommended minimal workflow<a class="anchor" aria-label="anchor" href="#recommended-minimal-workflow"></a>
 </h2>
-<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">res_phase</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_cell_phase.html">infer_cell_phase</a></span><span class="op">(</span></span>
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/data.html" class="external-link">data</a></span><span class="op">(</span><span class="st">"srb_example_data"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">count</span> <span class="op">&lt;-</span> <span class="va">srb_example_data</span><span class="op">$</span><span class="va">Count</span></span>
+<span><span class="va">metadata</span> <span class="op">&lt;-</span> <span class="va">srb_example_data</span><span class="op">$</span><span class="va">meta</span></span>
+<span></span>
+<span><span class="va">res_phase</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_cell_phase.html">infer_cell_phase</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
 <span>  ZT_by <span class="op">=</span> <span class="st">"ZT"</span>,</span>
@@ -386,11 +668,15 @@ distance.</p>
 <span></span>
 <span><span class="va">cell_use</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">metadata</span><span class="op">$</span><span class="va">celltype</span><span class="op">)</span> <span class="op">==</span> <span class="st">"1"</span></span>
 <span></span>
+<span><span class="va">count_use</span> <span class="op">&lt;-</span> <span class="va">count</span><span class="op">[</span>, <span class="va">cell_use</span>, drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
+<span><span class="va">metadata_use</span> <span class="op">&lt;-</span> <span class="va">metadata</span><span class="op">[</span><span class="va">cell_use</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
+<span><span class="va">res_phase_use</span> <span class="op">&lt;-</span> <span class="va">res_phase</span><span class="op">[</span><span class="va">cell_use</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
+<span></span>
 <span><span class="va">res_param</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_gene_param.html">infer_gene_param</a></span><span class="op">(</span></span>
-<span>  count <span class="op">=</span> <span class="va">count</span><span class="op">[</span>, <span class="va">cell_use</span>, drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span>,</span>
-<span>  metadata <span class="op">=</span> <span class="va">metadata</span><span class="op">[</span><span class="va">cell_use</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span>,</span>
-<span>  theta_pred <span class="op">=</span> <span class="va">res_phase</span><span class="op">$</span><span class="va">theta_pred</span><span class="op">[</span><span class="va">cell_use</span><span class="op">]</span>,</span>
-<span>  r_cell <span class="op">=</span> <span class="va">res_phase</span><span class="op">$</span><span class="va">r_cell</span><span class="op">[</span><span class="va">cell_use</span><span class="op">]</span>,</span>
+<span>  count <span class="op">=</span> <span class="va">count_use</span>,</span>
+<span>  metadata <span class="op">=</span> <span class="va">metadata_use</span>,</span>
+<span>  theta_pred <span class="op">=</span> <span class="va">res_phase_use</span><span class="op">$</span><span class="va">theta_pred</span>,</span>
+<span>  r_cell <span class="op">=</span> <span class="va">res_phase_use</span><span class="op">$</span><span class="va">r_cell</span>,</span>
 <span>  strata_by <span class="op">=</span> <span class="st">"condition"</span>,</span>
 <span>  B <span class="op">=</span> <span class="fl">10</span>,</span>
 <span>  n_worker <span class="op">=</span> <span class="fl">1</span>,</span>
@@ -405,12 +691,69 @@ distance.</p>
 <span>  group2 <span class="op">=</span> <span class="st">"B"</span>,</span>
 <span>  out_dir <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  Verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
-<span><span class="op">)</span></span></code></pre></div>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">hm_module</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_module_heatmap.html">plot_module_heatmap</a></span><span class="op">(</span></span>
+<span>  count <span class="op">=</span> <span class="va">count_use</span>,</span>
+<span>  res_phase <span class="op">=</span> <span class="va">res_phase_use</span>,</span>
+<span>  gene_meta <span class="op">=</span> <span class="va">res_module</span><span class="op">$</span><span class="va">module_result</span>,</span>
+<span>  metadata <span class="op">=</span> <span class="va">metadata_use</span>,</span>
+<span>  group_by <span class="op">=</span> <span class="st">"condition"</span>,</span>
+<span>  group1 <span class="op">=</span> <span class="st">"A"</span>,</span>
+<span>  group2 <span class="op">=</span> <span class="st">"B"</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="notes-for-real-datasets">Notes for real datasets<a class="anchor" aria-label="anchor" href="#notes-for-real-datasets"></a>
+</h2>
+<p>For real datasets, the module branch should be used when the
+comparison is clearly defined as two groups within a biological
+context.</p>
+<p>Typical designs include:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Biological question</th>
+<th>Suggested setup</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td>Disease versus control within one cell type</td>
+<td>Subset one cell type and set
+<code>strata_by = "condition"</code>
+</td>
+</tr>
+<tr class="even">
+<td>Treatment versus baseline within one cell type</td>
+<td>Subset one cell type and set
+<code>strata_by = "condition"</code>
+</td>
+</tr>
+<tr class="odd">
+<td>Region A versus region B within one cell type</td>
+<td>Subset one cell type and set <code>strata_by</code> to the region
+column</td>
+</tr>
+<tr class="even">
+<td>Two selected cell types</td>
+<td>Estimate parameters by <code>celltype</code>, then compare two
+selected labels</td>
+</tr>
+</tbody>
+</table>
+<p>For broad cell-type-specific discovery across many cell types, the
+OVR workflow is usually more appropriate than repeatedly running
+pairwise module comparisons.</p>
 </div>
 <div class="section level2">
 <h2 id="session-information">Session information<a class="anchor" aria-label="anchor" href="#session-information"></a>
 </h2>
-<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/sessionInfo.html" class="external-link">sessionInfo</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; R version 4.5.1 (2025-06-13)</span></span>
 <span><span class="co">#&gt; Platform: aarch64-apple-darwin20</span></span>

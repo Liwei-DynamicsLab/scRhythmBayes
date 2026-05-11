@@ -1,10 +1,9 @@
 ---
 title: "Basic workflow: from cell phase inference to rhythm-state modules"
-author: "Qian Zhang"
-date: "`r Sys.Date()`"
 output:
   html_document:
     toc: true
+    toc_float: true
     toc_depth: 3
     number_sections: true
     df_print: paged
@@ -22,7 +21,9 @@ knitr::opts_chunk$set(
   warning = FALSE,
   fig.width = 7,
   fig.height = 5,
-  dpi = 120
+  dpi = 120,
+  fig.retina = 2,
+  out.width = "85%"
 )
 ```
 
@@ -39,9 +40,9 @@ This tutorial demonstrates the basic workflow using the built-in example dataset
    Estimate rhythmic parameters, including mesor, mean expression, amplitude, phase, dropout rate, likelihood-ratio statistics, and FDR.
 
 3. **Differential rhythm-state module analysis**  
-   Classify genes into interpretable rhythm-state remodeling modules between two biological conditions.
+   Classify genes into interpretable rhythm-state remodeling modules between two biological groups.
 
-The tutorial also shows how to visualize rhythm-state modules using heatmaps and polar plots.
+The main example compares condition `A` versus condition `B` within one cell type. This is the recommended starting point for two-condition rhythm-state remodeling analysis. The tutorial also shows how the same module framework can compare two cell types when gene-level parameters are estimated by `celltype`.
 
 Extension analyses, including one-vs-rest rhythmic program discovery, DTW-based phase-distribution similarity, and circular phase-concentration rho analysis, are introduced briefly at the end and described in separate tutorials.
 
@@ -98,6 +99,21 @@ count <- srb_example_data$Count
 metadata <- srb_example_data$meta
 ```
 
+# Choosing the analysis design
+
+Before running gene-level rhythmic parameter inference, users should define the biological comparison of interest. In `scRhythmBayes`, the same core framework can support several common designs.
+
+| Analysis goal | Recommended design | Parameter grouping | Downstream analysis |
+|---|---|---|---|
+| Compare two conditions within one cell type | Subset one cell type, then compare conditions | `strata_by = "condition"` | `infer_rhythm_module(group1 = "A", group2 = "B")` |
+| Compare two cell types directly | Use all relevant cells, then estimate parameters by cell type | `strata_by = "celltype"` | `infer_rhythm_module(group1 = "1", group2 = "2")` |
+| Identify cell-type-specific rhythmic programs | Estimate parameters by cell type | `strata_by = "celltype"` | `infer_ovr_rhythm()` |
+| Compare phase distributions across cell types and conditions | Use cell-level phase result and metadata | not required | `run_dtw_similarity()` or `run_phase_rho()` |
+
+The recommended starting point is a two-condition comparison within one biologically defined cell type. This design is usually the clearest setting for interpreting differential rhythm-state modules.
+
+A direct cell-type comparison and a one-vs-rest analysis answer different questions. A direct module comparison tests one selected pair, such as cell type `1` versus cell type `2`. A one-vs-rest analysis identifies target-specific rhythmic programs by comparing each target cell type against all remaining cell types.
+
 # Step 1: infer cell-level circadian phase
 
 ## Input
@@ -144,11 +160,11 @@ The output contains one row per cell.
 
 The inferred cell phase is used as the latent temporal coordinate for downstream gene-level rhythmic parameter estimation.
 
-## Optional phase diagnostic plot
+## Phase diagnostic plots
 
 If simulated true time is available, inferred phase can be compared against the known true time.
 
-```{r phase-scatter, eval=FALSE}
+```{r phase-scatter, fig.width=6.5, fig.height=5, out.width="80%"}
 p_phase <- plot_phase_scatter(
   res_phase = res_phase,
   metadata = metadata,
@@ -159,17 +175,28 @@ p_phase <- plot_phase_scatter(
 p_phase$plot
 ```
 
-For real datasets, true phase is usually unknown. In that case, phase diagnostic plots should focus on sampling time, cell type, condition, or circular phase distribution.
+For real datasets, true phase is usually unknown. In that case, circular phase distributions can be inspected by condition or cell type.
 
-```{r phase-circle, eval=FALSE}
-p_circle <- plot_phase_circle(
+```{r phase-circle-condition, fig.width=6.5, fig.height=5, out.width="80%"}
+p_circle_condition <- plot_phase_circle(
   res_phase = res_phase,
   metadata = metadata,
   group_by = "condition",
   theta_by = "theta_pred"
 )
 
-p_circle$plot
+p_circle_condition$plot
+```
+
+```{r phase-circle-celltype, fig.width=6.5, fig.height=5, out.width="80%"}
+p_circle_celltype <- plot_phase_circle(
+  res_phase = res_phase,
+  metadata = metadata,
+  group_by = "celltype",
+  theta_by = "theta_pred"
+)
+
+p_circle_celltype$plot
 ```
 
 # Step 2: select one cell type for two-condition comparison
@@ -201,11 +228,13 @@ The gene-level model requires:
 | `metadata` | Metadata for the selected cells |
 | `theta_pred` | Inferred cell-level phase |
 | `r_cell` | Cell-level phase reliability weight |
-| `strata_by` | Grouping variable for parameter estimation, here `condition` |
+| `strata_by` | Grouping variable for parameter estimation |
 
-## Run gene-level rhythmic parameter inference
+For condition-level module analysis within one cell type, use `strata_by = "condition"`. For cell-type-level comparison, use `strata_by = "celltype"` on the full dataset or a larger subset.
 
-```{r infer-gene-param}
+## Run condition-level rhythmic parameter inference
+
+```{r infer-gene-param-condition}
 res_param <- infer_gene_param(
   count = count_use,
   metadata = metadata_use,
@@ -219,16 +248,36 @@ res_param <- infer_gene_param(
 )
 ```
 
+## Optional: run cell-type-level rhythmic parameter inference
+
+This second parameter table is used only to demonstrate a direct cell type `1` versus cell type `2` module comparison.
+
+```{r infer-gene-param-celltype}
+res_param_celltype <- infer_gene_param(
+  count = count,
+  metadata = metadata,
+  theta_pred = res_phase$theta_pred,
+  r_cell = res_phase$r_cell,
+  strata_by = "celltype",
+  B = 10,
+  n_worker = 1,
+  setseed = 1,
+  Verbose = FALSE
+)
+```
+
 ## Output
 
 The result contains long-format and wide-format gene-level parameter tables.
 
 ```{r show-param-long}
 head(res_param$param_long)
+head(res_param_celltype$param_long)
 ```
 
 ```{r show-param-wide}
 head(res_param$param_wide)
+head(res_param_celltype$param_wide)
 ```
 
 Main output objects:
@@ -256,7 +305,7 @@ Common gene-level parameters:
 
 # Step 4: infer differential rhythm-state modules
 
-The rhythm-state module analysis compares rhythmic parameters between two conditions and assigns genes to interpretable remodeling classes.
+The rhythm-state module analysis compares rhythmic parameters between two groups and assigns genes to interpretable remodeling classes.
 
 ## Input
 
@@ -267,9 +316,11 @@ The rhythm-state module analysis compares rhythmic parameters between two condit
 | `group1`, `group2` | Two groups to compare |
 | `out_dir` | Optional output directory |
 
-## Run module inference
+The `param_wide` object must match the selected groups. For example, comparing `group1 = "A"` and `group2 = "B"` requires columns such as `Mean_A`, `Mean_B`, `FDR_A`, `FDR_B`, `Amplitude_A`, `Amplitude_B`, `Phase_A`, and `Phase_B`. Comparing `group1 = "1"` and `group2 = "2"` requires columns such as `Mean_1`, `Mean_2`, `FDR_1`, `FDR_2`, `Amplitude_1`, `Amplitude_2`, `Phase_1`, and `Phase_2`.
 
-```{r infer-module}
+## Run condition-level module inference
+
+```{r infer-module-condition}
 res_module <- infer_rhythm_module(
   param_wide = res_param$param_wide,
   compare_by = "condition",
@@ -282,6 +333,23 @@ res_module <- infer_rhythm_module(
 head(res_module$module_result)
 ```
 
+## Optional: run direct cell-type-level module inference
+
+This optional example compares cell type `1` and cell type `2` directly. It uses `res_param_celltype$param_wide`, not `res_param$param_wide`, because the wide-format columns must match the selected group labels.
+
+```{r infer-module-celltype}
+res_module_celltype <- infer_rhythm_module(
+  param_wide = res_param_celltype$param_wide,
+  compare_by = "celltype",
+  group1 = "1",
+  group2 = "2",
+  out_dir = NULL,
+  Verbose = FALSE
+)
+
+head(res_module_celltype$module_result)
+```
+
 ## Output
 
 The module result contains gene-level comparison statistics and posterior module assignments.
@@ -290,23 +358,23 @@ The module result contains gene-level comparison statistics and posterior module
 |---|---|
 | `gene` | Gene name |
 | `group1`, `group2` | Compared groups |
-| `FDR_A`, `FDR_B` | Rhythmicity FDR in each group |
-| `Amplitude_A`, `Amplitude_B` | Rhythmic amplitude in each group |
-| `Phase_A`, `Phase_B` | Rhythmic phase in each group |
+| `FDR_A`, `FDR_B` or `FDR_1`, `FDR_2` | Rhythmicity FDR in each group |
+| `Amplitude_A`, `Amplitude_B` or `Amplitude_1`, `Amplitude_2` | Rhythmic amplitude in each group |
+| `Phase_A`, `Phase_B` or `Phase_1`, `Phase_2` | Rhythmic phase in each group |
 | `delta_phi_rad` | Phase shift between groups in radians |
 | `module_name` | Assigned rhythm-state remodeling module |
 | `post_max` | Maximum posterior module probability |
 | `margin` | Difference between top posterior probabilities |
 
-The module analysis summarizes whether genes retain rhythmicity, gain or lose rhythmicity, change amplitude, shift phase, or show other rhythm-state remodeling patterns between two conditions.
+The module analysis summarizes whether genes retain rhythmicity, gain or lose rhythmicity, change amplitude, shift phase, or show other rhythm-state remodeling patterns between two groups.
 
 # Step 5: visualize rhythm-state modules
 
-## Module heatmap
+## Module heatmaps
 
-The module heatmap summarizes expression patterns of genes assigned to rhythm-state modules.
+The module heatmap summarizes expression patterns of genes assigned to rhythm-state modules. This tutorial shows all eight module IDs so users can inspect the full module structure in the rendered HTML page.
 
-```{r module-heatmap, eval=FALSE}
+```{r module-heatmap-build}
 hm_module <- plot_module_heatmap(
   count = count_use,
   res_phase = res_phase_use,
@@ -318,18 +386,47 @@ hm_module <- plot_module_heatmap(
 )
 
 hm_module
+```
+
+```{r module-heatmap-0, fig.width=7, fig.height=4.8, out.width="85%"}
 plot(hm_module, module_id = 0)
 ```
 
-The heatmap is useful for checking whether genes assigned to a module show consistent phase-resolved expression patterns across the compared conditions.
+```{r module-heatmap-1, fig.width=7, fig.height=4.8, out.width="85%"}
+plot(hm_module, module_id = 1)
+```
 
-If the heatmap is computationally expensive during package checking, keep this chunk as `eval=FALSE` in the vignette and show the expected figure in the GitHub Pages tutorial using a pre-rendered image.
+```{r module-heatmap-2, fig.width=7, fig.height=4.8, out.width="85%"}
+plot(hm_module, module_id = 2)
+```
+
+```{r module-heatmap-3, fig.width=7, fig.height=4.8, out.width="85%"}
+plot(hm_module, module_id = 3)
+```
+
+```{r module-heatmap-4, fig.width=7, fig.height=4.8, out.width="85%"}
+plot(hm_module, module_id = 4)
+```
+
+```{r module-heatmap-5, fig.width=7, fig.height=4.8, out.width="85%"}
+plot(hm_module, module_id = 5)
+```
+
+```{r module-heatmap-6, fig.width=7, fig.height=4.8, out.width="85%"}
+plot(hm_module, module_id = 6)
+```
+
+```{r module-heatmap-7, fig.width=7, fig.height=4.8, out.width="85%"}
+plot(hm_module, module_id = 7)
+```
+
+The heatmaps are useful for checking whether genes assigned to each module show consistent phase-resolved expression patterns across the compared conditions.
 
 ## Module polar plot
 
 The polar plot visualizes rhythmic remodeling in amplitude-phase space.
 
-```{r module-polar, eval=FALSE}
+```{r module-polar-7, fig.width=6.5, fig.height=5.5, out.width="80%"}
 p_polar <- plot_module_polar(
   gene_meta = res_module$module_result,
   module_id = 7,
@@ -384,13 +481,25 @@ res_module <- infer_rhythm_module(
   out_dir = NULL,
   Verbose = FALSE
 )
+
+hm_module <- plot_module_heatmap(
+  count = count[, cell_use, drop = FALSE],
+  res_phase = res_phase[cell_use, , drop = FALSE],
+  gene_meta = res_module$module_result,
+  metadata = metadata[cell_use, , drop = FALSE],
+  group_by = "condition",
+  group1 = "A",
+  group2 = "B"
+)
+
+plot(hm_module, module_id = 0)
 ```
 
 # Extension workflows
 
-The following analyses are extensions of the core workflow. They are introduced here for orientation and will be described in separate tutorials.
+The following analyses are extensions of the core workflow. They are introduced here for orientation and described in separate tutorials.
 
-# Extension 1: one-vs-rest rhythmic program discovery
+## Extension 1: one-vs-rest rhythmic program discovery
 
 The one-vs-rest workflow is designed for heterogeneous tissues or multi-cell-type datasets. It compares each target cell type against all remaining cell types.
 
@@ -418,21 +527,7 @@ res_ovr <- infer_ovr_rhythm(
 head(res_ovr$ovr_result)
 ```
 
-```{r ovr-heatmap, eval=FALSE}
-ht_ovr <- plot_ovr_heatmap(
-  count = count,
-  res_phase = res_phase,
-  ovr_result = res_ovr$ovr_result,
-  metadata = metadata,
-  celltype_by = "celltype",
-  Verbose = FALSE
-)
-
-ht_ovr
-plot(ht_ovr)
-```
-
-# Extension 2: DTW-based phase-distribution similarity
+## Extension 2: DTW-based phase-distribution similarity
 
 The DTW workflow compares circular cell-phase distributions across celltype-by-condition combinations.
 
@@ -450,16 +545,7 @@ head(dtw_res$histogram)
 dtw_res$similarity
 ```
 
-```{r dtw-heatmap, eval=FALSE}
-ht_dtw <- plot_dtw_heatmap(
-  dtw_res = dtw_res
-)
-
-ht_dtw
-plot(ht_dtw)
-```
-
-# Extension 3: circular phase-concentration rho analysis
+## Extension 3: circular phase-concentration rho analysis
 
 The rho workflow summarizes how concentrated inferred cell phases are within cell types and conditions.
 
@@ -476,57 +562,6 @@ rho_res <- run_phase_rho(
 )
 
 rho_res
-```
-
-```{r rho-plot, eval=FALSE}
-p_rho <- plot_phase_rho(rho_res)
-p_rho$plot
-```
-
-If a sample column is available, `run_phase_rho()` can also summarize rho at the sample level.
-
-```{r rho-sample-analysis, eval=FALSE}
-set.seed(1)
-
-meta_rho_test <- metadata
-
-if (!"cell" %in% colnames(meta_rho_test)) {
-  meta_rho_test$cell <- rownames(meta_rho_test)
-}
-
-meta_rho_test$Sample <- NA_character_
-
-sample_per_group <- 4
-
-split_key <- interaction(
-  meta_rho_test$celltype,
-  meta_rho_test$condition,
-  drop = TRUE
-)
-
-for (kk in levels(split_key)) {
-  idx <- which(split_key == kk)
-
-  meta_rho_test$Sample[idx] <- sample(
-    paste0("S", seq_len(sample_per_group)),
-    size = length(idx),
-    replace = TRUE
-  )
-}
-
-rho_res_sample <- run_phase_rho(
-  res_phase = res_phase,
-  metadata = meta_rho_test,
-  celltype_by = "celltype",
-  group_by = "condition",
-  sample_by = "Sample",
-  theta_by = "theta_pred",
-  group_levels = c("A", "B"),
-  min_cell = 10,
-  Verbose = FALSE
-)
-
-head(rho_res_sample$rho_sample)
 ```
 
 # Output summary
@@ -565,7 +600,7 @@ Recommended analysis strategy:
 - run module analysis for defined two-group comparisons;
 - use one-vs-rest analysis for cell-type-specific rhythmic programs;
 - use DTW and rho analyses for phase-distribution and phase-prioritization questions.
-,
+
 # Session information
 
 ```{r session-info}

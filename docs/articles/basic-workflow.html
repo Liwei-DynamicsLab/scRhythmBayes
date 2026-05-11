@@ -83,9 +83,7 @@
     <div class="page-header toc-ignore">
       <h1 data-toc-skip>Basic workflow: from cell phase inference to
 rhythm-state modules</h1>
-                        <h4 data-toc-skip class="author">Qian Zhang</h4>
             
-            <h4 data-toc-skip class="date">2026-05-10</h4>
       
 
       <div class="hidden name"><code>basic-workflow.Rmd</code></div>
@@ -110,10 +108,13 @@ amplitude, phase, dropout rate, likelihood-ratio statistics, and
 FDR.</p></li>
 <li><p><strong>Differential rhythm-state module analysis</strong><br>
 Classify genes into interpretable rhythm-state remodeling modules
-between two biological conditions.</p></li>
+between two biological groups.</p></li>
 </ol>
-<p>The tutorial also shows how to visualize rhythm-state modules using
-heatmaps and polar plots.</p>
+<p>The main example compares condition <code>A</code> versus condition
+<code>B</code> within one cell type. This is the recommended starting
+point for two-condition rhythm-state remodeling analysis. The tutorial
+also shows how the same module framework can compare two cell types when
+gene-level parameters are estimated by <code>celltype</code>.</p>
 <p>Extension analyses, including one-vs-rest rhythmic program discovery,
 DTW-based phase-distribution similarity, and circular
 phase-concentration rho analysis, are introduced briefly at the end and
@@ -212,6 +213,65 @@ contain these two columns.</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">count</span> <span class="op">&lt;-</span> <span class="va">srb_example_data</span><span class="op">$</span><span class="va">Count</span></span>
 <span><span class="va">metadata</span> <span class="op">&lt;-</span> <span class="va">srb_example_data</span><span class="op">$</span><span class="va">meta</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="choosing-the-analysis-design">Choosing the analysis design<a class="anchor" aria-label="anchor" href="#choosing-the-analysis-design"></a>
+</h2>
+<p>Before running gene-level rhythmic parameter inference, users should
+define the biological comparison of interest. In
+<code>scRhythmBayes</code>, the same core framework can support several
+common designs.</p>
+<table class="table">
+<colgroup>
+<col width="25%">
+<col width="25%">
+<col width="25%">
+<col width="25%">
+</colgroup>
+<thead><tr class="header">
+<th>Analysis goal</th>
+<th>Recommended design</th>
+<th>Parameter grouping</th>
+<th>Downstream analysis</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td>Compare two conditions within one cell type</td>
+<td>Subset one cell type, then compare conditions</td>
+<td><code>strata_by = "condition"</code></td>
+<td><code>infer_rhythm_module(group1 = "A", group2 = "B")</code></td>
+</tr>
+<tr class="even">
+<td>Compare two cell types directly</td>
+<td>Use all relevant cells, then estimate parameters by cell type</td>
+<td><code>strata_by = "celltype"</code></td>
+<td><code>infer_rhythm_module(group1 = "1", group2 = "2")</code></td>
+</tr>
+<tr class="odd">
+<td>Identify cell-type-specific rhythmic programs</td>
+<td>Estimate parameters by cell type</td>
+<td><code>strata_by = "celltype"</code></td>
+<td><code><a href="../reference/infer_ovr_rhythm.html">infer_ovr_rhythm()</a></code></td>
+</tr>
+<tr class="even">
+<td>Compare phase distributions across cell types and conditions</td>
+<td>Use cell-level phase result and metadata</td>
+<td>not required</td>
+<td>
+<code><a href="../reference/run_dtw_similarity.html">run_dtw_similarity()</a></code> or
+<code><a href="../reference/run_phase_rho.html">run_phase_rho()</a></code>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The recommended starting point is a two-condition comparison within
+one biologically defined cell type. This design is usually the clearest
+setting for interpreting differential rhythm-state modules.</p>
+<p>A direct cell-type comparison and a one-vs-rest analysis answer
+different questions. A direct module comparison tests one selected pair,
+such as cell type <code>1</code> versus cell type <code>2</code>. A
+one-vs-rest analysis identifies target-specific rhythmic programs by
+comparing each target cell type against all remaining cell types.</p>
 </div>
 <div class="section level2">
 <h2 id="step-1-infer-cell-level-circadian-phase">Step 1: infer cell-level circadian phase<a class="anchor" aria-label="anchor" href="#step-1-infer-cell-level-circadian-phase"></a>
@@ -326,7 +386,7 @@ contain these two columns.</p>
 downstream gene-level rhythmic parameter estimation.</p>
 </div>
 <div class="section level3">
-<h3 id="optional-phase-diagnostic-plot">Optional phase diagnostic plot<a class="anchor" aria-label="anchor" href="#optional-phase-diagnostic-plot"></a>
+<h3 id="phase-diagnostic-plots">Phase diagnostic plots<a class="anchor" aria-label="anchor" href="#phase-diagnostic-plots"></a>
 </h3>
 <p>If simulated true time is available, inferred phase can be compared
 against the known true time.</p>
@@ -339,18 +399,30 @@ against the known true time.</p>
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">p_phase</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
-<p>For real datasets, true phase is usually unknown. In that case, phase
-diagnostic plots should focus on sampling time, cell type, condition, or
-circular phase distribution.</p>
+<p><img src="basic-workflow_files/figure-html/phase-scatter-1.png" class="r-plt" alt="" width="80%"></p>
+<p>For real datasets, true phase is usually unknown. In that case,
+circular phase distributions can be inspected by condition or cell
+type.</p>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">p_circle</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_phase_circle.html">plot_phase_circle</a></span><span class="op">(</span></span>
+<code class="sourceCode R"><span><span class="va">p_circle_condition</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_phase_circle.html">plot_phase_circle</a></span><span class="op">(</span></span>
 <span>  res_phase <span class="op">=</span> <span class="va">res_phase</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
 <span>  group_by <span class="op">=</span> <span class="st">"condition"</span>,</span>
 <span>  theta_by <span class="op">=</span> <span class="st">"theta_pred"</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">p_circle</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
+<span><span class="va">p_circle_condition</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
+<p><img src="basic-workflow_files/figure-html/phase-circle-condition-1.png" class="r-plt" alt="" width="80%"></p>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">p_circle_celltype</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_phase_circle.html">plot_phase_circle</a></span><span class="op">(</span></span>
+<span>  res_phase <span class="op">=</span> <span class="va">res_phase</span>,</span>
+<span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
+<span>  group_by <span class="op">=</span> <span class="st">"celltype"</span>,</span>
+<span>  theta_by <span class="op">=</span> <span class="st">"theta_pred"</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">p_circle_celltype</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
+<p><img src="basic-workflow_files/figure-html/phase-circle-celltype-1.png" class="r-plt" alt="" width="80%"></p>
 </div>
 </div>
 <div class="section level2">
@@ -359,7 +431,7 @@ circular phase distribution.</p>
 <p>The core module workflow is designed for a defined two-group
 comparison. In this example, we compare condition <code>A</code> and
 condition <code>B</code> within cell type <code>1</code>.</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">cell_use</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">metadata</span><span class="op">$</span><span class="va">celltype</span><span class="op">)</span> <span class="op">==</span> <span class="st">"1"</span></span>
 <span></span>
 <span><span class="va">count_use</span> <span class="op">&lt;-</span> <span class="va">count</span><span class="op">[</span>, <span class="va">cell_use</span>, drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
@@ -384,10 +456,6 @@ compartment.</p>
 </h3>
 <p>The gene-level model requires:</p>
 <table class="table">
-<colgroup>
-<col width="50%">
-<col width="50%">
-</colgroup>
 <thead><tr class="header">
 <th>Argument</th>
 <th>Description</th>
@@ -411,17 +479,19 @@ compartment.</p>
 </tr>
 <tr class="odd">
 <td><code>strata_by</code></td>
-<td>Grouping variable for parameter estimation, here
-<code>condition</code>
-</td>
+<td>Grouping variable for parameter estimation</td>
 </tr>
 </tbody>
 </table>
+<p>For condition-level module analysis within one cell type, use
+<code>strata_by = "condition"</code>. For cell-type-level comparison,
+use <code>strata_by = "celltype"</code> on the full dataset or a larger
+subset.</p>
 </div>
 <div class="section level3">
-<h3 id="run-gene-level-rhythmic-parameter-inference">Run gene-level rhythmic parameter inference<a class="anchor" aria-label="anchor" href="#run-gene-level-rhythmic-parameter-inference"></a>
+<h3 id="run-condition-level-rhythmic-parameter-inference">Run condition-level rhythmic parameter inference<a class="anchor" aria-label="anchor" href="#run-condition-level-rhythmic-parameter-inference"></a>
 </h3>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_param</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_gene_param.html">infer_gene_param</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count_use</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata_use</span>,</span>
@@ -435,11 +505,30 @@ compartment.</p>
 <span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level3">
+<h3 id="optional-run-cell-type-level-rhythmic-parameter-inference">Optional: run cell-type-level rhythmic parameter inference<a class="anchor" aria-label="anchor" href="#optional-run-cell-type-level-rhythmic-parameter-inference"></a>
+</h3>
+<p>This second parameter table is used only to demonstrate a direct cell
+type <code>1</code> versus cell type <code>2</code> module
+comparison.</p>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">res_param_celltype</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_gene_param.html">infer_gene_param</a></span><span class="op">(</span></span>
+<span>  count <span class="op">=</span> <span class="va">count</span>,</span>
+<span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
+<span>  theta_pred <span class="op">=</span> <span class="va">res_phase</span><span class="op">$</span><span class="va">theta_pred</span>,</span>
+<span>  r_cell <span class="op">=</span> <span class="va">res_phase</span><span class="op">$</span><span class="va">r_cell</span>,</span>
+<span>  strata_by <span class="op">=</span> <span class="st">"celltype"</span>,</span>
+<span>  B <span class="op">=</span> <span class="fl">10</span>,</span>
+<span>  n_worker <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  setseed <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  Verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level3">
 <h3 id="output-1">Output<a class="anchor" aria-label="anchor" href="#output-1"></a>
 </h3>
 <p>The result contains long-format and wide-format gene-level parameter
 tables.</p>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_param</span><span class="op">$</span><span class="va">param_long</span><span class="op">)</span></span>
 <span><span class="co">#&gt;     gene condition      Mesor Amplitude    Phase      Alpha Dropout_rate</span></span>
 <span><span class="co">#&gt; 1 Cdkn1a         A  0.1404234  2.593429 3.722156 0.04078534    0.3921122</span></span>
@@ -461,8 +550,30 @@ tables.</p>
 <span><span class="co">#&gt; 3    -3.2099156  -0.83898054         0</span></span>
 <span><span class="co">#&gt; 4    -1.9760766  -0.97652426         0</span></span>
 <span><span class="co">#&gt; 5    -2.7444942  -0.04032876         0</span></span>
-<span><span class="co">#&gt; 6    -0.7792482   0.22667095         0</span></span></code></pre></div>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<span><span class="co">#&gt; 6    -0.7792482   0.22667095         0</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_param_celltype</span><span class="op">$</span><span class="va">param_long</span><span class="op">)</span></span>
+<span><span class="co">#&gt;     gene celltype       Mesor Amplitude    Phase      Alpha Dropout_rate</span></span>
+<span><span class="co">#&gt; 1 Cdkn1a        1 -0.02762582  2.686816 3.738887 0.08053933    0.4191739</span></span>
+<span><span class="co">#&gt; 2  Mmp14        1 -0.59442628  2.874521 4.029714 0.12570493    0.4218473</span></span>
+<span><span class="co">#&gt; 3  Clock        1 -0.42565821  3.604569 6.015929 0.04570863    0.2737957</span></span>
+<span><span class="co">#&gt; 4   Per2        1 -0.20480520  2.487120 3.398507 0.11007750    0.3431087</span></span>
+<span><span class="co">#&gt; 5   Per1        1 -0.29496969  2.457057 4.738964 0.05918745    0.4967964</span></span>
+<span><span class="co">#&gt; 6  Bmal1        1 -2.34096740  2.737424 1.320406 0.41694809    0.5077025</span></span>
+<span><span class="co">#&gt;    LRT_stat       P_value           FDR      Mean   beta1_est  beta2_est</span></span>
+<span><span class="co">#&gt; 1  625.5160 1.482287e-136 4.906370e-135 0.9727523 -2.22162151 -1.5110854</span></span>
+<span><span class="co">#&gt; 2  528.4449 1.776860e-115 2.205527e-114 0.5518791 -1.81345087 -2.2303061</span></span>
+<span><span class="co">#&gt; 3 1366.5046 1.850535e-297 1.837581e-294 0.6533396  3.47660326 -0.9519159</span></span>
+<span><span class="co">#&gt; 4  570.4683 1.331617e-124 2.542876e-123 0.8148060 -2.40548911 -0.6319701</span></span>
+<span><span class="co">#&gt; 5  448.3350  4.418758e-98  2.759640e-97 0.7445542  0.06528929 -2.4561890</span></span>
+<span><span class="co">#&gt; 6  169.5388  1.531528e-37  3.691279e-37 0.0962345  0.67828578  2.6520594</span></span>
+<span><span class="co">#&gt;   log_alpha_est logit_pi_est conv_code</span></span>
+<span><span class="co">#&gt; 1    -2.5190096  -0.32616554         0</span></span>
+<span><span class="co">#&gt; 2    -2.0738180  -0.31519443         0</span></span>
+<span><span class="co">#&gt; 3    -3.0854681  -0.97544910         0</span></span>
+<span><span class="co">#&gt; 4    -2.2065706  -0.64947118         0</span></span>
+<span><span class="co">#&gt; 5    -2.8270457  -0.01281456         0</span></span>
+<span><span class="co">#&gt; 6    -0.8747936   0.03081239         0</span></span></code></pre></div>
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_param</span><span class="op">$</span><span class="va">param_wide</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 6 × 19</span></span></span>
 <span><span class="co">#&gt;   gene   Mesor_A Mesor_B Mean_A Mean_B Amplitude_A Amplitude_B Phase_A Phase_B</span></span>
@@ -475,7 +586,22 @@ tables.</p>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">6</span> Bmal1   -<span style="color: #BB0000;">2.01</span>  -<span style="color: #BB0000;">2.54</span>    0.134 0.079<span style="text-decoration: underline;">2</span>        2.54        3.01    1.34    1.31</span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># ℹ 10 more variables: Alpha_A &lt;dbl&gt;, Alpha_B &lt;dbl&gt;, Dropout_rate_A &lt;dbl&gt;,</span></span></span>
 <span><span class="co">#&gt; <span style="color: #949494;">#   Dropout_rate_B &lt;dbl&gt;, FDR_A &lt;dbl&gt;, FDR_B &lt;dbl&gt;, Delta_Mesor &lt;dbl&gt;,</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;">#   Delta_Mean &lt;dbl&gt;, Delta_Amp &lt;dbl&gt;, Delta_Phase &lt;dbl&gt;</span></span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #949494;">#   Delta_Mean &lt;dbl&gt;, Delta_Amp &lt;dbl&gt;, Delta_Phase &lt;dbl&gt;</span></span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_param_celltype</span><span class="op">$</span><span class="va">param_wide</span><span class="op">)</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 6 × 29</span></span></span>
+<span><span class="co">#&gt;   gene   Mesor_1 Mesor_2 Mesor_3 Mesor_4 Mean_1 Mean_2 Mean_3 Mean_4 Amplitude_1</span></span>
+<span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>       <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> Cdkn1a -<span style="color: #BB0000;">0.027</span><span style="color: #BB0000; text-decoration: underline;">6</span> -<span style="color: #BB0000;">0.061</span><span style="color: #BB0000; text-decoration: underline;">6</span> -<span style="color: #BB0000;">0.506</span>   -<span style="color: #BB0000;">0.728</span> 0.973   0.940  0.603  0.483        2.69</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> Mmp14  -<span style="color: #BB0000;">0.594</span>  -<span style="color: #BB0000;">0.967</span>  -<span style="color: #BB0000;">0.078</span><span style="color: #BB0000; text-decoration: underline;">7</span>  -<span style="color: #BB0000;">0.327</span> 0.552   0.380  0.924  0.721        2.87</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span> Clock  -<span style="color: #BB0000;">0.426</span>  -<span style="color: #BB0000;">0.456</span>  -<span style="color: #BB0000;">0.028</span><span style="color: #BB0000; text-decoration: underline;">5</span>  -<span style="color: #BB0000;">0.408</span> 0.653   0.634  0.972  0.665        3.60</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Per2   -<span style="color: #BB0000;">0.205</span>   0.758  -<span style="color: #BB0000;">0.729</span>   -<span style="color: #BB0000;">0.157</span> 0.815   2.13   0.483  0.855        2.49</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Per1   -<span style="color: #BB0000;">0.295</span>   0.691  -<span style="color: #BB0000;">0.548</span>   -<span style="color: #BB0000;">0.883</span> 0.745   2.00   0.578  0.413        2.46</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">6</span> Bmal1  -<span style="color: #BB0000;">2.34</span>   -<span style="color: #BB0000;">0.947</span>  -<span style="color: #BB0000;">1.18</span>    -<span style="color: #BB0000;">1.30</span>  0.096<span style="text-decoration: underline;">2</span>  0.388  0.308  0.274        2.74</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 19 more variables: Amplitude_2 &lt;dbl&gt;, Amplitude_3 &lt;dbl&gt;, Amplitude_4 &lt;dbl&gt;,</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   Phase_1 &lt;dbl&gt;, Phase_2 &lt;dbl&gt;, Phase_3 &lt;dbl&gt;, Phase_4 &lt;dbl&gt;, Alpha_1 &lt;dbl&gt;,</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   Alpha_2 &lt;dbl&gt;, Alpha_3 &lt;dbl&gt;, Alpha_4 &lt;dbl&gt;, Dropout_rate_1 &lt;dbl&gt;,</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   Dropout_rate_2 &lt;dbl&gt;, Dropout_rate_3 &lt;dbl&gt;, Dropout_rate_4 &lt;dbl&gt;,</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   FDR_1 &lt;dbl&gt;, FDR_2 &lt;dbl&gt;, FDR_3 &lt;dbl&gt;, FDR_4 &lt;dbl&gt;</span></span></span></code></pre></div>
 <p>Main output objects:</p>
 <table class="table">
 <colgroup>
@@ -558,8 +684,7 @@ analysis</td>
 <h2 id="step-4-infer-differential-rhythm-state-modules">Step 4: infer differential rhythm-state modules<a class="anchor" aria-label="anchor" href="#step-4-infer-differential-rhythm-state-modules"></a>
 </h2>
 <p>The rhythm-state module analysis compares rhythmic parameters between
-two conditions and assigns genes to interpretable remodeling
-classes.</p>
+two groups and assigns genes to interpretable remodeling classes.</p>
 <div class="section level3">
 <h3 id="input-2">Input<a class="anchor" aria-label="anchor" href="#input-2"></a>
 </h3>
@@ -595,11 +720,21 @@ classes.</p>
 </tr>
 </tbody>
 </table>
+<p>The <code>param_wide</code> object must match the selected groups.
+For example, comparing <code>group1 = "A"</code> and
+<code>group2 = "B"</code> requires columns such as <code>Mean_A</code>,
+<code>Mean_B</code>, <code>FDR_A</code>, <code>FDR_B</code>,
+<code>Amplitude_A</code>, <code>Amplitude_B</code>,
+<code>Phase_A</code>, and <code>Phase_B</code>. Comparing
+<code>group1 = "1"</code> and <code>group2 = "2"</code> requires columns
+such as <code>Mean_1</code>, <code>Mean_2</code>, <code>FDR_1</code>,
+<code>FDR_2</code>, <code>Amplitude_1</code>, <code>Amplitude_2</code>,
+<code>Phase_1</code>, and <code>Phase_2</code>.</p>
 </div>
 <div class="section level3">
-<h3 id="run-module-inference">Run module inference<a class="anchor" aria-label="anchor" href="#run-module-inference"></a>
+<h3 id="run-condition-level-module-inference">Run condition-level module inference<a class="anchor" aria-label="anchor" href="#run-condition-level-module-inference"></a>
 </h3>
-<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_module</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_rhythm_module.html">infer_rhythm_module</a></span><span class="op">(</span></span>
 <span>  param_wide <span class="op">=</span> <span class="va">res_param</span><span class="op">$</span><span class="va">param_wide</span>,</span>
 <span>  compare_by <span class="op">=</span> <span class="st">"condition"</span>,</span>
@@ -626,11 +761,49 @@ classes.</p>
 <span><span class="co">#&gt; <span style="color: #949494;">#   post_max &lt;dbl&gt;, margin &lt;dbl&gt;</span></span></span></code></pre></div>
 </div>
 <div class="section level3">
+<h3 id="optional-run-direct-cell-type-level-module-inference">Optional: run direct cell-type-level module inference<a class="anchor" aria-label="anchor" href="#optional-run-direct-cell-type-level-module-inference"></a>
+</h3>
+<p>This optional example compares cell type <code>1</code> and cell type
+<code>2</code> directly. It uses
+<code>res_param_celltype$param_wide</code>, not
+<code>res_param$param_wide</code>, because the wide-format columns must
+match the selected group labels.</p>
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">res_module_celltype</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_rhythm_module.html">infer_rhythm_module</a></span><span class="op">(</span></span>
+<span>  param_wide <span class="op">=</span> <span class="va">res_param_celltype</span><span class="op">$</span><span class="va">param_wide</span>,</span>
+<span>  compare_by <span class="op">=</span> <span class="st">"celltype"</span>,</span>
+<span>  group1 <span class="op">=</span> <span class="st">"1"</span>,</span>
+<span>  group2 <span class="op">=</span> <span class="st">"2"</span>,</span>
+<span>  out_dir <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  Verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_module_celltype</span><span class="op">$</span><span class="va">module_result</span><span class="op">)</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 6 × 27</span></span></span>
+<span><span class="co">#&gt;   gene   compare_by group1 group2     FDR_1     FDR_2 Amplitude_1 Amplitude_2</span></span>
+<span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>      <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>      <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>     <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>       <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>       <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> Cdkn1a celltype   1      2      4.91<span style="color: #949494;">e</span><span style="color: #BB0000;">-135</span> 7.51<span style="color: #949494;">e</span><span style="color: #BB0000;">-145</span>        2.69        2.81</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> Mmp14  celltype   1      2      2.21<span style="color: #949494;">e</span><span style="color: #BB0000;">-114</span> 2.66<span style="color: #949494;">e</span><span style="color: #BB0000;">- 98</span>        2.87        3.09</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span> Clock  celltype   1      2      1.84<span style="color: #949494;">e</span><span style="color: #BB0000;">-294</span> 7.25<span style="color: #949494;">e</span><span style="color: #BB0000;">-124</span>        3.60        3.15</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Per2   celltype   1      2      2.54<span style="color: #949494;">e</span><span style="color: #BB0000;">-123</span> 1.09<span style="color: #949494;">e</span><span style="color: #BB0000;">-130</span>        2.49        2.34</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Per1   celltype   1      2      2.76<span style="color: #949494;">e</span><span style="color: #BB0000;">- 97</span> 6.82<span style="color: #949494;">e</span><span style="color: #BB0000;">-166</span>        2.46        2.67</span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">6</span> Bmal1  celltype   1      2      3.69<span style="color: #949494;">e</span><span style="color: #BB0000;">- 37</span> 4.78<span style="color: #949494;">e</span><span style="color: #BB0000;">- 95</span>        2.74        3.18</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 19 more variables: Phase_1 &lt;dbl&gt;, Phase_2 &lt;dbl&gt;, delta_phi_rad &lt;dbl&gt;,</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   rA &lt;dbl&gt;, u &lt;dbl&gt;, v &lt;dbl&gt;, seed_module &lt;int&gt;, module_map &lt;int&gt;,</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   module_name &lt;chr&gt;, post_M0 &lt;dbl&gt;, post_M1 &lt;dbl&gt;, post_M2 &lt;dbl&gt;,</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   post_M3 &lt;dbl&gt;, post_M4 &lt;dbl&gt;, post_M5 &lt;dbl&gt;, post_M6 &lt;dbl&gt;, post_M7 &lt;dbl&gt;,</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   post_max &lt;dbl&gt;, margin &lt;dbl&gt;</span></span></span></code></pre></div>
+</div>
+<div class="section level3">
 <h3 id="output-2">Output<a class="anchor" aria-label="anchor" href="#output-2"></a>
 </h3>
 <p>The module result contains gene-level comparison statistics and
 posterior module assignments.</p>
 <table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
 <thead><tr class="header">
 <th>Column</th>
 <th>Description</th>
@@ -648,19 +821,22 @@ posterior module assignments.</p>
 </tr>
 <tr class="odd">
 <td>
-<code>FDR_A</code>, <code>FDR_B</code>
+<code>FDR_A</code>, <code>FDR_B</code> or <code>FDR_1</code>,
+<code>FDR_2</code>
 </td>
 <td>Rhythmicity FDR in each group</td>
 </tr>
 <tr class="even">
 <td>
-<code>Amplitude_A</code>, <code>Amplitude_B</code>
+<code>Amplitude_A</code>, <code>Amplitude_B</code> or
+<code>Amplitude_1</code>, <code>Amplitude_2</code>
 </td>
 <td>Rhythmic amplitude in each group</td>
 </tr>
 <tr class="odd">
 <td>
-<code>Phase_A</code>, <code>Phase_B</code>
+<code>Phase_A</code>, <code>Phase_B</code> or <code>Phase_1</code>,
+<code>Phase_2</code>
 </td>
 <td>Rhythmic phase in each group</td>
 </tr>
@@ -684,18 +860,20 @@ posterior module assignments.</p>
 </table>
 <p>The module analysis summarizes whether genes retain rhythmicity, gain
 or lose rhythmicity, change amplitude, shift phase, or show other
-rhythm-state remodeling patterns between two conditions.</p>
+rhythm-state remodeling patterns between two groups.</p>
 </div>
 </div>
 <div class="section level2">
 <h2 id="step-5-visualize-rhythm-state-modules">Step 5: visualize rhythm-state modules<a class="anchor" aria-label="anchor" href="#step-5-visualize-rhythm-state-modules"></a>
 </h2>
 <div class="section level3">
-<h3 id="module-heatmap">Module heatmap<a class="anchor" aria-label="anchor" href="#module-heatmap"></a>
+<h3 id="module-heatmaps">Module heatmaps<a class="anchor" aria-label="anchor" href="#module-heatmaps"></a>
 </h3>
 <p>The module heatmap summarizes expression patterns of genes assigned
-to rhythm-state modules.</p>
-<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+to rhythm-state modules. This tutorial shows all eight module IDs so
+users can inspect the full module structure in the rendered HTML
+page.</p>
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">hm_module</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_module_heatmap.html">plot_module_heatmap</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count_use</span>,</span>
 <span>  res_phase <span class="op">=</span> <span class="va">res_phase_use</span>,</span>
@@ -707,21 +885,59 @@ to rhythm-state modules.</p>
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">hm_module</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span></code></pre></div>
-<p>The heatmap is useful for checking whether genes assigned to a module
-show consistent phase-resolved expression patterns across the compared
-conditions.</p>
-<p>If the heatmap is computationally expensive during package checking,
-keep this chunk as <code>eval=FALSE</code> in the vignette and show the
-expected figure in the GitHub Pages tutorial using a pre-rendered
-image.</p>
+<span><span class="co">#&gt; scRhythmModuleHeatmap object</span></span>
+<span><span class="co">#&gt;         module                   module_name n_gene_input n_gene_final</span></span>
+<span><span class="co">#&gt; module0      0                  Non-rhythmic          358          347</span></span>
+<span><span class="co">#&gt; module1      1                 Stable Rhythm          394          394</span></span>
+<span><span class="co">#&gt; module2      2                   Rhythm Gain           61           61</span></span>
+<span><span class="co">#&gt; module3      3                   Rhythm Loss           57           57</span></span>
+<span><span class="co">#&gt; module4      4   Amplitude-enhanced rhythmic           14           14</span></span>
+<span><span class="co">#&gt; module5      5 Amplitude-attenuated rhythmic           34           34</span></span>
+<span><span class="co">#&gt; module6      6       Phase-advanced rhythmic           45           45</span></span>
+<span><span class="co">#&gt; module7      7        Phase-delayed rhythmic           35           35</span></span>
+<span><span class="co">#&gt;         ref_group status</span></span>
+<span><span class="co">#&gt; module0         A     ok</span></span>
+<span><span class="co">#&gt; module1         A     ok</span></span>
+<span><span class="co">#&gt; module2         B     ok</span></span>
+<span><span class="co">#&gt; module3         A     ok</span></span>
+<span><span class="co">#&gt; module4         A     ok</span></span>
+<span><span class="co">#&gt; module5         A     ok</span></span>
+<span><span class="co">#&gt; module6         A     ok</span></span>
+<span><span class="co">#&gt; module7         A     ok</span></span></code></pre></div>
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span></code></pre></div>
+<p><img src="basic-workflow_files/figure-html/module-heatmap-0-1.png" class="r-plt" alt="" width="85%"></p>
+<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></code></pre></div>
+<p><img src="basic-workflow_files/figure-html/module-heatmap-1-1.png" class="r-plt" alt="" width="85%"></p>
+<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">2</span><span class="op">)</span></span></code></pre></div>
+<p><img src="basic-workflow_files/figure-html/module-heatmap-2-1.png" class="r-plt" alt="" width="85%"></p>
+<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">3</span><span class="op">)</span></span></code></pre></div>
+<p><img src="basic-workflow_files/figure-html/module-heatmap-3-1.png" class="r-plt" alt="" width="85%"></p>
+<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">4</span><span class="op">)</span></span></code></pre></div>
+<p><img src="basic-workflow_files/figure-html/module-heatmap-4-1.png" class="r-plt" alt="" width="85%"></p>
+<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span></code></pre></div>
+<p><img src="basic-workflow_files/figure-html/module-heatmap-5-1.png" class="r-plt" alt="" width="85%"></p>
+<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">6</span><span class="op">)</span></span></code></pre></div>
+<p><img src="basic-workflow_files/figure-html/module-heatmap-6-1.png" class="r-plt" alt="" width="85%"></p>
+<div class="sourceCode" id="cb24"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">7</span><span class="op">)</span></span></code></pre></div>
+<p><img src="basic-workflow_files/figure-html/module-heatmap-7-1.png" class="r-plt" alt="" width="85%"></p>
+<p>The heatmaps are useful for checking whether genes assigned to each
+module show consistent phase-resolved expression patterns across the
+compared conditions.</p>
 </div>
 <div class="section level3">
 <h3 id="module-polar-plot">Module polar plot<a class="anchor" aria-label="anchor" href="#module-polar-plot"></a>
 </h3>
 <p>The polar plot visualizes rhythmic remodeling in amplitude-phase
 space.</p>
-<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb25"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">p_polar</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_module_polar.html">plot_module_polar</a></span><span class="op">(</span></span>
 <span>  gene_meta <span class="op">=</span> <span class="va">res_module</span><span class="op">$</span><span class="va">module_result</span>,</span>
 <span>  module_id <span class="op">=</span> <span class="fl">7</span>,</span>
@@ -730,6 +946,7 @@ space.</p>
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">p_polar</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
+<p><img src="basic-workflow_files/figure-html/module-polar-7-1.png" class="r-plt" alt="" width="80%"></p>
 <p>This plot helps inspect how genes in a selected module are
 distributed by rhythmic amplitude and phase.</p>
 </div>
@@ -738,7 +955,7 @@ distributed by rhythmic amplitude and phase.</p>
 <h2 id="recommended-minimal-workflow">Recommended minimal workflow<a class="anchor" aria-label="anchor" href="#recommended-minimal-workflow"></a>
 </h2>
 <p>The minimal core workflow is:</p>
-<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb26"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/data.html" class="external-link">data</a></span><span class="op">(</span><span class="st">"srb_example_data"</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">count</span> <span class="op">&lt;-</span> <span class="va">srb_example_data</span><span class="op">$</span><span class="va">Count</span></span>
@@ -775,22 +992,32 @@ distributed by rhythmic amplitude and phase.</p>
 <span>  group2 <span class="op">=</span> <span class="st">"B"</span>,</span>
 <span>  out_dir <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  Verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
-<span><span class="op">)</span></span></code></pre></div>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">hm_module</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_module_heatmap.html">plot_module_heatmap</a></span><span class="op">(</span></span>
+<span>  count <span class="op">=</span> <span class="va">count</span><span class="op">[</span>, <span class="va">cell_use</span>, drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span>,</span>
+<span>  res_phase <span class="op">=</span> <span class="va">res_phase</span><span class="op">[</span><span class="va">cell_use</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span>,</span>
+<span>  gene_meta <span class="op">=</span> <span class="va">res_module</span><span class="op">$</span><span class="va">module_result</span>,</span>
+<span>  metadata <span class="op">=</span> <span class="va">metadata</span><span class="op">[</span><span class="va">cell_use</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span>,</span>
+<span>  group_by <span class="op">=</span> <span class="st">"condition"</span>,</span>
+<span>  group1 <span class="op">=</span> <span class="st">"A"</span>,</span>
+<span>  group2 <span class="op">=</span> <span class="st">"B"</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="extension-workflows">Extension workflows<a class="anchor" aria-label="anchor" href="#extension-workflows"></a>
 </h2>
 <p>The following analyses are extensions of the core workflow. They are
-introduced here for orientation and will be described in separate
-tutorials.</p>
-</div>
-<div class="section level2">
-<h2 id="extension-1-one-vs-rest-rhythmic-program-discovery">Extension 1: one-vs-rest rhythmic program discovery<a class="anchor" aria-label="anchor" href="#extension-1-one-vs-rest-rhythmic-program-discovery"></a>
-</h2>
+introduced here for orientation and described in separate tutorials.</p>
+<div class="section level3">
+<h3 id="extension-1-one-vs-rest-rhythmic-program-discovery">Extension 1: one-vs-rest rhythmic program discovery<a class="anchor" aria-label="anchor" href="#extension-1-one-vs-rest-rhythmic-program-discovery"></a>
+</h3>
 <p>The one-vs-rest workflow is designed for heterogeneous tissues or
 multi-cell-type datasets. It compares each target cell type against all
 remaining cell types.</p>
-<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb27"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_ovr_param</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_gene_param.html">infer_gene_param</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
@@ -812,25 +1039,13 @@ remaining cell types.</p>
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_ovr</span><span class="op">$</span><span class="va">ovr_result</span><span class="op">)</span></span></code></pre></div>
-<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">ht_ovr</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_ovr_heatmap.html">plot_ovr_heatmap</a></span><span class="op">(</span></span>
-<span>  count <span class="op">=</span> <span class="va">count</span>,</span>
-<span>  res_phase <span class="op">=</span> <span class="va">res_phase</span>,</span>
-<span>  ovr_result <span class="op">=</span> <span class="va">res_ovr</span><span class="op">$</span><span class="va">ovr_result</span>,</span>
-<span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
-<span>  celltype_by <span class="op">=</span> <span class="st">"celltype"</span>,</span>
-<span>  Verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">ht_ovr</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">ht_ovr</span><span class="op">)</span></span></code></pre></div>
 </div>
-<div class="section level2">
-<h2 id="extension-2-dtw-based-phase-distribution-similarity">Extension 2: DTW-based phase-distribution similarity<a class="anchor" aria-label="anchor" href="#extension-2-dtw-based-phase-distribution-similarity"></a>
-</h2>
+<div class="section level3">
+<h3 id="extension-2-dtw-based-phase-distribution-similarity">Extension 2: DTW-based phase-distribution similarity<a class="anchor" aria-label="anchor" href="#extension-2-dtw-based-phase-distribution-similarity"></a>
+</h3>
 <p>The DTW workflow compares circular cell-phase distributions across
 celltype-by-condition combinations.</p>
-<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb28"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">dtw_res</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/run_dtw_similarity.html">run_dtw_similarity</a></span><span class="op">(</span></span>
 <span>  res_phase <span class="op">=</span> <span class="va">res_phase</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
@@ -842,20 +1057,13 @@ celltype-by-condition combinations.</p>
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">dtw_res</span><span class="op">$</span><span class="va">histogram</span><span class="op">)</span></span>
 <span><span class="va">dtw_res</span><span class="op">$</span><span class="va">similarity</span></span></code></pre></div>
-<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">ht_dtw</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_dtw_heatmap.html">plot_dtw_heatmap</a></span><span class="op">(</span></span>
-<span>  dtw_res <span class="op">=</span> <span class="va">dtw_res</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">ht_dtw</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">ht_dtw</span><span class="op">)</span></span></code></pre></div>
 </div>
-<div class="section level2">
-<h2 id="extension-3-circular-phase-concentration-rho-analysis">Extension 3: circular phase-concentration rho analysis<a class="anchor" aria-label="anchor" href="#extension-3-circular-phase-concentration-rho-analysis"></a>
-</h2>
+<div class="section level3">
+<h3 id="extension-3-circular-phase-concentration-rho-analysis">Extension 3: circular phase-concentration rho analysis<a class="anchor" aria-label="anchor" href="#extension-3-circular-phase-concentration-rho-analysis"></a>
+</h3>
 <p>The rho workflow summarizes how concentrated inferred cell phases are
 within cell types and conditions.</p>
-<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb29"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">rho_res</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/run_phase_rho.html">run_phase_rho</a></span><span class="op">(</span></span>
 <span>  res_phase <span class="op">=</span> <span class="va">res_phase</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
@@ -868,53 +1076,7 @@ within cell types and conditions.</p>
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">rho_res</span></span></code></pre></div>
-<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">p_rho</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_phase_rho.html">plot_phase_rho</a></span><span class="op">(</span><span class="va">rho_res</span><span class="op">)</span></span>
-<span><span class="va">p_rho</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
-<p>If a sample column is available, <code><a href="../reference/run_phase_rho.html">run_phase_rho()</a></code> can
-also summarize rho at the sample level.</p>
-<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">meta_rho_test</span> <span class="op">&lt;-</span> <span class="va">metadata</span></span>
-<span></span>
-<span><span class="kw">if</span> <span class="op">(</span><span class="op">!</span><span class="st">"cell"</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">colnames</a></span><span class="op">(</span><span class="va">meta_rho_test</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="va">meta_rho_test</span><span class="op">$</span><span class="va">cell</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">rownames</a></span><span class="op">(</span><span class="va">meta_rho_test</span><span class="op">)</span></span>
-<span><span class="op">}</span></span>
-<span></span>
-<span><span class="va">meta_rho_test</span><span class="op">$</span><span class="va">Sample</span> <span class="op">&lt;-</span> <span class="cn">NA_character_</span></span>
-<span></span>
-<span><span class="va">sample_per_group</span> <span class="op">&lt;-</span> <span class="fl">4</span></span>
-<span></span>
-<span><span class="va">split_key</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/interaction.html" class="external-link">interaction</a></span><span class="op">(</span></span>
-<span>  <span class="va">meta_rho_test</span><span class="op">$</span><span class="va">celltype</span>,</span>
-<span>  <span class="va">meta_rho_test</span><span class="op">$</span><span class="va">condition</span>,</span>
-<span>  drop <span class="op">=</span> <span class="cn">TRUE</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="kw">for</span> <span class="op">(</span><span class="va">kk</span> <span class="kw">in</span> <span class="fu"><a href="https://rdrr.io/r/base/levels.html" class="external-link">levels</a></span><span class="op">(</span><span class="va">split_key</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="va">idx</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">split_key</span> <span class="op">==</span> <span class="va">kk</span><span class="op">)</span></span>
-<span></span>
-<span>  <span class="va">meta_rho_test</span><span class="op">$</span><span class="va">Sample</span><span class="op">[</span><span class="va">idx</span><span class="op">]</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span></span>
-<span>    <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="st">"S"</span>, <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_len</a></span><span class="op">(</span><span class="va">sample_per_group</span><span class="op">)</span><span class="op">)</span>,</span>
-<span>    size <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">idx</span><span class="op">)</span>,</span>
-<span>    replace <span class="op">=</span> <span class="cn">TRUE</span></span>
-<span>  <span class="op">)</span></span>
-<span><span class="op">}</span></span>
-<span></span>
-<span><span class="va">rho_res_sample</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/run_phase_rho.html">run_phase_rho</a></span><span class="op">(</span></span>
-<span>  res_phase <span class="op">=</span> <span class="va">res_phase</span>,</span>
-<span>  metadata <span class="op">=</span> <span class="va">meta_rho_test</span>,</span>
-<span>  celltype_by <span class="op">=</span> <span class="st">"celltype"</span>,</span>
-<span>  group_by <span class="op">=</span> <span class="st">"condition"</span>,</span>
-<span>  sample_by <span class="op">=</span> <span class="st">"Sample"</span>,</span>
-<span>  theta_by <span class="op">=</span> <span class="st">"theta_pred"</span>,</span>
-<span>  group_levels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"A"</span>, <span class="st">"B"</span><span class="op">)</span>,</span>
-<span>  min_cell <span class="op">=</span> <span class="fl">10</span>,</span>
-<span>  Verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">rho_res_sample</span><span class="op">$</span><span class="va">rho_sample</span><span class="op">)</span></span></code></pre></div>
+</div>
 </div>
 <div class="section level2">
 <h2 id="output-summary">Output summary<a class="anchor" aria-label="anchor" href="#output-summary"></a>
@@ -996,9 +1158,13 @@ interpretable context;</li>
 <li>use one-vs-rest analysis for cell-type-specific rhythmic
 programs;</li>
 <li>use DTW and rho analyses for phase-distribution and
-phase-prioritization questions. , # Session information</li>
+phase-prioritization questions.</li>
 </ul>
-<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
+</div>
+<div class="section level2">
+<h2 id="session-information">Session information<a class="anchor" aria-label="anchor" href="#session-information"></a>
+</h2>
+<div class="sourceCode" id="cb30"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/sessionInfo.html" class="external-link">sessionInfo</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; R version 4.5.1 (2025-06-13)</span></span>
 <span><span class="co">#&gt; Platform: aarch64-apple-darwin20</span></span>
@@ -1023,20 +1189,52 @@ phase-prioritization questions. , # Session information</li>
 <span><span class="co">#&gt; [7] scRhythmBayes_0.1.0</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; loaded via a namespace (and not attached):</span></span>
-<span><span class="co">#&gt;  [1] sass_0.4.10        utf8_1.2.6         generics_0.1.4     lattice_0.22-9    </span></span>
-<span><span class="co">#&gt;  [5] listenv_0.10.1     digest_0.6.39      magrittr_2.0.5     evaluate_1.0.5    </span></span>
-<span><span class="co">#&gt;  [9] grid_4.5.1         RColorBrewer_1.1-3 mvtnorm_1.3-7      fastmap_1.2.0     </span></span>
-<span><span class="co">#&gt; [13] jsonlite_2.0.0     ggrepel_0.9.8      scales_1.4.0       codetools_0.2-20  </span></span>
-<span><span class="co">#&gt; [17] textshaping_1.0.5  jquerylib_0.1.4    cli_3.6.6          rlang_1.2.0       </span></span>
-<span><span class="co">#&gt; [21] parallelly_1.47.0  withr_3.0.2        cachem_1.1.0       yaml_2.3.12       </span></span>
-<span><span class="co">#&gt; [25] otel_0.2.0         tools_4.5.1        parallel_4.5.1     ggplot2_4.0.3     </span></span>
-<span><span class="co">#&gt; [29] globals_0.19.1     vctrs_0.7.3        R6_2.6.1           lifecycle_1.0.5   </span></span>
-<span><span class="co">#&gt; [33] fs_2.1.0           htmlwidgets_1.6.4  ragg_1.5.2         furrr_0.4.0       </span></span>
-<span><span class="co">#&gt; [37] pkgconfig_2.0.3    desc_1.4.3         pkgdown_2.2.0      pillar_1.11.1     </span></span>
-<span><span class="co">#&gt; [41] bslib_0.10.0       gtable_0.3.6       glue_1.8.1         Rcpp_1.1.1-1.1    </span></span>
-<span><span class="co">#&gt; [45] systemfonts_1.3.2  xfun_0.57          tidyselect_1.2.1   rstudioapi_0.18.0 </span></span>
-<span><span class="co">#&gt; [49] knitr_1.51         farver_2.1.2       htmltools_0.5.9    rmarkdown_2.31    </span></span>
-<span><span class="co">#&gt; [53] compiler_4.5.1     S7_0.2.2</span></span></code></pre></div>
+<span><span class="co">#&gt;   [1] RColorBrewer_1.1-3     shape_1.4.6.1          rstudioapi_0.18.0     </span></span>
+<span><span class="co">#&gt;   [4] jsonlite_2.0.0         magrittr_2.0.5         spatstat.utils_3.2-2  </span></span>
+<span><span class="co">#&gt;   [7] farver_2.1.2           rmarkdown_2.31         GlobalOptions_0.1.4   </span></span>
+<span><span class="co">#&gt;  [10] fs_2.1.0               ragg_1.5.2             vctrs_0.7.3           </span></span>
+<span><span class="co">#&gt;  [13] ROCR_1.0-12            spatstat.explore_3.8-0 htmltools_0.5.9       </span></span>
+<span><span class="co">#&gt;  [16] sass_0.4.10            sctransform_0.4.3      parallelly_1.47.0     </span></span>
+<span><span class="co">#&gt;  [19] KernSmooth_2.23-26     bslib_0.10.0           htmlwidgets_1.6.4     </span></span>
+<span><span class="co">#&gt;  [22] desc_1.4.3             ica_1.0-3              plyr_1.8.9            </span></span>
+<span><span class="co">#&gt;  [25] plotly_4.12.0          zoo_1.8-15             cachem_1.1.0          </span></span>
+<span><span class="co">#&gt;  [28] igraph_2.3.1           iterators_1.0.14       mime_0.13             </span></span>
+<span><span class="co">#&gt;  [31] lifecycle_1.0.5        pkgconfig_2.0.3        R6_2.6.1              </span></span>
+<span><span class="co">#&gt;  [34] fastmap_1.2.0          clue_0.3-68            fitdistrplus_1.2-6    </span></span>
+<span><span class="co">#&gt;  [37] shiny_1.13.0           digest_0.6.39          colorspace_2.1-2      </span></span>
+<span><span class="co">#&gt;  [40] furrr_0.4.0            S4Vectors_0.48.1       patchwork_1.3.2       </span></span>
+<span><span class="co">#&gt;  [43] Seurat_5.5.0           tensor_1.5.1           RSpectra_0.16-2       </span></span>
+<span><span class="co">#&gt;  [46] irlba_2.3.7            textshaping_1.0.5      labeling_0.4.3        </span></span>
+<span><span class="co">#&gt;  [49] progressr_0.19.0       spatstat.sparse_3.1-0  httr_1.4.8            </span></span>
+<span><span class="co">#&gt;  [52] polyclip_1.10-7        abind_1.4-8            mgcv_1.9-4            </span></span>
+<span><span class="co">#&gt;  [55] compiler_4.5.1         withr_3.0.2            doParallel_1.0.17     </span></span>
+<span><span class="co">#&gt;  [58] S7_0.2.2               fastDummies_1.7.6      MASS_7.3-65           </span></span>
+<span><span class="co">#&gt;  [61] rjson_0.2.23           tools_4.5.1            lmtest_0.9-40         </span></span>
+<span><span class="co">#&gt;  [64] otel_0.2.0             httpuv_1.6.17          future.apply_1.20.2   </span></span>
+<span><span class="co">#&gt;  [67] goftest_1.2-3          glue_1.8.1             nlme_3.1-169          </span></span>
+<span><span class="co">#&gt;  [70] promises_1.5.0         grid_4.5.1             Rtsne_0.17            </span></span>
+<span><span class="co">#&gt;  [73] cluster_2.1.8.2        reshape2_1.4.5         generics_0.1.4        </span></span>
+<span><span class="co">#&gt;  [76] gtable_0.3.6           spatstat.data_3.1-9    data.table_1.18.2.1   </span></span>
+<span><span class="co">#&gt;  [79] sp_2.2-1               utf8_1.2.6             BiocGenerics_0.56.0   </span></span>
+<span><span class="co">#&gt;  [82] spatstat.geom_3.7-3    RcppAnnoy_0.0.23       foreach_1.5.2         </span></span>
+<span><span class="co">#&gt;  [85] ggrepel_0.9.8          RANN_2.6.2             pillar_1.11.1         </span></span>
+<span><span class="co">#&gt;  [88] stringr_1.6.0          spam_2.11-3            RcppHNSW_0.6.0        </span></span>
+<span><span class="co">#&gt;  [91] later_1.4.8            circlize_0.4.18        splines_4.5.1         </span></span>
+<span><span class="co">#&gt;  [94] lattice_0.22-9         survival_3.8-6         deldir_2.0-4          </span></span>
+<span><span class="co">#&gt;  [97] tidyselect_1.2.1       ComplexHeatmap_2.26.1  miniUI_0.1.2          </span></span>
+<span><span class="co">#&gt; [100] pbapply_1.7-4          knitr_1.51             gridExtra_2.3         </span></span>
+<span><span class="co">#&gt; [103] IRanges_2.44.0         scattermore_1.2        stats4_4.5.1          </span></span>
+<span><span class="co">#&gt; [106] xfun_0.57              matrixStats_1.5.0      stringi_1.8.7         </span></span>
+<span><span class="co">#&gt; [109] lazyeval_0.2.3         yaml_2.3.12            evaluate_1.0.5        </span></span>
+<span><span class="co">#&gt; [112] codetools_0.2-20       cli_3.6.6              uwot_0.2.4            </span></span>
+<span><span class="co">#&gt; [115] xtable_1.8-8           reticulate_1.46.0      systemfonts_1.3.2     </span></span>
+<span><span class="co">#&gt; [118] jquerylib_0.1.4        Rcpp_1.1.1-1.1         globals_0.19.1        </span></span>
+<span><span class="co">#&gt; [121] spatstat.random_3.4-5  png_0.1-9              spatstat.univar_3.1-7 </span></span>
+<span><span class="co">#&gt; [124] parallel_4.5.1         pkgdown_2.2.0          ggplot2_4.0.3         </span></span>
+<span><span class="co">#&gt; [127] dotCall64_1.2          listenv_0.10.1         viridisLite_0.4.3     </span></span>
+<span><span class="co">#&gt; [130] mvtnorm_1.3-7          scales_1.4.0           ggridges_0.5.7        </span></span>
+<span><span class="co">#&gt; [133] crayon_1.5.3           SeuratObject_5.4.0     GetoptLong_1.1.1      </span></span>
+<span><span class="co">#&gt; [136] rlang_1.2.0            cowplot_1.2.0</span></span></code></pre></div>
 </div>
   </div>
 

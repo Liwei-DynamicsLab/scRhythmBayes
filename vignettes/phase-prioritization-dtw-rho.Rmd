@@ -1,12 +1,12 @@
 ---
 title: "DTW and rho phase-prioritization analysis"
-author: "Qian Zhang"
-date: "`r Sys.Date()`"
 output:
   html_document:
     toc: true
     toc_depth: 3
+    toc_float: true
     number_sections: true
+    df_print: paged
 vignette: >
   %\VignetteIndexEntry{DTW and rho phase-prioritization analysis}
   %\VignetteEngine{knitr::rmarkdown}
@@ -20,19 +20,30 @@ knitr::opts_chunk$set(
   message = FALSE,
   warning = FALSE,
   fig.width = 7,
-  fig.height = 5
+  fig.height = 5,
+  dpi = 120,
+  out.width = "85%",
+  fig.align = "center"
 )
 ```
 
-
 # Overview
 
-This tutorial describes two phase-level extension analyses:
+This tutorial describes two phase-level extension analyses in `scRhythmBayes`:
 
-1. DTW-based phase-distribution similarity;
-2. circular phase-concentration rho analysis.
+1. **DTW-based phase-distribution similarity**
+2. **Circular phase-concentration rho analysis**
 
-These analyses are useful for prioritizing cell types or conditions that show phase-distribution remodeling before downstream gene-level modeling.
+These analyses are useful for prioritizing cell types, conditions, or celltype-by-condition combinations that show differences in inferred circadian phase distributions.
+
+Unlike rhythm-state module analysis or one-vs-rest rhythmic program discovery, DTW and rho analyses operate mainly at the **cell-phase level**. They use the inferred cell-level phase result and cell-level metadata, rather than gene-level parameter tables.
+
+The typical use case is:
+
+1. infer cell-level circadian phase;
+2. compare phase distributions across cell types and groups;
+3. prioritize cell types or conditions with strong phase-distribution remodeling;
+4. perform downstream gene-level rhythm-state analysis on selected biological contexts.
 
 # Load package and example data
 
@@ -51,7 +62,27 @@ head(metadata)
 table(metadata$celltype, metadata$condition)
 ```
 
+The example dataset contains:
+
+| Object | Description |
+|---|---|
+| `count` | Gene-by-cell sparse count matrix |
+| `metadata` | Cell-level metadata containing sampling time, cell type, condition, and simulated true phase |
+
+The key metadata columns used in this tutorial are:
+
+| Column | Description |
+|---|---|
+| `cell` | Cell identifier |
+| `ZT` | Sampling Zeitgeber time |
+| `celltype` | Cell-type label |
+| `condition` | Group or condition label |
+| `T_true` | Simulated true circadian time in hours |
+| `Theta_true` | Simulated true circadian phase in radians |
+
 # Step 1: infer cell-level circadian phase
+
+Both DTW and rho analyses start from the inferred cell-level circadian phase.
 
 ```{r phaseprior-phase}
 res_phase <- infer_cell_phase(
@@ -67,7 +98,42 @@ res_phase <- infer_cell_phase(
 head(res_phase)
 ```
 
+The main columns used by downstream phase-prioritization analyses are:
+
+| Column | Description |
+|---|---|
+| `cell` | Cell identifier |
+| `theta_pred` | Inferred cell-level circadian phase in radians |
+| `ZT_pred` | Inferred phase converted to 24-hour time |
+| `r_cell` | Cell-level phase reliability weight |
+
+# Analysis design
+
+The phase-prioritization branch can be used in several common settings.
+
+| Analysis goal | Function | Main grouping variables | Main output |
+|---|---|---|---|
+| Compare full phase-distribution shapes | `run_dtw_similarity()` | `celltype_by`, `group_by` | DTW distance and similarity matrices |
+| Summarize phase concentration by group | `run_phase_rho()` | `celltype_by`, `group_by` | Group-level rho summary |
+| Compare sample-level phase concentration | `run_phase_rho()` with `sample_by` | `celltype_by`, `group_by`, `sample_by` | Sample-level rho table and group comparison |
+
+DTW is useful when the question is whether two phase distributions have similar shapes. Rho is useful when the question is whether cells within a cell type or group are concentrated around a phase or broadly dispersed.
+
 # Part I: DTW-based phase-distribution similarity
+
+## Input
+
+The DTW analysis requires:
+
+| Argument | Description |
+|---|---|
+| `res_phase` | Cell-level phase inference result from `infer_cell_phase()` |
+| `metadata` | Cell-level metadata |
+| `celltype_by` | Metadata column defining cell type or biological compartment |
+| `group_by` | Metadata column defining condition or group |
+| `min_cell` | Minimum number of cells required for each celltype-by-group combination |
+
+The function constructs circular phase histograms for each celltype-by-group combination and compares these histograms using dynamic time warping.
 
 ## Run DTW similarity analysis
 
@@ -84,13 +150,31 @@ dtw_res <- run_dtw_similarity(
 dtw_res
 ```
 
+## Inspect circular phase histograms
+
 ```{r dtw-histogram}
 head(dtw_res$histogram)
 ```
 
+The histogram table contains binned circular phase distributions for each celltype-by-condition combination.
+
+| Column | Description |
+|---|---|
+| `combo` | Combined celltype-by-group label |
+| `cell_type` | Cell-type label |
+| `Group` | Group or condition label |
+| `bin` | Circular phase bin index |
+| `bin_start`, `bin_end` | Phase-bin boundaries in radians |
+| `bin_mid` | Phase-bin midpoint |
+| `prop` | Proportion of cells in the phase bin |
+
+## Inspect DTW similarity matrix
+
 ```{r dtw-similarity}
 dtw_res$similarity
 ```
+
+The result object contains:
 
 | Output | Meaning |
 |---|---|
@@ -100,11 +184,11 @@ dtw_res$similarity
 | `similarity` | Scaled 0-to-1 DTW similarity matrix |
 | `annotation` | Annotation table for heatmap rows and columns |
 
-A higher similarity value indicates a more similar inferred phase-distribution profile.
+A higher similarity value indicates a more similar inferred phase-distribution profile. A lower similarity value indicates a stronger phase-distribution difference.
 
 ## Plot DTW heatmap
 
-```{r dtw-heatmap}
+```{r dtw-heatmap, fig.width=7, fig.height=5, out.width="85%", fig.align="center"}
 ht_dtw <- plot_dtw_heatmap(
   dtw_res = dtw_res
 )
@@ -113,7 +197,29 @@ ht_dtw
 plot(ht_dtw)
 ```
 
+The DTW heatmap provides a compact overview of phase-distribution similarity across celltype-by-condition combinations.
+
 # Part II: circular phase-concentration rho analysis
+
+## Concept
+
+The rho analysis summarizes the concentration of inferred cell phases. Larger rho indicates that cells are more concentrated around a common phase. Smaller rho indicates a more dispersed phase distribution.
+
+This analysis is useful for identifying cell types or conditions with strong phase alignment or phase dispersion.
+
+## Input
+
+The group-level rho analysis requires:
+
+| Argument | Description |
+|---|---|
+| `res_phase` | Cell-level phase inference result |
+| `metadata` | Cell-level metadata |
+| `celltype_by` | Metadata column defining cell type |
+| `group_by` | Metadata column defining condition or group |
+| `theta_by` | Column in `res_phase` containing inferred phase in radians |
+| `group_levels` | Optional display or comparison order for groups |
+| `min_cell` | Minimum number of cells required per celltype-by-group combination |
 
 ## Run group-level rho analysis
 
@@ -132,21 +238,36 @@ rho_res <- run_phase_rho(
 rho_res
 ```
 
+## Inspect group-level rho table
+
 ```{r rho-group-table}
 rho_res$rho_group
 ```
 
+The group-level rho table contains:
+
+| Column | Description |
+|---|---|
+| `cell_type` | Cell-type label |
+| `Group` | Group or condition label |
+| `n_cell` | Number of cells used |
+| `rho` | Circular phase concentration statistic |
+| `mean_phase_rad` | Mean circular phase in radians |
+| `mean_phase_hour` | Mean circular phase converted to 24-hour time |
+
 ## Plot group-level rho
 
-```{r rho-group-plot}
+```{r rho-group-plot, fig.width=7, fig.height=5, out.width="85%", fig.align="center"}
 p_rho <- plot_phase_rho(rho_res)
 
 p_rho$plot
 ```
 
-A larger rho indicates stronger phase concentration. A smaller rho indicates a more dispersed phase distribution.
+The plot summarizes phase concentration across cell types and groups.
 
 # Part III: sample-level rho analysis
+
+Sample-level rho analysis is useful when the dataset contains biological sample IDs, replicate IDs, patient IDs, animal IDs, or other sample-level units.
 
 The example dataset does not contain real biological sample IDs. The following code creates artificial sample labels for demonstration only.
 
@@ -200,13 +321,27 @@ rho_res_sample <- run_phase_rho(
 head(rho_res_sample$rho_sample)
 ```
 
+The sample-level rho table contains one row per celltype-by-group-by-sample unit.
+
+| Column | Description |
+|---|---|
+| `cell_type` | Cell-type label |
+| `Group` | Group or condition label |
+| `Sample` | Sample identifier |
+| `n_cell` | Number of cells in the sample-level unit |
+| `rho` | Sample-level circular phase concentration |
+| `mean_phase_rad` | Mean circular phase in radians |
+| `mean_phase_hour` | Mean circular phase converted to 24-hour time |
+
 ## Plot sample-level rho
 
-```{r rho-sample-plot}
+```{r rho-sample-plot, fig.width=7, fig.height=5, out.width="85%", fig.align="center"}
 p_rho_sample <- plot_phase_rho(rho_res_sample)
 
 p_rho_sample$plot
 ```
+
+The sample-level plot is more appropriate for real biological datasets with replicate structure. It can help distinguish cell-level phase-distribution patterns from sample-level variability.
 
 # Recommended minimal workflow
 
@@ -221,6 +356,7 @@ dtw_res <- run_dtw_similarity(
 )
 
 ht_dtw <- plot_dtw_heatmap(dtw_res = dtw_res)
+plot(ht_dtw)
 
 rho_res <- run_phase_rho(
   res_phase = res_phase,
@@ -234,7 +370,39 @@ rho_res <- run_phase_rho(
 )
 
 p_rho <- plot_phase_rho(rho_res)
+p_rho$plot
 ```
+
+# Output summary
+
+| Object | Description |
+|---|---|
+| `dtw_res` | DTW-based phase-distribution similarity result |
+| `dtw_res$histogram` | Circular phase histograms by celltype-by-group combination |
+| `dtw_res$distance` | Pairwise DTW distance matrix |
+| `dtw_res$similarity` | Scaled DTW similarity matrix |
+| `rho_res` | Group-level circular phase-concentration result |
+| `rho_res$rho_group` | Group-level rho summary |
+| `rho_res_sample` | Sample-level circular phase-concentration result |
+| `rho_res_sample$rho_sample` | Sample-level rho summary |
+
+# Notes for real datasets
+
+For real datasets, users should choose grouping variables based on the biological question.
+
+Use DTW analysis when the main question is:
+
+- Which cell types or conditions have similar inferred phase distributions?
+- Which celltype-by-condition combinations show phase-distribution remodeling?
+- Which biological contexts should be prioritized for downstream rhythm-state module analysis?
+
+Use rho analysis when the main question is:
+
+- Are cells in a given cell type or condition phase-concentrated?
+- Does phase concentration differ between conditions?
+- Is phase concentration consistent across biological samples?
+
+For sample-level rho analysis, `sample_by` should correspond to real biological replicate structure, such as animal ID, patient ID, donor ID, or sample ID.
 
 # Session information
 

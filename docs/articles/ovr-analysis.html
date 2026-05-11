@@ -82,9 +82,7 @@
   <div class="col-md-9 contents">
     <div class="page-header toc-ignore">
       <h1 data-toc-skip>One-vs-rest rhythmic program discovery</h1>
-                        <h4 data-toc-skip class="author">Qian Zhang</h4>
             
-            <h4 data-toc-skip class="date">2026-05-10</h4>
       
 
       <div class="hidden name"><code>ovr-analysis.Rmd</code></div>
@@ -96,16 +94,51 @@
 <div class="section level2">
 <h2 id="overview">Overview<a class="anchor" aria-label="anchor" href="#overview"></a>
 </h2>
-<p>This tutorial describes one-vs-rest rhythmic program discovery in
-<code>scRhythmBayes</code>.</p>
+<p>This tutorial describes the one-vs-rest rhythmic program discovery
+workflow in <code>scRhythmBayes</code>.</p>
 <p>The one-vs-rest branch is designed for heterogeneous tissues and
 multi-cell-type datasets. It compares one target cell type against all
 remaining cell types and identifies cell-type-specific rhythmic
 programs.</p>
-<p>This branch is an extension from the gene-level rhythmic parameter
-layer. It is different from module analysis: module analysis is for a
-predefined two-condition comparison, while OVR is for cell-type-specific
-discovery.</p>
+<p>This branch starts from the gene-level rhythmic parameter layer. It
+is different from pairwise rhythm-state module analysis:</p>
+<table class="table">
+<colgroup>
+<col width="33%">
+<col width="33%">
+<col width="33%">
+</colgroup>
+<thead><tr class="header">
+<th>Analysis</th>
+<th>Main question</th>
+<th>Typical use case</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td>Pairwise module analysis</td>
+<td>How do rhythmic states differ between two predefined groups?</td>
+<td>Condition <code>A</code> versus condition <code>B</code> within one
+cell type</td>
+</tr>
+<tr class="even">
+<td>One-vs-rest analysis</td>
+<td>Which rhythmic programs are specific to one target cell type
+relative to all other cell types?</td>
+<td>Cell-type-specific rhythmic program discovery in heterogeneous
+tissue</td>
+</tr>
+</tbody>
+</table>
+<p>In this tutorial, the workflow is:</p>
+<ol style="list-style-type: decimal">
+<li>infer cell-level circadian phase;</li>
+<li>estimate gene-level rhythmic parameters by cell type;</li>
+<li>compare each target cell type against the pooled rest;</li>
+<li>inspect the OVR output table;</li>
+<li>visualize cell-type-associated rhythmic programs using the OVR
+heatmap;</li>
+<li>extract target-specific candidate genes.</li>
+</ol>
 </div>
 <div class="section level2">
 <h2 id="load-package-and-example-data">Load package and example data<a class="anchor" aria-label="anchor" href="#load-package-and-example-data"></a>
@@ -131,11 +164,45 @@ discovery.</p>
 <span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">metadata</span><span class="op">$</span><span class="va">celltype</span><span class="op">)</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt;    1    2    3    4 </span></span>
-<span><span class="co">#&gt; 1000 1000 1000 1000</span></span></code></pre></div>
+<span><span class="co">#&gt; 1000 1000 1000 1000</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">metadata</span><span class="op">$</span><span class="va">celltype</span>, <span class="va">metadata</span><span class="op">$</span><span class="va">condition</span><span class="op">)</span></span>
+<span><span class="co">#&gt;    </span></span>
+<span><span class="co">#&gt;       A   B</span></span>
+<span><span class="co">#&gt;   1 502 498</span></span>
+<span><span class="co">#&gt;   2 501 499</span></span>
+<span><span class="co">#&gt;   3 501 499</span></span>
+<span><span class="co">#&gt;   4 502 498</span></span></code></pre></div>
+<p>The two required input objects are:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Object</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>count</code></td>
+<td>Gene-by-cell count matrix</td>
+</tr>
+<tr class="even">
+<td><code>metadata</code></td>
+<td>Cell-level metadata containing cell IDs, cell-type labels, and
+sampling time</td>
+</tr>
+</tbody>
+</table>
+<p>For the example dataset, <code>metadata$celltype</code> defines the
+cell-type groups used for OVR testing.</p>
 </div>
 <div class="section level2">
 <h2 id="step-1-infer-cell-level-circadian-phase">Step 1: infer cell-level circadian phase<a class="anchor" aria-label="anchor" href="#step-1-infer-cell-level-circadian-phase"></a>
 </h2>
+<p>The OVR workflow first requires a cell-level circadian phase
+estimate. Here, phase is inferred using <code>celltype</code> as the
+stratum.</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_phase</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_cell_phase.html">infer_cell_phase</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count</span>,</span>
@@ -157,10 +224,42 @@ discovery.</p>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Cell00004        0 1           0.829    3.17  0.991  0.990</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Cell00005        0 1           6.26    23.9   0.995  0.999</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">6</span> Cell00006        0 1           0.553    2.11  0.998  0.999</span></span></code></pre></div>
+<p>The key output columns used downstream are:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Column</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>cell</code></td>
+<td>Cell identifier</td>
+</tr>
+<tr class="even">
+<td><code>theta_pred</code></td>
+<td>Inferred cell-level circadian phase in radians</td>
+</tr>
+<tr class="odd">
+<td><code>ZT_pred</code></td>
+<td>Inferred cell-level circadian phase converted to 24-hour time</td>
+</tr>
+<tr class="even">
+<td><code>r_cell</code></td>
+<td>Cell-level phase reliability weight</td>
+</tr>
+</tbody>
+</table>
 </div>
 <div class="section level2">
-<h2 id="step-2-estimate-gene-level-parameters-by-cell-type">Step 2: estimate gene-level parameters by cell type<a class="anchor" aria-label="anchor" href="#step-2-estimate-gene-level-parameters-by-cell-type"></a>
+<h2 id="step-2-estimate-gene-level-rhythmic-parameters-by-cell-type">Step 2: estimate gene-level rhythmic parameters by cell type<a class="anchor" aria-label="anchor" href="#step-2-estimate-gene-level-rhythmic-parameters-by-cell-type"></a>
 </h2>
+<p>For OVR analysis, gene-level rhythmic parameters should be estimated
+across cell types. Therefore, use
+<code>strata_by = "celltype"</code>.</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_ovr_param</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_gene_param.html">infer_gene_param</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count</span>,</span>
@@ -173,6 +272,8 @@ discovery.</p>
 <span>  setseed <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>  Verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
+<p>The main table used by <code><a href="../reference/infer_ovr_rhythm.html">infer_ovr_rhythm()</a></code> is
+<code>param_long</code>.</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_ovr_param</span><span class="op">$</span><span class="va">param_long</span><span class="op">)</span></span>
 <span><span class="co">#&gt;     gene celltype       Mesor Amplitude    Phase      Alpha Dropout_rate</span></span>
@@ -196,10 +297,50 @@ discovery.</p>
 <span><span class="co">#&gt; 4    -2.2065706  -0.64947118         0</span></span>
 <span><span class="co">#&gt; 5    -2.8270457  -0.01281456         0</span></span>
 <span><span class="co">#&gt; 6    -0.8747936   0.03081239         0</span></span></code></pre></div>
+<p>The long-format parameter table contains one row per gene and cell
+type.</p>
+<table class="table">
+<thead><tr class="header">
+<th>Column</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>gene</code></td>
+<td>Gene name</td>
+</tr>
+<tr class="even">
+<td><code>celltype</code></td>
+<td>Cell-type group</td>
+</tr>
+<tr class="odd">
+<td><code>Mesor</code></td>
+<td>Baseline rhythmic expression level</td>
+</tr>
+<tr class="even">
+<td><code>Mean</code></td>
+<td>Mean expression level</td>
+</tr>
+<tr class="odd">
+<td><code>Amplitude</code></td>
+<td>Rhythmic amplitude</td>
+</tr>
+<tr class="even">
+<td><code>Phase</code></td>
+<td>Rhythmic phase in radians</td>
+</tr>
+<tr class="odd">
+<td><code>FDR</code></td>
+<td>Adjusted rhythmicity significance</td>
+</tr>
+</tbody>
+</table>
 </div>
 <div class="section level2">
 <h2 id="step-3-run-one-vs-rest-analysis">Step 3: run one-vs-rest analysis<a class="anchor" aria-label="anchor" href="#step-3-run-one-vs-rest-analysis"></a>
 </h2>
+<p><code><a href="../reference/infer_ovr_rhythm.html">infer_ovr_rhythm()</a></code> compares each target cell type
+against the pooled rest.</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_ovr</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_ovr_rhythm.html">infer_ovr_rhythm</a></span><span class="op">(</span></span>
 <span>  param_long <span class="op">=</span> <span class="va">res_ovr_param</span><span class="op">$</span><span class="va">param_long</span>,</span>
@@ -231,6 +372,28 @@ discovery.</p>
 <span><span class="co">#&gt; 4     3.398507           NA -0.3425491 -0.2397568                FALSE</span></span>
 <span><span class="co">#&gt; 5     4.738964           NA -0.2512910 -0.2167782                FALSE</span></span>
 <span><span class="co">#&gt; 6     1.320406           NA -0.2268727 -0.4398324                FALSE</span></span></code></pre></div>
+<p>The main thresholds are:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Argument</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>q_cut</code></td>
+<td>FDR cutoff for rhythmicity</td>
+</tr>
+<tr class="even">
+<td><code>amp_cut</code></td>
+<td>Minimum target-group amplitude cutoff used for target-specific
+calls</td>
+</tr>
+</tbody>
+</table>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">res_ovr</span><span class="op">$</span><span class="va">ovr_result</span><span class="op">$</span><span class="va">rhythm_pattern</span>, useNA <span class="op">=</span> <span class="st">"ifany"</span><span class="op">)</span></span>
 <span><span class="co">#&gt; </span></span>
@@ -244,6 +407,7 @@ discovery.</p>
 <div class="section level2">
 <h2 id="interpret-the-ovr-result">Interpret the OVR result<a class="anchor" aria-label="anchor" href="#interpret-the-ovr-result"></a>
 </h2>
+<p>The OVR result is a gene-by-target-cell-type table.</p>
 <table class="table">
 <colgroup>
 <col width="50%">
@@ -282,19 +446,19 @@ discovery.</p>
 <td>
 <code>Mean_group1</code>, <code>Mean_group2</code>
 </td>
-<td>Mean expression in target and rest</td>
+<td>Mean expression in target and rest groups</td>
 </tr>
 <tr class="even">
 <td>
 <code>Amplitude_group1</code>, <code>Amplitude_group2</code>
 </td>
-<td>Rhythmic amplitude in target and rest</td>
+<td>Rhythmic amplitude in target and rest groups</td>
 </tr>
 <tr class="odd">
 <td>
 <code>Phase_group1</code>, <code>Phase_group2</code>
 </td>
-<td>Rhythmic phase in target and rest</td>
+<td>Rhythmic phase in target and rest groups</td>
 </tr>
 <tr class="even">
 <td><code>Delta_Mean</code></td>
@@ -310,10 +474,15 @@ discovery.</p>
 </tr>
 </tbody>
 </table>
+<p>A typical target-specific rhythmic program is expected to have strong
+rhythmic evidence and sufficient amplitude in the target cell type, with
+weaker or absent rhythmic evidence in the pooled rest.</p>
 </div>
 <div class="section level2">
 <h2 id="step-4-plot-the-ovr-heatmap">Step 4: plot the OVR heatmap<a class="anchor" aria-label="anchor" href="#step-4-plot-the-ovr-heatmap"></a>
 </h2>
+<p>The OVR heatmap visualizes target-associated rhythmic programs across
+the heterogeneous dataset.</p>
 <div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">ht_ovr</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_ovr_heatmap.html">plot_ovr_heatmap</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count</span>,</span>
@@ -334,13 +503,15 @@ discovery.</p>
 <span><span class="co">#&gt; 3              3            20    1000</span></span>
 <span><span class="co">#&gt; 4              4            23    1000</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">ht_ovr</span><span class="op">)</span></span></code></pre></div>
-<p><img src="ovr-analysis_files/figure-html/ovr-heatmap-1.png" class="r-plt" alt="" width="672"></p>
-<p>The heatmap visualizes cell-type-associated rhythmic programs across
-the heterogeneous dataset.</p>
+<p><img src="ovr-analysis_files/figure-html/ovr-heatmap-1.png" class="r-plt" alt="" width="85%" style="display: block; margin: auto;"></p>
+<p>The heatmap is intended to help inspect whether OVR-selected genes
+show cell-type-associated phase-resolved expression patterns.</p>
 </div>
 <div class="section level2">
 <h2 id="step-5-extract-target-specific-candidates">Step 5: extract target-specific candidates<a class="anchor" aria-label="anchor" href="#step-5-extract-target-specific-candidates"></a>
 </h2>
+<p>The <code>target_specific_flag</code> column can be used to extract
+candidate cell-type-specific rhythmic genes.</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">target_specific</span> <span class="op">&lt;-</span> <span class="va">res_ovr</span><span class="op">$</span><span class="va">ovr_result</span><span class="op">[</span></span>
 <span>  <span class="va">res_ovr</span><span class="op">$</span><span class="va">ovr_result</span><span class="op">$</span><span class="va">target_specific_flag</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="cn">TRUE</span>,</span>
@@ -368,16 +539,35 @@ the heterogeneous dataset.</p>
 <span><span class="co">#&gt; 118           NA  0.9213620  2.272083                 TRUE</span></span>
 <span><span class="co">#&gt; 122           NA  1.0550761  2.344302                 TRUE</span></span>
 <span><span class="co">#&gt; 132           NA  0.1016732  2.419569                 TRUE</span></span></code></pre></div>
+<p>The number of target-specific genes depends on signal strength, the
+selected thresholds, and the structure of the dataset.</p>
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="va">target_specific</span><span class="op">)</span> <span class="op">&gt;</span> <span class="fl">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">target_specific</span><span class="op">$</span><span class="va">TargetCellType</span><span class="op">)</span></span>
+<span><span class="op">}</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;  1  2  3  4 </span></span>
+<span><span class="co">#&gt; 35 27 20 23</span></span></code></pre></div>
 <p>If no target-specific genes are detected in a small example dataset,
-this does not indicate function failure. The result depends on the
-signal strength, the filtering thresholds, and the simulated structure
-of the example data.</p>
+this does not indicate function failure. In real datasets, users may
+adjust <code>q_cut</code> and <code>amp_cut</code> based on the expected
+signal and desired stringency.</p>
 </div>
 <div class="section level2">
 <h2 id="recommended-minimal-workflow">Recommended minimal workflow<a class="anchor" aria-label="anchor" href="#recommended-minimal-workflow"></a>
 </h2>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">res_ovr_param</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_gene_param.html">infer_gene_param</a></span><span class="op">(</span></span>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">res_phase</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_cell_phase.html">infer_cell_phase</a></span><span class="op">(</span></span>
+<span>  count <span class="op">=</span> <span class="va">count</span>,</span>
+<span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
+<span>  ZT_by <span class="op">=</span> <span class="st">"ZT"</span>,</span>
+<span>  strata_by <span class="op">=</span> <span class="st">"celltype"</span>,</span>
+<span>  Species <span class="op">=</span> <span class="st">"mouse"</span>,</span>
+<span>  setseed <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  Verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">res_ovr_param</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_gene_param.html">infer_gene_param</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
 <span>  theta_pred <span class="op">=</span> <span class="va">res_phase</span><span class="op">$</span><span class="va">theta_pred</span>,</span>
@@ -404,12 +594,33 @@ of the example data.</p>
 <span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
 <span>  celltype_by <span class="op">=</span> <span class="st">"celltype"</span>,</span>
 <span>  Verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
-<span><span class="op">)</span></span></code></pre></div>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">ht_ovr</span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="notes-for-real-datasets">Notes for real datasets<a class="anchor" aria-label="anchor" href="#notes-for-real-datasets"></a>
+</h2>
+<p>For real datasets, the OVR workflow is most useful when:</p>
+<ol style="list-style-type: decimal">
+<li>the dataset contains multiple biologically meaningful cell
+types;</li>
+<li>cell types have sufficient cell numbers for rhythmic parameter
+estimation;</li>
+<li>the user wants cell-type-specific rhythmic programs rather than a
+predefined pairwise condition comparison;</li>
+<li>the target cell type may have rhythmic genes that are absent,
+weaker, or phase-shifted in the rest of the tissue.</li>
+</ol>
+<p>For direct comparison of two selected groups, use
+<code><a href="../reference/infer_rhythm_module.html">infer_rhythm_module()</a></code> instead. For target-versus-all
+discovery across many cell types, use
+<code><a href="../reference/infer_ovr_rhythm.html">infer_ovr_rhythm()</a></code>.</p>
 </div>
 <div class="section level2">
 <h2 id="session-information">Session information<a class="anchor" aria-label="anchor" href="#session-information"></a>
 </h2>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/sessionInfo.html" class="external-link">sessionInfo</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; R version 4.5.1 (2025-06-13)</span></span>
 <span><span class="co">#&gt; Platform: aarch64-apple-darwin20</span></span>

@@ -82,9 +82,7 @@
   <div class="col-md-9 contents">
     <div class="page-header toc-ignore">
       <h1 data-toc-skip>DTW and rho phase-prioritization analysis</h1>
-                        <h4 data-toc-skip class="author">Qian Zhang</h4>
             
-            <h4 data-toc-skip class="date">2026-05-10</h4>
       
 
       <div class="hidden name"><code>phase-prioritization-dtw-rho.Rmd</code></div>
@@ -96,14 +94,28 @@
 <div class="section level2">
 <h2 id="overview">Overview<a class="anchor" aria-label="anchor" href="#overview"></a>
 </h2>
-<p>This tutorial describes two phase-level extension analyses:</p>
+<p>This tutorial describes two phase-level extension analyses in
+<code>scRhythmBayes</code>:</p>
 <ol style="list-style-type: decimal">
-<li>DTW-based phase-distribution similarity;</li>
-<li>circular phase-concentration rho analysis.</li>
+<li><strong>DTW-based phase-distribution similarity</strong></li>
+<li><strong>Circular phase-concentration rho analysis</strong></li>
 </ol>
-<p>These analyses are useful for prioritizing cell types or conditions
-that show phase-distribution remodeling before downstream gene-level
-modeling.</p>
+<p>These analyses are useful for prioritizing cell types, conditions, or
+celltype-by-condition combinations that show differences in inferred
+circadian phase distributions.</p>
+<p>Unlike rhythm-state module analysis or one-vs-rest rhythmic program
+discovery, DTW and rho analyses operate mainly at the <strong>cell-phase
+level</strong>. They use the inferred cell-level phase result and
+cell-level metadata, rather than gene-level parameter tables.</p>
+<p>The typical use case is:</p>
+<ol style="list-style-type: decimal">
+<li>infer cell-level circadian phase;</li>
+<li>compare phase distributions across cell types and groups;</li>
+<li>prioritize cell types or conditions with strong phase-distribution
+remodeling;</li>
+<li>perform downstream gene-level rhythm-state analysis on selected
+biological contexts.</li>
+</ol>
 </div>
 <div class="section level2">
 <h2 id="load-package-and-example-data">Load package and example data<a class="anchor" aria-label="anchor" href="#load-package-and-example-data"></a>
@@ -133,10 +145,67 @@ modeling.</p>
 <span><span class="co">#&gt;   2 501 499</span></span>
 <span><span class="co">#&gt;   3 501 499</span></span>
 <span><span class="co">#&gt;   4 502 498</span></span></code></pre></div>
+<p>The example dataset contains:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Object</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>count</code></td>
+<td>Gene-by-cell sparse count matrix</td>
+</tr>
+<tr class="even">
+<td><code>metadata</code></td>
+<td>Cell-level metadata containing sampling time, cell type, condition,
+and simulated true phase</td>
+</tr>
+</tbody>
+</table>
+<p>The key metadata columns used in this tutorial are:</p>
+<table class="table">
+<thead><tr class="header">
+<th>Column</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>cell</code></td>
+<td>Cell identifier</td>
+</tr>
+<tr class="even">
+<td><code>ZT</code></td>
+<td>Sampling Zeitgeber time</td>
+</tr>
+<tr class="odd">
+<td><code>celltype</code></td>
+<td>Cell-type label</td>
+</tr>
+<tr class="even">
+<td><code>condition</code></td>
+<td>Group or condition label</td>
+</tr>
+<tr class="odd">
+<td><code>T_true</code></td>
+<td>Simulated true circadian time in hours</td>
+</tr>
+<tr class="even">
+<td><code>Theta_true</code></td>
+<td>Simulated true circadian phase in radians</td>
+</tr>
+</tbody>
+</table>
 </div>
 <div class="section level2">
 <h2 id="step-1-infer-cell-level-circadian-phase">Step 1: infer cell-level circadian phase<a class="anchor" aria-label="anchor" href="#step-1-infer-cell-level-circadian-phase"></a>
 </h2>
+<p>Both DTW and rho analyses start from the inferred cell-level
+circadian phase.</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_phase</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/infer_cell_phase.html">infer_cell_phase</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count</span>,</span>
@@ -158,10 +227,132 @@ modeling.</p>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Cell00004        0 1           0.829    3.17  0.991  0.990</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Cell00005        0 1           6.26    23.9   0.995  0.999</span></span>
 <span><span class="co">#&gt; <span style="color: #BCBCBC;">6</span> Cell00006        0 1           0.553    2.11  0.998  0.999</span></span></code></pre></div>
+<p>The main columns used by downstream phase-prioritization analyses
+are:</p>
+<table class="table">
+<thead><tr class="header">
+<th>Column</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>cell</code></td>
+<td>Cell identifier</td>
+</tr>
+<tr class="even">
+<td><code>theta_pred</code></td>
+<td>Inferred cell-level circadian phase in radians</td>
+</tr>
+<tr class="odd">
+<td><code>ZT_pred</code></td>
+<td>Inferred phase converted to 24-hour time</td>
+</tr>
+<tr class="even">
+<td><code>r_cell</code></td>
+<td>Cell-level phase reliability weight</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section level2">
+<h2 id="analysis-design">Analysis design<a class="anchor" aria-label="anchor" href="#analysis-design"></a>
+</h2>
+<p>The phase-prioritization branch can be used in several common
+settings.</p>
+<table class="table">
+<colgroup>
+<col width="25%">
+<col width="25%">
+<col width="25%">
+<col width="25%">
+</colgroup>
+<thead><tr class="header">
+<th>Analysis goal</th>
+<th>Function</th>
+<th>Main grouping variables</th>
+<th>Main output</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td>Compare full phase-distribution shapes</td>
+<td><code><a href="../reference/run_dtw_similarity.html">run_dtw_similarity()</a></code></td>
+<td>
+<code>celltype_by</code>, <code>group_by</code>
+</td>
+<td>DTW distance and similarity matrices</td>
+</tr>
+<tr class="even">
+<td>Summarize phase concentration by group</td>
+<td><code><a href="../reference/run_phase_rho.html">run_phase_rho()</a></code></td>
+<td>
+<code>celltype_by</code>, <code>group_by</code>
+</td>
+<td>Group-level rho summary</td>
+</tr>
+<tr class="odd">
+<td>Compare sample-level phase concentration</td>
+<td>
+<code><a href="../reference/run_phase_rho.html">run_phase_rho()</a></code> with <code>sample_by</code>
+</td>
+<td>
+<code>celltype_by</code>, <code>group_by</code>,
+<code>sample_by</code>
+</td>
+<td>Sample-level rho table and group comparison</td>
+</tr>
+</tbody>
+</table>
+<p>DTW is useful when the question is whether two phase distributions
+have similar shapes. Rho is useful when the question is whether cells
+within a cell type or group are concentrated around a phase or broadly
+dispersed.</p>
 </div>
 <div class="section level2">
 <h2 id="part-i-dtw-based-phase-distribution-similarity">Part I: DTW-based phase-distribution similarity<a class="anchor" aria-label="anchor" href="#part-i-dtw-based-phase-distribution-similarity"></a>
 </h2>
+<div class="section level3">
+<h3 id="input">Input<a class="anchor" aria-label="anchor" href="#input"></a>
+</h3>
+<p>The DTW analysis requires:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Argument</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>res_phase</code></td>
+<td>Cell-level phase inference result from
+<code><a href="../reference/infer_cell_phase.html">infer_cell_phase()</a></code>
+</td>
+</tr>
+<tr class="even">
+<td><code>metadata</code></td>
+<td>Cell-level metadata</td>
+</tr>
+<tr class="odd">
+<td><code>celltype_by</code></td>
+<td>Metadata column defining cell type or biological compartment</td>
+</tr>
+<tr class="even">
+<td><code>group_by</code></td>
+<td>Metadata column defining condition or group</td>
+</tr>
+<tr class="odd">
+<td><code>min_cell</code></td>
+<td>Minimum number of cells required for each celltype-by-group
+combination</td>
+</tr>
+</tbody>
+</table>
+<p>The function constructs circular phase histograms for each
+celltype-by-group combination and compares these histograms using
+dynamic time warping.</p>
+</div>
 <div class="section level3">
 <h3 id="run-dtw-similarity-analysis">Run DTW similarity analysis<a class="anchor" aria-label="anchor" href="#run-dtw-similarity-analysis"></a>
 </h3>
@@ -191,6 +382,10 @@ modeling.</p>
 <span><span class="co">#&gt; 7         3     B    499 3 | B</span></span>
 <span><span class="co">#&gt; 4         4     A    502 4 | A</span></span>
 <span><span class="co">#&gt; 8         4     B    498 4 | B</span></span></code></pre></div>
+</div>
+<div class="section level3">
+<h3 id="inspect-circular-phase-histograms">Inspect circular phase histograms<a class="anchor" aria-label="anchor" href="#inspect-circular-phase-histograms"></a>
+</h3>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">dtw_res</span><span class="op">$</span><span class="va">histogram</span><span class="op">)</span></span>
 <span><span class="co">#&gt;   combo cell_type Group bin bin_start   bin_end   bin_mid       prop</span></span>
@@ -200,6 +395,50 @@ modeling.</p>
 <span><span class="co">#&gt; 4 1 | A         1     A   4 0.7853982 1.0471976 0.9162979 0.02589641</span></span>
 <span><span class="co">#&gt; 5 1 | A         1     A   5 1.0471976 1.3089969 1.1780972 0.07370518</span></span>
 <span><span class="co">#&gt; 6 1 | A         1     A   6 1.3089969 1.5707963 1.4398966 0.03585657</span></span></code></pre></div>
+<p>The histogram table contains binned circular phase distributions for
+each celltype-by-condition combination.</p>
+<table class="table">
+<thead><tr class="header">
+<th>Column</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>combo</code></td>
+<td>Combined celltype-by-group label</td>
+</tr>
+<tr class="even">
+<td><code>cell_type</code></td>
+<td>Cell-type label</td>
+</tr>
+<tr class="odd">
+<td><code>Group</code></td>
+<td>Group or condition label</td>
+</tr>
+<tr class="even">
+<td><code>bin</code></td>
+<td>Circular phase bin index</td>
+</tr>
+<tr class="odd">
+<td>
+<code>bin_start</code>, <code>bin_end</code>
+</td>
+<td>Phase-bin boundaries in radians</td>
+</tr>
+<tr class="even">
+<td><code>bin_mid</code></td>
+<td>Phase-bin midpoint</td>
+</tr>
+<tr class="odd">
+<td><code>prop</code></td>
+<td>Proportion of cells in the phase bin</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section level3">
+<h3 id="inspect-dtw-similarity-matrix">Inspect DTW similarity matrix<a class="anchor" aria-label="anchor" href="#inspect-dtw-similarity-matrix"></a>
+</h3>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">dtw_res</span><span class="op">$</span><span class="va">similarity</span></span>
 <span><span class="co">#&gt;            1 | A     1 | B     2 | A     2 | B     3 | A      3 | B     4 | A</span></span>
@@ -220,6 +459,7 @@ modeling.</p>
 <span><span class="co">#&gt; 3 | B 0.4694300</span></span>
 <span><span class="co">#&gt; 4 | A 0.6732601</span></span>
 <span><span class="co">#&gt; 4 | B 1.0000000</span></span></code></pre></div>
+<p>The result object contains:</p>
 <table class="table">
 <colgroup>
 <col width="50%">
@@ -253,7 +493,8 @@ modeling.</p>
 </tbody>
 </table>
 <p>A higher similarity value indicates a more similar inferred
-phase-distribution profile.</p>
+phase-distribution profile. A lower similarity value indicates a
+stronger phase-distribution difference.</p>
 </div>
 <div class="section level3">
 <h3 id="plot-dtw-heatmap">Plot DTW heatmap<a class="anchor" aria-label="anchor" href="#plot-dtw-heatmap"></a>
@@ -268,12 +509,71 @@ phase-distribution profile.</p>
 <span><span class="co">#&gt; Matrix type: similarity </span></span>
 <span><span class="co">#&gt; Matrix dimension: 8 x 8</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">ht_dtw</span><span class="op">)</span></span></code></pre></div>
-<p><img src="phase-prioritization-dtw-rho_files/figure-html/dtw-heatmap-1.png" class="r-plt" alt="" width="672"></p>
+<p><img src="phase-prioritization-dtw-rho_files/figure-html/dtw-heatmap-1.png" class="r-plt" alt="" width="85%" style="display: block; margin: auto;"></p>
+<p>The DTW heatmap provides a compact overview of phase-distribution
+similarity across celltype-by-condition combinations.</p>
 </div>
 </div>
 <div class="section level2">
 <h2 id="part-ii-circular-phase-concentration-rho-analysis">Part II: circular phase-concentration rho analysis<a class="anchor" aria-label="anchor" href="#part-ii-circular-phase-concentration-rho-analysis"></a>
 </h2>
+<div class="section level3">
+<h3 id="concept">Concept<a class="anchor" aria-label="anchor" href="#concept"></a>
+</h3>
+<p>The rho analysis summarizes the concentration of inferred cell
+phases. Larger rho indicates that cells are more concentrated around a
+common phase. Smaller rho indicates a more dispersed phase
+distribution.</p>
+<p>This analysis is useful for identifying cell types or conditions with
+strong phase alignment or phase dispersion.</p>
+</div>
+<div class="section level3">
+<h3 id="input-1">Input<a class="anchor" aria-label="anchor" href="#input-1"></a>
+</h3>
+<p>The group-level rho analysis requires:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Argument</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>res_phase</code></td>
+<td>Cell-level phase inference result</td>
+</tr>
+<tr class="even">
+<td><code>metadata</code></td>
+<td>Cell-level metadata</td>
+</tr>
+<tr class="odd">
+<td><code>celltype_by</code></td>
+<td>Metadata column defining cell type</td>
+</tr>
+<tr class="even">
+<td><code>group_by</code></td>
+<td>Metadata column defining condition or group</td>
+</tr>
+<tr class="odd">
+<td><code>theta_by</code></td>
+<td>Column in <code>res_phase</code> containing inferred phase in
+radians</td>
+</tr>
+<tr class="even">
+<td><code>group_levels</code></td>
+<td>Optional display or comparison order for groups</td>
+</tr>
+<tr class="odd">
+<td><code>min_cell</code></td>
+<td>Minimum number of cells required per celltype-by-group
+combination</td>
+</tr>
+</tbody>
+</table>
+</div>
 <div class="section level3">
 <h3 id="run-group-level-rho-analysis">Run group-level rho analysis<a class="anchor" aria-label="anchor" href="#run-group-level-rho-analysis"></a>
 </h3>
@@ -304,9 +604,46 @@ phase-distribution profile.</p>
 <span><span class="co">#&gt; 8         4     B    498 0.08140789      4.1121524       15.707265 0.08483591</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; Sample-level group comparison: not available</span></span></code></pre></div>
+</div>
+<div class="section level3">
+<h3 id="inspect-group-level-rho-table">Inspect group-level rho table<a class="anchor" aria-label="anchor" href="#inspect-group-level-rho-table"></a>
+</h3>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">rho_res</span><span class="op">$</span><span class="va">rho_group</span></span>
 <span><span class="co">#&gt; NULL</span></span></code></pre></div>
+<p>The group-level rho table contains:</p>
+<table class="table">
+<thead><tr class="header">
+<th>Column</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>cell_type</code></td>
+<td>Cell-type label</td>
+</tr>
+<tr class="even">
+<td><code>Group</code></td>
+<td>Group or condition label</td>
+</tr>
+<tr class="odd">
+<td><code>n_cell</code></td>
+<td>Number of cells used</td>
+</tr>
+<tr class="even">
+<td><code>rho</code></td>
+<td>Circular phase concentration statistic</td>
+</tr>
+<tr class="odd">
+<td><code>mean_phase_rad</code></td>
+<td>Mean circular phase in radians</td>
+</tr>
+<tr class="even">
+<td><code>mean_phase_hour</code></td>
+<td>Mean circular phase converted to 24-hour time</td>
+</tr>
+</tbody>
+</table>
 </div>
 <div class="section level3">
 <h3 id="plot-group-level-rho">Plot group-level rho<a class="anchor" aria-label="anchor" href="#plot-group-level-rho"></a>
@@ -315,14 +652,17 @@ phase-distribution profile.</p>
 <code class="sourceCode R"><span><span class="va">p_rho</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_phase_rho.html">plot_phase_rho</a></span><span class="op">(</span><span class="va">rho_res</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">p_rho</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
-<p><img src="phase-prioritization-dtw-rho_files/figure-html/rho-group-plot-1.png" class="r-plt" alt="" width="672"></p>
-<p>A larger rho indicates stronger phase concentration. A smaller rho
-indicates a more dispersed phase distribution.</p>
+<p><img src="phase-prioritization-dtw-rho_files/figure-html/rho-group-plot-1.png" class="r-plt" alt="" width="85%" style="display: block; margin: auto;"></p>
+<p>The plot summarizes phase concentration across cell types and
+groups.</p>
 </div>
 </div>
 <div class="section level2">
 <h2 id="part-iii-sample-level-rho-analysis">Part III: sample-level rho analysis<a class="anchor" aria-label="anchor" href="#part-iii-sample-level-rho-analysis"></a>
 </h2>
+<p>Sample-level rho analysis is useful when the dataset contains
+biological sample IDs, replicate IDs, patient IDs, animal IDs, or other
+sample-level units.</p>
 <p>The example dataset does not contain real biological sample IDs. The
 following code creates artificial sample labels for demonstration
 only.</p>
@@ -387,6 +727,44 @@ only.</p>
 <span><span class="co">#&gt; 4         1     A     S4    123 0.01671531      1.7440895        6.661931</span></span>
 <span><span class="co">#&gt; 5         1     B     S1    119 0.07526560      1.3112934        5.008772</span></span>
 <span><span class="co">#&gt; 6         1     B     S2    137 0.14094304      0.2920608        1.115590</span></span></code></pre></div>
+<p>The sample-level rho table contains one row per
+celltype-by-group-by-sample unit.</p>
+<table class="table">
+<thead><tr class="header">
+<th>Column</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>cell_type</code></td>
+<td>Cell-type label</td>
+</tr>
+<tr class="even">
+<td><code>Group</code></td>
+<td>Group or condition label</td>
+</tr>
+<tr class="odd">
+<td><code>Sample</code></td>
+<td>Sample identifier</td>
+</tr>
+<tr class="even">
+<td><code>n_cell</code></td>
+<td>Number of cells in the sample-level unit</td>
+</tr>
+<tr class="odd">
+<td><code>rho</code></td>
+<td>Sample-level circular phase concentration</td>
+</tr>
+<tr class="even">
+<td><code>mean_phase_rad</code></td>
+<td>Mean circular phase in radians</td>
+</tr>
+<tr class="odd">
+<td><code>mean_phase_hour</code></td>
+<td>Mean circular phase converted to 24-hour time</td>
+</tr>
+</tbody>
+</table>
 </div>
 <div class="section level3">
 <h3 id="plot-sample-level-rho">Plot sample-level rho<a class="anchor" aria-label="anchor" href="#plot-sample-level-rho"></a>
@@ -395,7 +773,10 @@ only.</p>
 <code class="sourceCode R"><span><span class="va">p_rho_sample</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_phase_rho.html">plot_phase_rho</a></span><span class="op">(</span><span class="va">rho_res_sample</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">p_rho_sample</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
-<p><img src="phase-prioritization-dtw-rho_files/figure-html/rho-sample-plot-1.png" class="r-plt" alt="" width="672"></p>
+<p><img src="phase-prioritization-dtw-rho_files/figure-html/rho-sample-plot-1.png" class="r-plt" alt="" width="85%" style="display: block; margin: auto;"></p>
+<p>The sample-level plot is more appropriate for real biological
+datasets with replicate structure. It can help distinguish cell-level
+phase-distribution patterns from sample-level variability.</p>
 </div>
 </div>
 <div class="section level2">
@@ -412,6 +793,7 @@ only.</p>
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">ht_dtw</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_dtw_heatmap.html">plot_dtw_heatmap</a></span><span class="op">(</span>dtw_res <span class="op">=</span> <span class="va">dtw_res</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">ht_dtw</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">rho_res</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/run_phase_rho.html">run_phase_rho</a></span><span class="op">(</span></span>
 <span>  res_phase <span class="op">=</span> <span class="va">res_phase</span>,</span>
@@ -424,7 +806,80 @@ only.</p>
 <span>  Verbose <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">p_rho</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_phase_rho.html">plot_phase_rho</a></span><span class="op">(</span><span class="va">rho_res</span><span class="op">)</span></span></code></pre></div>
+<span><span class="va">p_rho</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/plot_phase_rho.html">plot_phase_rho</a></span><span class="op">(</span><span class="va">rho_res</span><span class="op">)</span></span>
+<span><span class="va">p_rho</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="output-summary">Output summary<a class="anchor" aria-label="anchor" href="#output-summary"></a>
+</h2>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>Object</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td><code>dtw_res</code></td>
+<td>DTW-based phase-distribution similarity result</td>
+</tr>
+<tr class="even">
+<td><code>dtw_res$histogram</code></td>
+<td>Circular phase histograms by celltype-by-group combination</td>
+</tr>
+<tr class="odd">
+<td><code>dtw_res$distance</code></td>
+<td>Pairwise DTW distance matrix</td>
+</tr>
+<tr class="even">
+<td><code>dtw_res$similarity</code></td>
+<td>Scaled DTW similarity matrix</td>
+</tr>
+<tr class="odd">
+<td><code>rho_res</code></td>
+<td>Group-level circular phase-concentration result</td>
+</tr>
+<tr class="even">
+<td><code>rho_res$rho_group</code></td>
+<td>Group-level rho summary</td>
+</tr>
+<tr class="odd">
+<td><code>rho_res_sample</code></td>
+<td>Sample-level circular phase-concentration result</td>
+</tr>
+<tr class="even">
+<td><code>rho_res_sample$rho_sample</code></td>
+<td>Sample-level rho summary</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section level2">
+<h2 id="notes-for-real-datasets">Notes for real datasets<a class="anchor" aria-label="anchor" href="#notes-for-real-datasets"></a>
+</h2>
+<p>For real datasets, users should choose grouping variables based on
+the biological question.</p>
+<p>Use DTW analysis when the main question is:</p>
+<ul>
+<li>Which cell types or conditions have similar inferred phase
+distributions?</li>
+<li>Which celltype-by-condition combinations show phase-distribution
+remodeling?</li>
+<li>Which biological contexts should be prioritized for downstream
+rhythm-state module analysis?</li>
+</ul>
+<p>Use rho analysis when the main question is:</p>
+<ul>
+<li>Are cells in a given cell type or condition phase-concentrated?</li>
+<li>Does phase concentration differ between conditions?</li>
+<li>Is phase concentration consistent across biological samples?</li>
+</ul>
+<p>For sample-level rho analysis, <code>sample_by</code> should
+correspond to real biological replicate structure, such as animal ID,
+patient ID, donor ID, or sample ID.</p>
 </div>
 <div class="section level2">
 <h2 id="session-information">Session information<a class="anchor" aria-label="anchor" href="#session-information"></a>
