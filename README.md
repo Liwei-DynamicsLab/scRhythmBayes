@@ -541,8 +541,7 @@ The full documentation website is available at:
 | `plot_module_heatmap()` | Plot rhythm-state module heatmap |
 | `plot_module_polar()` | Plot rhythm modules on polar coordinates |
 
-=======
->>>>>>> bf98b65 (Update README tutorial links)
+
 ### Phase visualization
 
 | Function | Description |
@@ -581,8 +580,6 @@ This package is released under the MIT License.
 
 ## Authors
 
-<<<<<<< HEAD
-Qian Zhang, Chenyu Li, and Liwei Zhang.
-=======
 Liwei Zhang, Qian Zhang, and Chenyu Li.
->>>>>>> bf98b65 (Update README tutorial links)
+
+
