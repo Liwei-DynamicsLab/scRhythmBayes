@@ -1,0 +1,740 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#layer1+ram
+```{r}
+# layer1: cell-number benchmark cell-phase inference + ECDF + scatter plots + RAM
+
+rm(list = ls()); gc()
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(Matrix)
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(devtools)
+  library(ggplot2)
+  library(profmem)
+})
+
+# Step 0. Load package
+
+devtools::load_all("/Users/zhangqian/Desktop/scRhythmBayes")
+
+# Step 1. Helpers
+
+wrap24 <- function(x) {
+  ((x %% 24) + 24) %% 24
+}
+
+circ_abs_err_h <- function(pred_h, true_h) {
+  diff_h <- abs((pred_h - true_h) %% 24)
+  pmin(diff_h, 24 - diff_h)
+}
+
+calc_phase_metrics <- function(true_h, pred_h) {
+  err_h <- circ_abs_err_h(pred_h = pred_h, true_h = true_h)
+  err_h <- sort(err_h)
+  hrsoff <- c(0, err_h, 12)
+
+  frac_wrong <- sapply(hrsoff, function(hrtol) {
+    100 * sum(err_h > hrtol) / length(err_h)
+  })
+
+  pct_correct <- 100 - frac_wrong
+  norm_pct_correct <- pct_correct / 100
+  norm_hrsoff <- hrsoff / 12
+  auc <- sum(norm_pct_correct[-length(norm_pct_correct)] * diff(norm_hrsoff))
+  medae <- median(err_h)
+
+  list(
+    AUC = auc,
+    MedAE = medae,
+    n_cell = length(err_h),
+    threshold_h = hrsoff,
+    pct_correct = pct_correct,
+    err_h = err_h
+  )
+}
+
+make_grid_cdf <- function(true_h, pred_h, threshold_grid) {
+  err_h <- circ_abs_err_h(pred_h = pred_h, true_h = true_h)
+
+  tibble(
+    threshold_h = threshold_grid,
+    pct_correct = sapply(threshold_grid, function(hrtol) {
+      100 * sum(err_h <= hrtol) / length(err_h)
+    })
+  )
+}
+
+summarise_profmem <- function(pm, target_n_cell, rep_id, step_name, elapsed_min) {
+  pm_df <- as.data.frame(pm)
+  alloc <- pm_df$bytes[is.finite(pm_df$bytes)]
+
+  tibble(
+    step = step_name,
+    target_n_cell = target_n_cell,
+    repeat_id = rep_id,
+    elapsed_min = elapsed_min,
+    n_alloc = length(alloc),
+    total_alloc_mb = sum(alloc, na.rm = TRUE) / 1024^2,
+    max_single_alloc_mb = max(alloc, na.rm = TRUE) / 1024^2
+  )
+}
+
+remove_text_layers <- function(p) {
+  keep_layer <- vapply(
+    p$layers,
+    function(x) {
+      !inherits(x$geom, "GeomText") &&
+        !inherits(x$geom, "GeomLabel") &&
+        !inherits(x$geom, "GeomTextRepel") &&
+        !inherits(x$geom, "GeomLabelRepel")
+    },
+    logical(1)
+  )
+
+  p$layers <- p$layers[keep_layer]
+  p
+}
+
+save_phase_scatter <- function(res_phase, metadata, title_text, point_col, out_pdf, out_tiff) {
+  p_phase <- plot_phase_scatter(
+    res_phase = res_phase,
+    metadata = metadata,
+    truth_by = "ZT_true",
+    pred_by = "ZT_pred",
+    point_col = point_col
+  )
+
+  p_phase$plot <- remove_text_layers(p_phase$plot)
+
+  p_phase$plot <- p_phase$plot +
+    ggtitle(title_text) +
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        size = 9,
+        family = "serif"
+      )
+    )
+
+  pdf(file = out_pdf, width = 3.2, height = 3.2)
+  print(p_phase$plot)
+  dev.off()
+
+  tiff(
+    filename = out_tiff,
+    width = 3.2,
+    height = 3.2,
+    units = "in",
+    res = 300,
+    compression = "lzw"
+  )
+  print(p_phase$plot)
+  dev.off()
+
+  invisible(p_phase)
+}
+
+# Step 2. IO
+
+out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_cell_number_4000g_6tp"
+
+obj_dir <- file.path(out_dir, "sim_objects")
+phase_dir <- file.path(out_dir, "res_phase")
+plot_dir <- file.path(out_dir, "plots_cell_phase")
+index_dir <- file.path(out_dir, "index")
+ram_dir <- file.path(out_dir, "ram_profile")
+
+timepoint_ref_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_timepoint_number_4000g_20000c"
+timepoint_ref_obj <- file.path(timepoint_ref_dir, "sim_objects", "simulate_data_timepoint6_4000g_20000c.rds")
+timepoint_ref_phase <- file.path(timepoint_ref_dir, "res_phase", "res_phase_timepoint6_rep1.rds")
+
+unlink(phase_dir, recursive = TRUE, force = TRUE)
+unlink(plot_dir, recursive = TRUE, force = TRUE)
+unlink(ram_dir, recursive = TRUE, force = TRUE)
+
+dir.create(phase_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(index_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(ram_dir, recursive = TRUE, showWarnings = FALSE)
+
+run_cell_number_vec <- c(10500, 6000, 3000, 1500, 600)
+cell_number_vec <- c(20000, 10500, 6000, 3000, 1500, 600)
+
+n_repeat <- 1
+ZT_points <- c(0, 4, 8, 12, 16, 20)
+
+cell_number_cols <- c(
+  "20000" = "#A8C7E6",
+  "10500" = "#57ADDE",
+  "6000"  = "#17441e",
+  "3000"  = "#3a621f",
+  "1500"  = "#357090",
+  "600"   = "#2F6F73"
+)
+
+cell_number_label <- c(
+  "20000" = "20,000 cells",
+  "10500" = "10,500 cells",
+  "6000"  = "6,000 cells",
+  "3000"  = "3,000 cells",
+  "1500"  = "1,500 cells",
+  "600"   = "600 cells"
+)
+
+stopifnot(file.exists(timepoint_ref_obj), file.exists(timepoint_ref_phase))
+
+# Step 3. Run cell-phase inference for cell-number benchmark only
+
+phase_record_all <- list()
+ram_record_all <- list()
+run_id <- 1
+
+for (target_n_cell in run_cell_number_vec) {
+  for (rep_id in seq_len(n_repeat)) {
+    message("============================================================")
+    message("Running cell-phase inference")
+    message("target_n_cell = ", target_n_cell, " | repeat = ", rep_id)
+
+    obj_file <- file.path(
+      obj_dir,
+      paste0("simulate_data_cell", target_n_cell, "_4000g_6tp.rds")
+    )
+
+    phase_file <- file.path(
+      phase_dir,
+      paste0("res_phase_cell", target_n_cell, "_rep", rep_id, ".rds")
+    )
+
+    obj_sim <- readRDS(obj_file)
+    DefaultAssay(obj_sim) <- "RNA"
+
+    count <- Seurat::GetAssayData(
+      obj_sim,
+      assay = "RNA",
+      slot = "counts"
+    )
+
+    metadata <- obj_sim@meta.data %>%
+      as.data.frame()
+    metadata$cell <- rownames(metadata)
+
+    stopifnot(
+      identical(colnames(count), metadata$cell),
+      all(c("ZT_sym", "ZT_true", "theta_true", "theta_obs", "celltype", "condition", "group") %in% colnames(metadata))
+    )
+
+    zt_observed <- sort(unique(as.numeric(metadata$ZT_sym)))
+
+    message("Observed ZT points: ", paste(zt_observed, collapse = ", "))
+    message("Expected ZT points: ", paste(ZT_points, collapse = ", "))
+    stopifnot(identical(zt_observed, ZT_points))
+
+    lib_size <- Matrix::colSums(count)
+    keep_cell <- is.finite(lib_size) &
+      lib_size > 0 &
+      is.finite(as.numeric(metadata$ZT_sym)) &
+      is.finite(as.numeric(metadata$ZT_true)) &
+      !is.na(metadata$celltype)
+
+    message("Total cells before QC: ", ncol(count))
+    message("Cells removed before infer_cell_phase: ", sum(!keep_cell))
+
+    count <- count[, keep_cell, drop = FALSE]
+    metadata <- metadata[keep_cell, , drop = FALSE]
+    metadata$cell <- rownames(metadata)
+
+    stopifnot(
+      identical(colnames(count), metadata$cell),
+      all(Matrix::colSums(count) > 0),
+      length(unique(metadata$celltype)) == 1,
+      all(unique(metadata$celltype) == "Celltype1"),
+      length(unique(metadata$condition)) == 2,
+      all(sort(unique(as.character(metadata$condition))) == c("cond_1", "cond_2"))
+    )
+
+    message("Condition x ZT table:")
+    print(table(metadata$condition, metadata$ZT_sym))
+    message("Celltype table:")
+    print(table(metadata$celltype))
+
+    metadata$ZT_fit <- as.numeric(metadata$ZT_sym)
+    zt_fit_note <- "ZT_fit equals ZT_sym."
+
+    t_start <- proc.time()
+
+    pm <- profmem({
+      res_phase <- infer_cell_phase(
+        count = count,
+        metadata = metadata,
+        ZT_by = "ZT_fit",
+        strata_by = "celltype",
+        Species = "mouse",
+        n_grid = 60,
+        n_iter_outer = 5,
+        n_iter_seed = 3,
+        Kappa = 5,
+        p_mix = 0.85,
+        Min_n = 50,
+        setseed = 2026 + rep_id,
+        Verbose = TRUE
+      )
+    })
+
+    elapsed_min <- as.numeric((proc.time() - t_start)["elapsed"]) / 60
+
+    ram_record_all[[run_id]] <- summarise_profmem(
+      pm = pm,
+      target_n_cell = target_n_cell,
+      rep_id = rep_id,
+      step_name = "infer_cell_phase",
+      elapsed_min = elapsed_min
+    )
+
+    write_csv(
+      bind_rows(ram_record_all),
+      file.path(ram_dir, "cell_number_layer1_profmem_summary.csv")
+    )
+
+    res_phase <- res_phase %>%
+      mutate(
+        target_n_cell = target_n_cell,
+        actual_n_cell = ncol(count),
+        repeat_id = rep_id,
+        benchmark = "cell_number",
+        n_timepoint = length(ZT_points),
+        ZT_design = paste(ZT_points, collapse = ","),
+        ZT_fit_note = zt_fit_note
+      )
+
+    saveRDS(res_phase, phase_file)
+
+    phase_record_all[[run_id]] <- tibble(
+      target_n_cell = target_n_cell,
+      actual_n_cell = ncol(count),
+      repeat_id = rep_id,
+      ZT_points = paste(ZT_points, collapse = ","),
+      object_file = obj_file,
+      res_phase_file = phase_file,
+      source = "cell_number_new",
+      file_exists = file.exists(phase_file),
+      elapsed_min = elapsed_min,
+      status = "finished_new",
+      error_message = NA_character_
+    )
+
+    write_csv(
+      bind_rows(phase_record_all),
+      file.path(index_dir, "cell_number_res_phase_file_index_partial.csv")
+    )
+
+    message("Saved res_phase: ", phase_file)
+    message("Elapsed time: ", round(elapsed_min, 2), " min")
+    message("Median Rbar: ", round(median(res_phase$Rbar, na.rm = TRUE), 4))
+    message("Median r_cell: ", round(median(res_phase$r_cell, na.rm = TRUE), 4))
+
+    run_id <- run_id + 1
+    rm(obj_sim, count, metadata, res_phase, lib_size, keep_cell, pm)
+    gc()
+  }
+}
+
+# Step 4. Add existing 20,000-cell reference from time-point benchmark
+
+obj_ref <- readRDS(timepoint_ref_obj)
+metadata_ref <- obj_ref@meta.data %>%
+  as.data.frame()
+metadata_ref$cell <- rownames(metadata_ref)
+
+res_phase_ref <- readRDS(timepoint_ref_phase)
+
+stopifnot(
+  nrow(metadata_ref) == 20000,
+  identical(sort(unique(as.numeric(metadata_ref$ZT_sym))), ZT_points),
+  all(c("cell", "ZT_pred", "theta_pred", "r_cell", "Rbar") %in% colnames(res_phase_ref))
+)
+
+phase_record_all[[run_id]] <- tibble(
+  target_n_cell = 20000,
+  actual_n_cell = nrow(metadata_ref),
+  repeat_id = 1,
+  ZT_points = paste(ZT_points, collapse = ","),
+  object_file = timepoint_ref_obj,
+  res_phase_file = timepoint_ref_phase,
+  source = "timepoint_6tp_reference",
+  file_exists = file.exists(timepoint_ref_phase),
+  elapsed_min = NA_real_,
+  status = "finished_reference",
+  error_message = NA_character_
+)
+
+rm(obj_ref, metadata_ref, res_phase_ref)
+gc()
+
+phase_index <- bind_rows(phase_record_all) %>%
+  arrange(desc(target_n_cell), repeat_id)
+
+ram_summary <- bind_rows(ram_record_all) %>%
+  arrange(desc(target_n_cell), repeat_id)
+
+write_csv(
+  phase_index,
+  file.path(index_dir, "cell_number_res_phase_file_index.csv")
+)
+
+saveRDS(
+  phase_index,
+  file.path(index_dir, "cell_number_res_phase_file_index.rds")
+)
+
+write_csv(
+  ram_summary,
+  file.path(ram_dir, "cell_number_layer1_profmem_summary.csv")
+)
+
+saveRDS(
+  ram_summary,
+  file.path(ram_dir, "cell_number_layer1_profmem_summary.rds")
+)
+
+print(phase_index)
+print(ram_summary)
+
+# Step 5. Evaluate cell-phase accuracy
+
+phase_index_success <- phase_index %>%
+  filter(status %in% c("finished_new", "finished_reference"), file_exists)
+
+stopifnot(nrow(phase_index_success) == length(cell_number_vec) * n_repeat)
+
+auc_all <- list()
+cdf_all <- list()
+eval_all <- list()
+eval_id <- 1
+
+for (i in seq_len(nrow(phase_index_success))) {
+  target_n_cell <- phase_index_success$target_n_cell[i]
+  rep_id <- phase_index_success$repeat_id[i]
+
+  message("============================================================")
+  message("Evaluating target_n_cell = ", target_n_cell, " | repeat = ", rep_id)
+
+  obj_sim <- readRDS(phase_index_success$object_file[i])
+
+  metadata <- obj_sim@meta.data %>%
+    as.data.frame()
+  metadata$cell <- rownames(metadata)
+
+  res_phase <- readRDS(phase_index_success$res_phase_file[i])
+
+  res_eval <- res_phase %>%
+    mutate(cell = as.character(cell)) %>%
+    left_join(
+      metadata %>%
+        select(cell, ZT_true, theta_true, theta_obs, ZT_sym, celltype, condition, group),
+      by = "cell"
+    ) %>%
+    filter(is.finite(ZT_true), is.finite(ZT_pred))
+
+  m_i <- calc_phase_metrics(
+    true_h = res_eval$ZT_true,
+    pred_h = res_eval$ZT_pred
+  )
+
+  auc_all[[eval_id]] <- tibble(
+    target_n_cell = target_n_cell,
+    actual_n_cell = nrow(res_eval),
+    repeat_id = rep_id,
+    source = phase_index_success$source[i],
+    object_file = phase_index_success$object_file[i],
+    res_phase_file = phase_index_success$res_phase_file[i],
+    ZT_points = paste(sort(unique(metadata$ZT_sym)), collapse = ","),
+    AUC = m_i$AUC,
+    MedAE = m_i$MedAE,
+    n_cell = m_i$n_cell,
+    median_Rbar = median(res_phase$Rbar, na.rm = TRUE),
+    median_r_cell = median(res_phase$r_cell, na.rm = TRUE)
+  )
+
+  cdf_all[[eval_id]] <- tibble(
+    target_n_cell = target_n_cell,
+    repeat_id = rep_id,
+    source = phase_index_success$source[i],
+    threshold_h = m_i$threshold_h,
+    pct_correct = m_i$pct_correct
+  )
+
+  eval_all[[eval_id]] <- res_eval %>%
+    mutate(
+      abs_err_h = circ_abs_err_h(pred_h = ZT_pred, true_h = ZT_true),
+      target_n_cell = target_n_cell,
+      actual_n_cell = nrow(res_eval),
+      repeat_id = rep_id,
+      source = phase_index_success$source[i]
+    )
+
+  eval_id <- eval_id + 1
+
+  rm(obj_sim, metadata, res_phase, res_eval, m_i)
+  gc()
+}
+
+auc_all <- bind_rows(auc_all)
+cdf_all <- bind_rows(cdf_all)
+eval_all <- bind_rows(eval_all)
+
+write_csv(auc_all, file.path(out_dir, "cell_number_cell_phase_auc_medae_all.csv"))
+saveRDS(auc_all, file.path(out_dir, "cell_number_cell_phase_auc_medae_all.rds"))
+
+write_csv(cdf_all, file.path(out_dir, "cell_number_cell_phase_cdf_raw_all.csv"))
+saveRDS(cdf_all, file.path(out_dir, "cell_number_cell_phase_cdf_raw_all.rds"))
+
+write_csv(eval_all, file.path(out_dir, "cell_number_cell_phase_eval_cell_all.csv"))
+saveRDS(eval_all, file.path(out_dir, "cell_number_cell_phase_eval_cell_all.rds"))
+
+# Step 6. Summarise AUC and MedAE
+
+auc_median <- auc_all %>%
+  group_by(target_n_cell) %>%
+  summarise(
+    actual_n_cell = median(actual_n_cell, na.rm = TRUE),
+    AUC = median(AUC, na.rm = TRUE),
+    MedAE = median(MedAE, na.rm = TRUE),
+    median_Rbar = median(median_Rbar, na.rm = TRUE),
+    median_r_cell = median(median_r_cell, na.rm = TRUE),
+    n_repeat = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(target_n_cell))
+
+print(auc_median)
+
+write_csv(auc_median, file.path(out_dir, "cell_number_cell_phase_auc_medae_median.csv"))
+saveRDS(auc_median, file.path(out_dir, "cell_number_cell_phase_auc_medae_median.rds"))
+
+representative_runs <- auc_all %>%
+  left_join(
+    auc_median %>%
+      select(target_n_cell, MedAE_median = MedAE),
+    by = "target_n_cell"
+  ) %>%
+  mutate(diff_to_median = abs(MedAE - MedAE_median)) %>%
+  group_by(target_n_cell) %>%
+  arrange(diff_to_median, repeat_id) %>%
+  slice(1) %>%
+  ungroup() %>%
+  arrange(desc(target_n_cell))
+
+print(representative_runs)
+
+write_csv(
+  representative_runs,
+  file.path(out_dir, "representative_runs_by_median_MedAE_cell_number.csv")
+)
+
+saveRDS(
+  representative_runs,
+  file.path(out_dir, "representative_runs_by_median_MedAE_cell_number.rds")
+)
+
+# Step 7. Build grid CDF curve
+
+threshold_grid <- seq(0, 12, by = 0.05)
+
+cdf_grid_all <- list()
+grid_id <- 1
+
+for (i in seq_len(nrow(phase_index_success))) {
+  target_n_cell <- phase_index_success$target_n_cell[i]
+  rep_id <- phase_index_success$repeat_id[i]
+
+  obj_sim <- readRDS(phase_index_success$object_file[i])
+
+  metadata <- obj_sim@meta.data %>%
+    as.data.frame()
+  metadata$cell <- rownames(metadata)
+
+  res_phase <- readRDS(phase_index_success$res_phase_file[i])
+
+  res_eval <- res_phase %>%
+    mutate(cell = as.character(cell)) %>%
+    left_join(
+      metadata %>%
+        select(cell, ZT_true, theta_true, theta_obs, ZT_sym, celltype, condition, group),
+      by = "cell"
+    ) %>%
+    filter(is.finite(ZT_true), is.finite(ZT_pred))
+
+  cdf_grid_all[[grid_id]] <- make_grid_cdf(
+    true_h = res_eval$ZT_true,
+    pred_h = res_eval$ZT_pred,
+    threshold_grid = threshold_grid
+  ) %>%
+    mutate(
+      target_n_cell = target_n_cell,
+      repeat_id = rep_id,
+      source = phase_index_success$source[i]
+    ) %>%
+    select(target_n_cell, repeat_id, source, threshold_h, pct_correct)
+
+  grid_id <- grid_id + 1
+
+  rm(obj_sim, metadata, res_phase, res_eval)
+  gc()
+}
+
+cdf_grid_all <- bind_rows(cdf_grid_all)
+
+cdf_median <- cdf_grid_all %>%
+  group_by(target_n_cell, threshold_h) %>%
+  summarise(
+    pct_correct = median(pct_correct, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(target_n_cell), threshold_h)
+
+write_csv(cdf_grid_all, file.path(out_dir, "cell_number_cell_phase_cdf_grid_all.csv"))
+saveRDS(cdf_grid_all, file.path(out_dir, "cell_number_cell_phase_cdf_grid_all.rds"))
+
+write_csv(cdf_median, file.path(out_dir, "cell_number_cell_phase_cdf_median_curve.csv"))
+saveRDS(cdf_median, file.path(out_dir, "cell_number_cell_phase_cdf_median_curve.rds"))
+
+# Step 8. Plot CDF curves
+
+cell_number_vec_success <- cell_number_vec[cell_number_vec %in% auc_median$target_n_cell]
+
+legend_labels <- c()
+
+for (target_n_cell in cell_number_vec_success) {
+  auc_i <- auc_median %>%
+    filter(target_n_cell == !!target_n_cell)
+
+  legend_labels <- c(
+    legend_labels,
+    paste0(
+      cell_number_label[as.character(target_n_cell)],
+      ": ",
+      sprintf("%.3f", auc_i$AUC),
+      ", ",
+      sprintf("%.3f", auc_i$MedAE)
+    )
+  )
+}
+
+print(legend_labels)
+
+draw_cdf <- function() {
+  par(
+    family = "serif",
+    mar = c(4, 4, 2.5, 1),
+    mgp = c(2.1, 0.55, 0),
+    tcl = -0.25,
+    lwd = 0.5
+  )
+
+  plot(
+    NA,
+    xlim = c(-0.3, 12.5),
+    ylim = c(-2, 102),
+    xlab = "Correct to within (hrs)",
+    ylab = "% correct",
+    main = "Absolute error CDF",
+    cex.main = 0.9,
+    cex.lab = 0.8,
+    cex.axis = 0.75,
+    bty = "n"
+  )
+
+  box(lwd = 0.5)
+  abline(a = 0, b = 100 / 12, col = "lightgray", lwd = 0.7)
+
+  for (target_n_cell in cell_number_vec_success) {
+    cdf_i <- cdf_median %>%
+      filter(target_n_cell == !!target_n_cell)
+
+    lines(
+      cdf_i$threshold_h,
+      cdf_i$pct_correct,
+      col = cell_number_cols[as.character(target_n_cell)],
+      lwd = 1.2
+    )
+  }
+
+  legend(
+    "bottomright",
+    legend = c("        AUC, MedAE", legend_labels),
+    col = c(NA, cell_number_cols[as.character(cell_number_vec_success)]),
+    lwd = c(NA, rep(1.2, length(cell_number_vec_success))),
+    bty = "o",
+    box.lwd = 0.3,
+    cex = 0.52,
+    y.intersp = 0.86
+  )
+}
+
+tiff(
+  filename = file.path(plot_dir, "cell_number_cell_phase_cdf.tiff"),
+  width = 3.4,
+  height = 3.2,
+  units = "in",
+  res = 300,
+  compression = "lzw"
+)
+draw_cdf()
+dev.off()
+
+pdf(
+  file = file.path(plot_dir, "cell_number_cell_phase_cdf.pdf"),
+  width = 3.4,
+  height = 3.2
+)
+draw_cdf()
+dev.off()
+
+# Step 9. Plot representative scatter plots with unified plot_phase_scatter style
+
+for (i in seq_len(nrow(representative_runs))) {
+  target_n_cell_i <- representative_runs$target_n_cell[i]
+  rep_id_i <- representative_runs$repeat_id[i]
+
+  message("Plotting scatter | target_n_cell = ", target_n_cell_i, " | repeat = ", rep_id_i)
+
+  obj_sim <- readRDS(representative_runs$object_file[i])
+
+  metadata <- obj_sim@meta.data %>%
+    as.data.frame()
+  metadata$cell <- rownames(metadata)
+
+  res_phase <- readRDS(representative_runs$res_phase_file[i])
+
+  scatter_base <- paste0(
+    "cell", target_n_cell_i,
+    "_rep", rep_id_i,
+    "_phase_scatter"
+  )
+
+  save_phase_scatter(
+    res_phase = res_phase,
+    metadata = metadata,
+    title_text = paste0(format(target_n_cell_i, big.mark = ","), " cells"),
+    point_col = cell_number_cols[as.character(target_n_cell_i)],
+    out_pdf = file.path(plot_dir, paste0(scatter_base, ".pdf")),
+    out_tiff = file.path(plot_dir, paste0(scatter_base, ".tiff"))
+  )
+
+  rm(obj_sim, metadata, res_phase)
+  gc()
+}
+
+message("Finished cell-number benchmark cell-phase inference.")
+message("Output directory: ", out_dir)
+message("Phase results: ", phase_dir)
+message("Plots: ", plot_dir)
+message("RAM profile summary: ", file.path(ram_dir, "cell_number_layer1_profmem_summary.csv"))
+```

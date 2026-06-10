@@ -1,0 +1,455 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#amp metrics
+```{r}
+# amp metrics: time-point number benchmark amplitude accuracy
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(tidyr)
+  library(ggplot2)
+  library(plotthis)
+  library(grid)
+})
+
+# Step 0. IO
+
+out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_timepoint_number_4000g_20000c"
+
+param_long_dir <- file.path(out_dir, "param_long")
+truth_dir <- file.path(out_dir, "truth_params")
+metric_dir <- file.path(out_dir, "gene_param_metrics")
+plot_dir <- file.path(out_dir, "plots_gene_param")
+
+dir.create(metric_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+
+timepoint_vec <- c(2, 4, 6, 8, 12, 24)
+n_repeat <- 1
+
+TIMEPOINT_ORDER <- c(2, 4, 6, 8, 12, 24)
+
+TIMEPOINT_COLORS <- c(
+  "2"  = "#C2E2C2",
+  "4"  = "#357090",
+  "6"  = "#bdc3ac",
+  "8"  = "#3a621f",
+  "12" = "#17441e",
+  "24" = "#A8C7E6"
+)
+
+TIMEPOINT_LABELS <- c(
+  "2"  = "2",
+  "4"  = "4",
+  "6"  = "6",
+  "8"  = "8",
+  "12" = "12",
+  "24" = "24"
+)
+
+LINE_COLOR <- TIMEPOINT_COLORS["24"]
+
+eps_amp <- 1e-6
+
+# Step 1. Load amplitude truth and prediction
+
+load_amp_one_timepoint <- function(n_timepoint, rep_id = 1) {
+
+  param_long_rds <- file.path(
+    param_long_dir,
+    paste0("param_long_timepoint", n_timepoint, "_rep", rep_id, ".rds")
+  )
+
+  truth_file <- file.path(
+    truth_dir,
+    paste0("truth_params_timepoint", n_timepoint, "_4000g_20000c.rds")
+  )
+
+  stopifnot(file.exists(param_long_rds))
+  stopifnot(file.exists(truth_file))
+
+  param_long <- readRDS(param_long_rds)
+  truth_i <- readRDS(truth_file)
+
+  genes_truth <- as.character(truth_i$genes)
+  groups_truth <- as.character(truth_i$groups)
+
+  truth_amp_df <- expand.grid(
+    gene = genes_truth,
+    Group = groups_truth,
+    stringsAsFactors = FALSE
+  ) %>%
+    as_tibble() %>%
+    mutate(
+      gene_index = match(gene, genes_truth),
+      group_index = match(Group, groups_truth),
+      truth_amp = truth_i$A_mat[cbind(gene_index, group_index)]
+    ) %>%
+    select(gene, Group, truth_amp)
+
+  param_long %>%
+    transmute(
+      gene = as.character(gene),
+      Group = as.character(condition),
+      pred_amp = as.numeric(Amplitude),
+      n_timepoint = n_timepoint,
+      repeat_id = rep_id
+    ) %>%
+    left_join(truth_amp_df, by = c("gene", "Group")) %>%
+    select(gene, Group, truth_amp, pred_amp, n_timepoint, repeat_id) %>%
+    mutate(
+      truth_amp = as.numeric(truth_amp),
+      pred_amp = as.numeric(pred_amp)
+    ) %>%
+    filter(
+      is.finite(truth_amp),
+      is.finite(pred_amp)
+    )
+}
+
+# Step 2. Merge all time-point inputs
+
+amp_all <- list()
+run_id <- 1
+
+for (n_timepoint in timepoint_vec) {
+  for (rep_id in seq_len(n_repeat)) {
+    message("Loading amplitude result | n_timepoint = ", n_timepoint, " | repeat = ", rep_id)
+
+    amp_all[[run_id]] <- load_amp_one_timepoint(
+      n_timepoint = n_timepoint,
+      rep_id = rep_id
+    )
+
+    run_id <- run_id + 1
+  }
+}
+
+amp_long <- bind_rows(amp_all) %>%
+  mutate(
+    n_timepoint = factor(n_timepoint, levels = TIMEPOINT_ORDER),
+    Group = factor(Group, levels = c("cond_1", "cond_2"))
+  )
+
+print(head(amp_long))
+print(table(amp_long$n_timepoint))
+print(table(amp_long$Group))
+print(colSums(is.na(amp_long)))
+
+stopifnot(
+  nrow(amp_long) == length(timepoint_vec) * n_repeat * 4000 * 2,
+  all(!is.na(amp_long$truth_amp)),
+  all(!is.na(amp_long$pred_amp))
+)
+
+write_csv(
+  amp_long,
+  file.path(metric_dir, "Amplitude_truth_pred_long_timepoint.csv")
+)
+
+saveRDS(
+  amp_long,
+  file.path(metric_dir, "Amplitude_truth_pred_long_timepoint.rds")
+)
+
+# Step 3. Metrics
+
+metrics_amp <- amp_long %>%
+  mutate(
+    abs_error = abs(truth_amp - pred_amp),
+    sq_error = (truth_amp - pred_amp)^2,
+    ape = ifelse(abs(truth_amp) > eps_amp, abs((truth_amp - pred_amp) / truth_amp), NA_real_)
+  ) %>%
+  group_by(n_timepoint, repeat_id) %>%
+  summarise(
+    N = n(),
+    N_mape = sum(!is.na(ape)),
+    ME = mean(truth_amp - pred_amp),
+    MAE = mean(abs_error),
+    MSE = mean(sq_error),
+    RMSE = sqrt(mean(sq_error)),
+    MAPE = mean(ape, na.rm = TRUE) * 100,
+    R = cor(truth_amp, pred_amp, method = "pearson"),
+    R2 = R^2,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    n_timepoint = factor(as.character(n_timepoint), levels = as.character(TIMEPOINT_ORDER))
+  )
+
+print(metrics_amp)
+
+write_csv(
+  metrics_amp,
+  file.path(metric_dir, "Amplitude_metrics_summary_timepoint_all_repeats.csv")
+)
+
+saveRDS(
+  metrics_amp,
+  file.path(metric_dir, "Amplitude_metrics_summary_timepoint_all_repeats.rds")
+)
+
+metrics_amp_median <- metrics_amp %>%
+  group_by(n_timepoint) %>%
+  summarise(
+    N = median(N, na.rm = TRUE),
+    N_mape = median(N_mape, na.rm = TRUE),
+    ME = median(ME, na.rm = TRUE),
+    MAE = median(MAE, na.rm = TRUE),
+    MSE = median(MSE, na.rm = TRUE),
+    RMSE = median(RMSE, na.rm = TRUE),
+    MAPE = median(MAPE, na.rm = TRUE),
+    R = median(R, na.rm = TRUE),
+    R2 = median(R2, na.rm = TRUE),
+    n_repeat = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    n_timepoint_num = as.numeric(as.character(n_timepoint)),
+    n_timepoint = factor(as.character(n_timepoint), levels = as.character(TIMEPOINT_ORDER))
+  ) %>%
+  arrange(n_timepoint_num)
+
+print(metrics_amp_median)
+
+write_csv(
+  metrics_amp_median,
+  file.path(metric_dir, "Amplitude_metrics_summary_timepoint_median.csv")
+)
+
+saveRDS(
+  metrics_amp_median,
+  file.path(metric_dir, "Amplitude_metrics_summary_timepoint_median.rds")
+)
+
+metrics_amp_long <- metrics_amp_median %>%
+  select(n_timepoint, n_timepoint_num, ME, MAE, MSE, RMSE, MAPE, R2) %>%
+  pivot_longer(
+    cols = c(ME, MAE, MSE, RMSE, MAPE, R2),
+    names_to = "metric",
+    values_to = "value"
+  ) %>%
+  mutate(
+    metric = factor(metric, levels = c("ME", "MAE", "MSE", "RMSE", "MAPE", "R2")),
+    n_timepoint = factor(as.character(n_timepoint), levels = as.character(TIMEPOINT_ORDER)),
+    label = case_when(
+      metric == "MAPE" ~ sprintf("%.1f%%", value),
+      TRUE ~ sprintf("%.3f", value)
+    )
+  )
+
+write_csv(
+  metrics_amp_long,
+  file.path(metric_dir, "Amplitude_metrics_long_timepoint.csv")
+)
+
+saveRDS(
+  metrics_amp_long,
+  file.path(metric_dir, "Amplitude_metrics_long_timepoint.rds")
+)
+
+# Step 4. Single metric plots
+
+plot_amp_metric_line <- function(metric_use, title, ylab, out_name) {
+
+  df_plot <- metrics_amp_long %>%
+    filter(metric == metric_use) %>%
+    mutate(
+      n_timepoint = factor(as.character(n_timepoint), levels = as.character(TIMEPOINT_ORDER))
+    )
+
+  p <- ggplot(
+    df_plot,
+    aes(x = n_timepoint, y = value, group = 1)
+  ) +
+    geom_line(
+      color = LINE_COLOR,
+      linewidth = 1.35,
+      alpha = 0.85
+    ) +
+    geom_point(
+      aes(fill = n_timepoint),
+      shape = 21,
+      size = 5.6,
+      color = "black",
+      stroke = 0.35,
+      alpha = 1
+    ) +
+    geom_text(
+      aes(label = label),
+      vjust = ifelse(df_plot$value >= 0, -1.15, 1.45),
+      size = 6.2,
+      fontface = "bold",
+      family = "serif"
+    ) +
+    scale_fill_manual(
+      values = TIMEPOINT_COLORS,
+      drop = FALSE
+    ) +
+    scale_x_discrete(
+      labels = TIMEPOINT_LABELS
+    ) +
+    scale_y_continuous(
+      expand = expansion(mult = c(0.18, 0.40))
+    ) +
+    coord_cartesian(clip = "off") +
+    labs(
+      title = title,
+      x = "Number of sample time points",
+      y = ylab
+    ) +
+    theme_classic(base_size = 14, base_family = "serif") +
+    theme(
+      plot.margin = ggplot2::margin(30, 32, 32, 32),
+      plot.title = element_text(hjust = 0.5, size = 28, face = "bold"),
+      axis.title.x = element_text(size = 22, face = "bold"),
+      axis.title.y = element_text(size = 22, face = "bold"),
+      axis.text.x = element_text(size = 17, face = "bold", colour = "black"),
+      axis.text.y = element_text(size = 19, face = "bold", colour = "black"),
+      legend.position = "none"
+    )
+
+  print(p)
+
+  ggsave(
+    file.path(plot_dir, paste0(out_name, ".pdf")),
+    p,
+    width = 7.2,
+    height = 6.0
+  )
+
+  ggsave(
+    file.path(plot_dir, paste0(out_name, ".png")),
+    p,
+    width = 7.2,
+    height = 6.0,
+    dpi = 300
+  )
+
+  p
+}
+
+p_amp_me <- plot_amp_metric_line(
+  "ME",
+  "Amplitude ME",
+  "ME",
+  "Amplitude_ME_timepoint_lineplot"
+)
+
+p_amp_mae <- plot_amp_metric_line(
+  "MAE",
+  "Amplitude MAE",
+  "MAE",
+  "Amplitude_MAE_timepoint_lineplot"
+)
+
+p_amp_mse <- plot_amp_metric_line(
+  "MSE",
+  "Amplitude MSE",
+  "MSE",
+  "Amplitude_MSE_timepoint_lineplot"
+)
+
+p_amp_rmse <- plot_amp_metric_line(
+  "RMSE",
+  "Amplitude RMSE",
+  "RMSE",
+  "Amplitude_RMSE_timepoint_lineplot"
+)
+
+p_amp_mape <- plot_amp_metric_line(
+  "MAPE",
+  "Amplitude MAPE",
+  "MAPE (%)",
+  "Amplitude_MAPE_timepoint_lineplot"
+)
+
+p_amp_r2 <- plot_amp_metric_line(
+  "R2",
+  "Amplitude R2",
+  expression(R^2),
+  "Amplitude_R2_timepoint_lineplot"
+)
+
+# Step 5. Facet plot
+
+metrics_amp_plot <- metrics_amp_long %>%
+  filter(metric %in% c("ME", "MAE", "MSE", "RMSE", "MAPE", "R2")) %>%
+  mutate(
+    metric = factor(as.character(metric), levels = c("ME", "MAE", "MSE", "RMSE", "MAPE", "R2")),
+    n_timepoint = factor(as.character(n_timepoint), levels = as.character(TIMEPOINT_ORDER))
+  )
+
+p_amp_facet <- ggplot(
+  metrics_amp_plot,
+  aes(x = n_timepoint, y = value, group = 1)
+) +
+  geom_line(
+    color = LINE_COLOR,
+    linewidth = 1.15,
+    alpha = 0.85
+  ) +
+  geom_point(
+    aes(fill = n_timepoint),
+    shape = 21,
+    size = 4.6,
+    color = "black",
+    stroke = 0.30,
+    alpha = 1
+  ) +
+  scale_fill_manual(
+    values = TIMEPOINT_COLORS,
+    drop = FALSE
+  ) +
+  scale_x_discrete(
+    labels = TIMEPOINT_LABELS
+  ) +
+  facet_wrap(
+    ~ metric,
+    scales = "free_y",
+    nrow = 2
+  ) +
+  labs(
+    title = "Amplitude prediction metrics across sample time-point densities",
+    x = "Number of sample time points",
+    y = "Value"
+  ) +
+  theme_classic(base_size = 14, base_family = "serif") +
+  theme(
+    plot.margin = ggplot2::margin(12, 14, 22, 14),
+    plot.title = element_text(hjust = 0.5, size = 24, face = "bold"),
+    axis.title.x = element_text(size = 20, face = "bold"),
+    axis.title.y = element_text(size = 20, face = "bold"),
+    axis.text.x = element_text(size = 16, face = "bold", colour = "black"),
+    axis.text.y = element_text(size = 14, face = "bold", colour = "black"),
+    strip.text = element_text(face = "bold", size = 18),
+    panel.spacing = grid::unit(1.2, "lines"),
+    legend.position = "none"
+  )
+
+print(p_amp_facet)
+
+ggsave(
+  file.path(plot_dir, "Amplitude_metrics_timepoint_facet_lineplot.pdf"),
+  p_amp_facet,
+  width = 11,
+  height = 7.5
+)
+
+ggsave(
+  file.path(plot_dir, "Amplitude_metrics_timepoint_facet_lineplot.png"),
+  p_amp_facet,
+  width = 11,
+  height = 7.5,
+  dpi = 300
+)
+
+message("Finished amplitude metric calculation and plotting.")
+message("Metric output: ", metric_dir)
+message("Plot output: ", plot_dir)
+```

@@ -1,0 +1,274 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#time benchmark
+```{r}
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(ggplot2)
+  library(plotthis)
+  library(patchwork)
+})
+
+# Step 0. IO
+
+out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/runtime_benchmark"
+
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Step 1. Manual runtime records
+
+runtime_timepoint <- tibble(
+  benchmark = "timepoint_number",
+  x_value = c(2, 4, 6, 8, 12, 24),
+  x_label = factor(
+    as.character(x_value),
+    levels = as.character(c(2, 4, 6, 8, 12, 24))
+  ),
+  infer_cell_phase_min = c(1.11, 1.10, 1.11, 1.14, 1.14, 1.14),
+  infer_gene_param_min = c(89.11, 129.23, 109.47, 93.85, 141.71, 84.71)
+)
+
+runtime_cellnumber <- tibble(
+  benchmark = "cell_number",
+  x_value = c(600, 1500, 3000, 6000, 10500, 20000),
+  x_label = factor(
+    c("600", "1,500", "3,000", "6,000", "10,500", "20,000"),
+    levels = c("600", "1,500", "3,000", "6,000", "10,500", "20,000")
+  ),
+  infer_cell_phase_min = c(0.16, 0.20, 0.27, 0.42, 0.66, 1.11),
+  infer_gene_param_min = c(3.50, 7.44, 13.81, 26.24, 45.01, 109.47)
+)
+
+runtime_all <- bind_rows(runtime_timepoint, runtime_cellnumber)
+
+write_csv(
+  runtime_all,
+  file.path(out_dir, "runtime_benchmark_manual.csv")
+)
+
+saveRDS(
+  runtime_all,
+  file.path(out_dir, "runtime_benchmark_manual.rds")
+)
+
+print(runtime_all)
+
+# Step 2. Plot helpers
+
+COL_PHASE <- "#4F78A8"
+COL_PARAM <- "#FFD84D"
+
+save_plot_pdf_png <- function(p, filename_base, width = 4.8, height = 4.8) {
+  ggsave(
+    filename = file.path(out_dir, paste0(filename_base, ".pdf")),
+    plot = p,
+    width = width,
+    height = height
+  )
+
+  ggsave(
+    filename = file.path(out_dir, paste0(filename_base, ".png")),
+    plot = p,
+    width = width,
+    height = height,
+    dpi = 300
+  )
+}
+
+theme_runtime <- function(x_angle = 0, x_hjust = 0.5) {
+  theme_classic(base_family = "serif") +
+    theme(
+      plot.title = element_text(
+        hjust = 0.5,
+        face = "bold",
+        size = 24,
+        family = "serif"
+      ),
+      axis.title.x = element_text(
+        face = "bold",
+        size = 21,
+        family = "serif",
+        margin = margin(t = 8)
+      ),
+      axis.title.y = element_text(
+        face = "bold",
+        size = 21,
+        family = "serif",
+        margin = margin(r = 8)
+      ),
+      axis.text.x = element_text(
+        face = "bold",
+        size = 17,
+        colour = "black",
+        family = "serif",
+        angle = x_angle,
+        hjust = x_hjust
+      ),
+      axis.text.y = element_text(
+        face = "bold",
+        size = 17,
+        colour = "black",
+        family = "serif"
+      ),
+      axis.line = element_line(linewidth = 0.85, colour = "black"),
+      axis.ticks = element_line(linewidth = 0.85, colour = "black"),
+      axis.ticks.length = unit(0.18, "cm"),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      plot.background = element_blank(),
+      legend.position = "none",
+      plot.margin = margin(10, 14, 10, 10)
+    )
+}
+
+make_runtime_plot <- function(df, col_use, title_text, xlab_text, y_limit, y_breaks, x_angle = 0, x_hjust = 0.5) {
+  LinePlot(
+    df,
+    x = "x_label",
+    y = "runtime_min",
+    add_bg = FALSE,
+    pt_size = 4.8,
+    pt_alpha = 1,
+    line_width = 1.4,
+    line_alpha = 1,
+    palcolor = col_use,
+    color_line_by_x_if_no_group = FALSE,
+    fill_point_by_x_if_no_group = FALSE,
+    theme = "theme_classic",
+    aspect.ratio = 1,
+    legend.position = "none",
+    title = title_text,
+    xlab = xlab_text,
+    ylab = "Runtime (min)"
+  ) +
+    geom_text(
+      aes(label = label),
+      vjust = -0.85,
+      size = 5.4,
+      family = "serif",
+      fontface = "bold"
+    ) +
+    scale_y_continuous(
+      limits = y_limit,
+      breaks = y_breaks,
+      expand = expansion(mult = c(0, 0.08))
+    ) +
+    theme_runtime(x_angle = x_angle, x_hjust = x_hjust)
+}
+
+# Step 3. Build plotting tables
+
+df_tp_phase <- runtime_timepoint %>%
+  transmute(
+    x_label,
+    runtime_min = infer_cell_phase_min,
+    label = sprintf("%.2f", runtime_min)
+  )
+
+df_cell_phase <- runtime_cellnumber %>%
+  transmute(
+    x_label,
+    runtime_min = infer_cell_phase_min,
+    label = sprintf("%.2f", runtime_min)
+  )
+
+df_tp_param <- runtime_timepoint %>%
+  transmute(
+    x_label,
+    runtime_min = infer_gene_param_min,
+    label = sprintf("%.1f", runtime_min)
+  )
+
+df_cell_param <- runtime_cellnumber %>%
+  transmute(
+    x_label,
+    runtime_min = infer_gene_param_min,
+    label = sprintf("%.1f", runtime_min)
+  )
+
+# Step 4. Draw panels
+
+p_A <- make_runtime_plot(
+  df = df_tp_phase,
+  col_use = COL_PHASE,
+  title_text = "infer_cell_phase",
+  xlab_text = "Sample time points",
+  y_limit = c(0, 1.45),
+  y_breaks = seq(0, 1.4, by = 0.2)
+)
+
+p_B <- make_runtime_plot(
+  df = df_cell_phase,
+  col_use = COL_PHASE,
+  title_text = "infer_cell_phase",
+  xlab_text = "Cells",
+  y_limit = c(0, 1.45),
+  y_breaks = seq(0, 1.4, by = 0.2),
+  x_angle = 30,
+  x_hjust = 1
+)
+
+p_C <- make_runtime_plot(
+  df = df_tp_param,
+  col_use = COL_PARAM,
+  title_text = "infer_gene_param",
+  xlab_text = "Sample time points",
+  y_limit = c(0, 165),
+  y_breaks = seq(0, 160, by = 40)
+)
+
+p_D <- make_runtime_plot(
+  df = df_cell_param,
+  col_use = COL_PARAM,
+  title_text = "infer_gene_param",
+  xlab_text = "Cells",
+  y_limit = c(0, 125),
+  y_breaks = seq(0, 120, by = 30),
+  x_angle = 30,
+  x_hjust = 1
+)
+
+print(p_A)
+print(p_B)
+print(p_C)
+print(p_D)
+
+# Step 5. Save single panels
+
+save_plot_pdf_png(p_A, "runtime_infer_cell_phase_timepoint")
+save_plot_pdf_png(p_B, "runtime_infer_cell_phase_cellnumber")
+save_plot_pdf_png(p_C, "runtime_infer_gene_param_timepoint")
+save_plot_pdf_png(p_D, "runtime_infer_gene_param_cellnumber")
+
+# Step 6. Save 2 x 2 combined figure
+
+runtime_2x2 <- wrap_plots(
+  p_A, p_B, p_C, p_D,
+  ncol = 2
+)
+
+ggsave(
+  filename = file.path(out_dir, "runtime_benchmark_2x2.pdf"),
+  plot = runtime_2x2,
+  width = 9.8,
+  height = 9.6
+)
+
+ggsave(
+  filename = file.path(out_dir, "runtime_benchmark_2x2.png"),
+  plot = runtime_2x2,
+  width = 9.8,
+  height = 9.6,
+  dpi = 300
+)
+
+message("Finished runtime benchmark plots.")
+message("Output directory: ", out_dir)
+```

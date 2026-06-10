@@ -1,0 +1,297 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#heatmap cm
+```{r}
+# heatmap cm: cell-number benchmark module confusion matrix
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(tibble)
+  library(readr)
+  library(ggplot2)
+})
+
+# Step 0. IO
+
+out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_cell_number_4000g_6tp"
+
+truth_dir <- file.path(out_dir, "truth_params")
+module_result_dir <- file.path(out_dir, "module_result")
+cm_dir <- file.path(out_dir, "module_confusion_matrix")
+
+timepoint_ref_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_timepoint_number_4000g_20000c"
+timepoint_ref_truth <- file.path(
+  timepoint_ref_dir,
+  "truth_params",
+  "truth_params_timepoint6_4000g_20000c.rds"
+)
+
+dir.create(cm_dir, recursive = TRUE, showWarnings = FALSE)
+
+cell_number_vec <- c(20000, 10500, 6000, 3000, 1500, 600)
+run_cell_vec <- c(10500, 6000, 3000, 1500, 600)
+
+n_repeat <- 1
+
+compare_by <- "condition"
+group1 <- "cond_1"
+group2 <- "cond_2"
+
+cell_number_cols <- c(
+  "20000" = "#A8C7E6",
+  "10500" = "#57ADDE",
+  "6000"  = "#17441e",
+  "3000"  = "#3a621f",
+  "1500"  = "#357090",
+  "600"   = "#2F6F73"
+)
+
+module_levels <- 0:7
+module_labels <- paste0("M", module_levels)
+
+module_name_map <- tibble(
+  module_id = module_levels,
+  module_label = factor(module_labels, levels = module_labels),
+  module_name = c(
+    "Non-rhythmic",
+    "Stable rhythm",
+    "Rhythm gain",
+    "Rhythm loss",
+    "Amplitude-enhanced rhythmic",
+    "Amplitude-attenuated rhythmic",
+    "Phase-advanced rhythmic",
+    "Phase-delayed rhythmic"
+  )
+)
+
+stopifnot(file.exists(timepoint_ref_truth))
+
+# Step 1. Helper
+
+make_module_confusion_one <- function(cell_i, rep_i = 1) {
+
+  fill_high_i <- cell_number_cols[as.character(cell_i)]
+
+  file_tag <- paste0(
+    "cell", cell_i,
+    "_rep", rep_i,
+    "_", compare_by,
+    "_", group1, "_vs_", group2
+  )
+
+  module_result_file <- file.path(
+    module_result_dir,
+    paste0("module_result_", file_tag, ".rds")
+  )
+
+  truth_file <- file.path(
+    truth_dir,
+    paste0("truth_params_cell", cell_i, "_4000g_6tp.rds")
+  )
+
+  if (cell_i == 20000) {
+    truth_file <- timepoint_ref_truth
+  }
+
+  stopifnot(file.exists(module_result_file), file.exists(truth_file))
+
+  module_result <- readRDS(module_result_file)
+  truth_i <- readRDS(truth_file)
+
+  truth_df <- truth_i$gene_meta %>%
+    transmute(
+      gene = as.character(gene),
+      Truth_num = as.integer(module)
+    )
+
+  pred_df <- module_result %>%
+    transmute(
+      gene = as.character(gene),
+      Pred_num = as.integer(module_map)
+    )
+
+  eval_df <- pred_df %>%
+    left_join(truth_df, by = "gene") %>%
+    filter(
+      !is.na(Truth_num),
+      !is.na(Pred_num),
+      Truth_num %in% module_levels,
+      Pred_num %in% module_levels
+    )
+
+  stopifnot(nrow(eval_df) == 4000)
+
+  conf_df <- eval_df %>%
+    count(Truth_num, Pred_num, name = "Freq") %>%
+    complete(
+      Truth_num = module_levels,
+      Pred_num = module_levels,
+      fill = list(Freq = 0)
+    ) %>%
+    left_join(
+      module_name_map %>% select(module_id, Truth = module_label),
+      by = c("Truth_num" = "module_id")
+    ) %>%
+    left_join(
+      module_name_map %>% select(module_id, Pred = module_label),
+      by = c("Pred_num" = "module_id")
+    ) %>%
+    mutate(
+      Truth = factor(Truth, levels = module_labels),
+      Pred = factor(Pred, levels = rev(module_labels)),
+      target_n_cell = cell_i,
+      repeat_id = rep_i,
+      text_col = ifelse(Freq >= max(Freq, na.rm = TRUE) * 0.55, "white", "black")
+    )
+
+  conf_wide <- conf_df %>%
+    select(Truth_num, Pred_num, Freq) %>%
+    pivot_wider(
+      names_from = Pred_num,
+      values_from = Freq,
+      names_prefix = "Pred_M"
+    ) %>%
+    arrange(Truth_num) %>%
+    mutate(
+      target_n_cell = cell_i,
+      repeat_id = rep_i,
+      .before = 1
+    )
+
+  acc_df <- eval_df %>%
+    summarise(
+      target_n_cell = cell_i,
+      repeat_id = rep_i,
+      N = n(),
+      Accuracy = mean(Truth_num == Pred_num),
+      Correct = sum(Truth_num == Pred_num)
+    )
+
+  p_cm <- ggplot(conf_df, aes(x = Truth, y = Pred, fill = Freq)) +
+    geom_tile(color = "white", linewidth = 0.8) +
+    geom_text(
+      aes(label = Freq, color = text_col),
+      size = 5.5,
+      fontface = "bold"
+    ) +
+    scale_fill_gradient(
+      low = "grey96",
+      high = fill_high_i,
+      name = "Count"
+    ) +
+    scale_color_identity() +
+    labs(
+      title = paste0(format(cell_i, big.mark = ","), " cells"),
+      x = "Ground truth module",
+      y = "Predicted module"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 23),
+      axis.title = element_text(face = "bold", size = 18),
+      axis.text.x = element_text(face = "bold", size = 15, colour = "black"),
+      axis.text.y = element_text(face = "bold", size = 15, colour = "black"),
+      panel.grid = element_blank(),
+      legend.title = element_text(face = "bold"),
+      legend.text = element_text(face = "bold")
+    )
+
+  out_prefix <- paste0("CM_module_truth_vs_pred_cell", cell_i, "_rep", rep_i)
+
+  ggsave(
+    file.path(cm_dir, paste0(out_prefix, ".pdf")),
+    p_cm,
+    width = 8,
+    height = 7
+  )
+
+  ggsave(
+    file.path(cm_dir, paste0(out_prefix, ".png")),
+    p_cm,
+    width = 8,
+    height = 7,
+    dpi = 300
+  )
+
+  write_csv(conf_df, file.path(cm_dir, paste0(out_prefix, "_long.csv")))
+  write_csv(conf_wide, file.path(cm_dir, paste0(out_prefix, "_wide.csv")))
+  write_csv(acc_df, file.path(cm_dir, paste0(out_prefix, "_accuracy.csv")))
+
+  list(
+    plot = p_cm,
+    long_df = conf_df,
+    wide_df = conf_wide,
+    acc_df = acc_df,
+    eval_df = eval_df
+  )
+}
+
+# Step 2. Run all cell-number conditions
+
+cm_all <- list()
+run_id <- 1
+
+for (cell_i in cell_number_vec) {
+  for (rep_i in seq_len(n_repeat)) {
+    message("============================================================")
+    message("Making confusion matrix | target_n_cell = ", cell_i, " | repeat = ", rep_i)
+
+    cm_all[[run_id]] <- make_module_confusion_one(
+      cell_i = cell_i,
+      rep_i = rep_i
+    )
+
+    run_id <- run_id + 1
+  }
+}
+
+# Step 3. Save combined tables
+
+cm_long_all <- bind_rows(lapply(cm_all, function(x) x$long_df)) %>%
+  arrange(desc(target_n_cell), repeat_id, Truth_num, Pred_num)
+
+cm_wide_all <- bind_rows(lapply(cm_all, function(x) x$wide_df)) %>%
+  arrange(desc(target_n_cell), repeat_id, Truth_num)
+
+cm_acc_all <- bind_rows(lapply(cm_all, function(x) x$acc_df)) %>%
+  arrange(desc(target_n_cell), repeat_id)
+
+write_csv(
+  cm_long_all,
+  file.path(cm_dir, "CM_module_truth_vs_pred_all_long.csv")
+)
+
+saveRDS(
+  cm_long_all,
+  file.path(cm_dir, "CM_module_truth_vs_pred_all_long.rds")
+)
+
+write_csv(
+  cm_wide_all,
+  file.path(cm_dir, "CM_module_truth_vs_pred_all_wide.csv")
+)
+
+saveRDS(
+  cm_wide_all,
+  file.path(cm_dir, "CM_module_truth_vs_pred_all_wide.rds")
+)
+
+write_csv(
+  cm_acc_all,
+  file.path(cm_dir, "CM_module_truth_vs_pred_accuracy_summary.csv")
+)
+
+saveRDS(
+  cm_acc_all,
+  file.path(cm_dir, "CM_module_truth_vs_pred_accuracy_summary.rds")
+)
+
+print(cm_acc_all)
+
+message("Finished cell-number module confusion matrices.")
+message("Output directory: ", cm_dir)
+```

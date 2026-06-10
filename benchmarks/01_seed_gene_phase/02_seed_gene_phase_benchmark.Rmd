@@ -1,0 +1,631 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#seed gene perturbation
+```{r}
+# seed gene perturbation
+
+library(Seurat)
+library(Matrix)
+library(dplyr)
+library(tibble)
+library(readr)
+
+obj_sim <- readRDS("/Users/zhangqian/scRhythmBayes/data/simulate_data_new2.rds")
+
+# Get count matrix
+count <- Seurat::GetAssayData(obj_sim, assay = "RNA", slot = "counts")
+
+# Get metadata
+metadata <- obj_sim@meta.data
+metadata$cell <- rownames(metadata)
+
+stopifnot(identical(colnames(count), metadata$cell))
+
+# Step 1. Load 27 default seed genes 
+load("~/scRhythmBayes/data/merge_27seedgenes_bmal1.Rdata")
+
+seed27 <- unique(as.character(seed27_in))
+seed27 <- seed27[seed27 %in% rownames(count)]
+
+length(seed27)
+seed27
+
+if (length(seed27) != 27) {
+  stop("The number of matched seed genes is not 27. Please check seed27_in and count rownames.")
+}
+
+# Step 2. Set benchmark design 
+seed_n_vec <- c(27, 20, 15, 10, 5,0)
+n_repeat <- 5
+
+out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_seed_number"
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+phase_dir <- file.path(out_dir, "res_phase")
+seed_dir <- file.path(out_dir, "seed_sets")
+
+dir.create(phase_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(seed_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Step 3. Run cell-phase inference under different seed-number conditions
+set.seed(2026)
+
+seed_record_all <- list()
+run_id <- 1
+
+for (n_seed in seed_n_vec) {
+  
+  for (rep_id in seq_len(n_repeat)) {
+    
+    message("Running seed-number benchmark")
+    message("n_seed = ", n_seed, " | repeat = ", rep_id)
+    
+    # Select seed genes
+    if (n_seed == 27) {
+      seed_use <- seed27
+    }
+    
+    if (n_seed < 27) {
+      seed_use <- sample(seed27, size = n_seed, replace = FALSE)
+    }
+    
+    message("Selected seed genes:")
+    message(paste(seed_use, collapse = ", "))
+    
+    # Save selected seed genes
+    seed_record_i <- tibble(
+      n_seed = n_seed,
+      repeat_id = rep_id,
+      seed_gene = seed_use
+    )
+    
+    seed_file <- file.path(
+      seed_dir,
+      paste0("seed_genes_seed", n_seed, "_rep", rep_id, ".csv")
+    )
+    
+    write_csv(seed_record_i, seed_file)
+    
+    seed_record_all[[run_id]] <- seed_record_i
+    
+    write_csv(
+      bind_rows(seed_record_all),
+      file.path(out_dir, "seed_gene_sets_all.csv")
+    )
+    
+    # Run cell-phase inference
+    res_phase <- infer_cell_phase(
+      count = count,
+      metadata = metadata,
+      ZT_by = "ZT_sym",
+      strata_by = "celltype",
+      seedgene = seed_use,
+      Species = "mouse",
+      n_grid = 60,
+      n_iter_outer = 5,
+      n_iter_seed = 3,
+      Kappa = 5,
+      p_mix = 0.85,
+      Min_n = 200,
+      setseed = 2026 + rep_id,
+      Verbose = TRUE
+    )
+    
+    # Add benchmark information
+    res_phase$n_seed <- n_seed
+    res_phase$repeat_id <- rep_id
+    
+    # Save cell-phase result
+    phase_file <- file.path(
+      phase_dir,
+      paste0("res_phase_seed", n_seed, "_rep", rep_id, ".rds")
+    )
+    
+    saveRDS(res_phase, phase_file)
+    
+    message("Finished n_seed = ", n_seed, " | repeat = ", rep_id)
+    
+    run_id <- run_id + 1
+    
+    rm(res_phase, seed_record_i)
+    gc()
+  }
+}
+
+# Step 4. Save file index
+phase_index <- expand.grid(
+  n_seed = seed_n_vec,
+  repeat_id = seq_len(n_repeat)
+) %>%
+  arrange(desc(n_seed), repeat_id) %>%
+  mutate(
+    res_phase_file = file.path(
+      phase_dir,
+      paste0("res_phase_seed", n_seed, "_rep", repeat_id, ".rds")
+    ),
+    seed_file = file.path(
+      seed_dir,
+      paste0("seed_genes_seed", n_seed, "_rep", repeat_id, ".csv")
+    )
+  )
+
+write_csv(
+  phase_index,
+  file.path(out_dir, "res_phase_file_index.csv")
+)
+
+saveRDS(
+  phase_index,
+  file.path(out_dir, "res_phase_file_index.rds")
+)
+
+```
+
+# seed gene perturbation CDF plot
+```{r}
+library(Seurat)
+library(Matrix)
+library(dplyr)
+library(tibble)
+library(readr)
+
+obj_sim <- readRDS("/Users/zhangqian/scRhythmBayes/data/simulate_data_new2.rds")
+
+# Get metadata
+metadata <- obj_sim@meta.data
+metadata$cell <- rownames(metadata)
+
+# Step 1. Set input and output paths
+out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_seed_number"
+
+phase_dir <- file.path(out_dir, "res_phase")
+plot_dir <- file.path(out_dir, "plots_cell_phase")
+
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+
+seed_n_vec <- c(27,20,15,10,5,0)
+n_repeat <- 5
+
+
+# Step 2. Set colors
+seed_cols <- c(
+  "27" = "#A8C7E6",
+  "20" = "#17441e",
+  "15" = "#3a621f",
+  "10" = "#bdc3ac",
+  "5"  = "#357090",
+  "0" =  "#C2E2C2"
+)
+# Step 3. Calculate CDF, AUC, and MedAE for each run
+auc_all <- list()
+cdf_all <- list()
+
+run_id <- 1
+
+for (n_seed in seed_n_vec) {
+  
+  for (rep_id in seq_len(n_repeat)) {
+    
+    message("Processing n_seed = ", n_seed, " | repeat = ", rep_id)
+    
+    phase_file <- file.path(
+      phase_dir,
+      paste0("res_phase_seed", n_seed, "_rep", rep_id, ".rds")
+    )
+    
+    res_phase <- readRDS(phase_file)
+    
+    res_eval <- res_phase %>%
+      left_join(
+        metadata %>%
+          select(cell, t_true, theta_rad, ZT_sym, celltype),
+        by = "cell"
+      )
+    
+    # Calculate circular absolute error in hours
+    diff_h <- abs((res_eval$ZT_pred - res_eval$t_true) %% 24)
+    err_h <- pmin(diff_h, 24 - diff_h)
+    
+    err_h <- sort(err_h)
+    
+    # Use the same threshold definition as the previous Python code
+    hrsoff <- c(0, err_h, 12)
+    
+    frac_wrong <- sapply(
+      hrsoff,
+      function(hrtol) {
+        100 * sum(err_h > hrtol) / length(err_h)
+      }
+    )
+    
+    pct_correct <- 100 - frac_wrong
+    
+    norm_pct_correct <- pct_correct / 100
+    norm_hrsoff <- hrsoff / 12
+    
+    auc <- sum(norm_pct_correct[-length(norm_pct_correct)] * diff(norm_hrsoff))
+    medae <- median(err_h)
+    
+    auc_i <- tibble(
+      n_seed = n_seed,
+      repeat_id = rep_id,
+      AUC = auc,
+      MedAE = medae,
+      n_cell = length(err_h)
+    )
+    
+    cdf_i <- tibble(
+      n_seed = n_seed,
+      repeat_id = rep_id,
+      threshold_h = hrsoff,
+      pct_correct = pct_correct
+    )
+    
+    auc_all[[run_id]] <- auc_i
+    cdf_all[[run_id]] <- cdf_i
+    
+    run_id <- run_id + 1
+    
+    rm(res_phase, res_eval, err_h, diff_h, hrsoff, frac_wrong, pct_correct)
+    gc()
+  }
+}
+
+auc_all <- bind_rows(auc_all)
+cdf_all <- bind_rows(cdf_all)
+
+write_csv(
+  auc_all,
+  file.path(out_dir, "seed_number_auc_medae_all.csv")
+)
+
+saveRDS(
+  auc_all,
+  file.path(out_dir, "seed_number_auc_medae_all.rds")
+)
+
+write_csv(
+  cdf_all,
+  file.path(out_dir, "seed_number_cdf_all.csv")
+)
+
+saveRDS(
+  cdf_all,
+  file.path(out_dir, "seed_number_cdf_all.rds")
+)
+
+# Step 4. Summarise median AUC and MedAE
+auc_median <- auc_all %>%
+  group_by(n_seed) %>%
+  summarise(
+    AUC = median(AUC, na.rm = TRUE),
+    MedAE = median(MedAE, na.rm = TRUE),
+    n_repeat = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n_seed))
+
+auc_median
+
+write_csv(
+  auc_median,
+  file.path(out_dir, "seed_number_auc_medae_median.csv")
+)
+
+saveRDS(
+  auc_median,
+  file.path(out_dir, "seed_number_auc_medae_median.rds")
+)
+
+# Step 5. Select representative repeat by median MedAE
+representative_runs <- auc_all %>%
+  left_join(
+    auc_median %>%
+      select(n_seed, MedAE_median = MedAE),
+    by = "n_seed"
+  ) %>%
+  mutate(
+    diff_to_median = abs(MedAE - MedAE_median)
+  ) %>%
+  group_by(n_seed) %>%
+  arrange(diff_to_median, repeat_id) %>%
+  slice(1) %>%
+  ungroup() %>%
+  arrange(desc(n_seed))
+
+representative_runs
+
+write_csv(
+  representative_runs,
+  file.path(out_dir, "representative_runs_by_median_MedAE.csv")
+)
+
+saveRDS(
+  representative_runs,
+  file.path(out_dir, "representative_runs_by_median_MedAE.rds")
+)
+```
+
+# Step 6. Build median CDF curve for each seed condition
+```{r}
+
+threshold_grid <- seq(0, 12, by = 0.05)
+
+cdf_grid_all <- list()
+grid_id <- 1
+
+for (n_seed in seed_n_vec) {
+  
+  for (rep_id in seq_len(n_repeat)) {
+    
+    phase_file <- file.path(
+      phase_dir,
+      paste0("res_phase_seed", n_seed, "_rep", rep_id, ".rds")
+    )
+    
+    res_phase <- readRDS(phase_file)
+    
+    res_eval <- res_phase %>%
+      left_join(
+        metadata %>%
+          select(cell, t_true, theta_rad, ZT_sym, celltype),
+        by = "cell"
+      )
+    
+    diff_h <- abs((res_eval$ZT_pred - res_eval$t_true) %% 24)
+    err_h <- pmin(diff_h, 24 - diff_h)
+    
+    pct_correct <- sapply(
+      threshold_grid,
+      function(hrtol) {
+        100 * sum(err_h <= hrtol) / length(err_h)
+      }
+    )
+    
+    cdf_grid_i <- tibble(
+      n_seed = n_seed,
+      repeat_id = rep_id,
+      threshold_h = threshold_grid,
+      pct_correct = pct_correct
+    )
+    
+    cdf_grid_all[[grid_id]] <- cdf_grid_i
+    
+    grid_id <- grid_id + 1
+    
+    rm(res_phase, res_eval, diff_h, err_h, pct_correct)
+    gc()
+  }
+}
+
+cdf_grid_all <- bind_rows(cdf_grid_all)
+
+cdf_median <- cdf_grid_all %>%
+  group_by(n_seed, threshold_h) %>%
+  summarise(
+    pct_correct = median(pct_correct, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n_seed), threshold_h)
+
+write_csv(
+  cdf_median,
+  file.path(out_dir, "seed_number_cdf_median_curve.csv")
+)
+
+saveRDS(
+  cdf_median,
+  file.path(out_dir, "seed_number_cdf_median_curve.rds")
+)
+```
+
+
+# Step 7. Plot median CDF curves
+```{r}
+tiff(
+  filename = file.path(plot_dir, "seed_number_cell_phase_cdf.tiff"),
+  width = 3.2,
+  height = 3.2,
+  units = "in",
+  res = 300,
+  compression = "lzw"
+)
+
+par(
+  family = "serif",
+  mar = c(4, 4, 2.5, 1),
+  mgp = c(2.1, 0.55, 0),
+  tcl = -0.25,
+  lwd = 0.5
+)
+
+plot(
+  NA,
+  xlim = c(-0.3, 12.5),
+  ylim = c(-2, 102),
+  xlab = "Correct to within (hrs)",
+  ylab = paste0("% correct (N = ", nrow(metadata), ")"),
+  main = "Absolute error CDF",
+  cex.main = 0.9,
+  cex.lab = 0.8,
+  cex.axis = 0.75,
+  bty = "n"
+)
+
+box(lwd = 0.5)
+
+abline(
+  a = 0,
+  b = 100 / 12,
+  col = "lightgray",
+  lwd = 0.7
+)
+
+for (n_seed in seed_n_vec) {
+  
+  cdf_i <- cdf_median %>%
+    filter(n_seed == !!n_seed)
+  
+  lines(
+    cdf_i$threshold_h,
+    cdf_i$pct_correct,
+    col = seed_cols[as.character(n_seed)],
+    lwd = 1.2
+  )
+}
+
+legend_labels <- c()
+
+for (n_seed in seed_n_vec) {
+  
+  auc_i <- auc_median %>%
+    filter(n_seed == !!n_seed)
+  
+  label_i <- paste0(
+    n_seed,
+    " seeds: ",
+    sprintf("%.3f", auc_i$AUC),
+    ", ",
+    sprintf("%.3f", auc_i$MedAE)
+  )
+  
+  legend_labels <- c(legend_labels, label_i)
+}
+
+legend(
+  "bottomright",
+  legend = c("        AUC, MedAE", legend_labels),
+  col = c(NA, seed_cols[as.character(seed_n_vec)]),
+  lwd = c(NA, rep(1.2, length(seed_n_vec))),
+  bty = "o",
+  box.lwd = 0.3,
+  cex = 0.62,
+  y.intersp = 0.9
+)
+
+dev.off()
+
+pdf(
+  file = file.path(plot_dir, "seed_number_cell_phase_cdf.pdf"),
+  width = 3.2,
+  height = 3.2
+)
+
+par(
+  family = "serif",
+  mar = c(4, 4, 2.5, 1),
+  mgp = c(2.1, 0.55, 0),
+  tcl = -0.25,
+  lwd = 0.5
+)
+
+plot(
+  NA,
+  xlim = c(-0.3, 12.5),
+  ylim = c(-2, 102),
+  xlab = "Correct to within (hrs)",
+  ylab = paste0("% correct (N = ", nrow(metadata), ")"),
+  main = "Absolute error CDF",
+  cex.main = 0.9,
+  cex.lab = 0.8,
+  cex.axis = 0.75,
+  bty = "n"
+)
+
+box(lwd = 0.5)
+
+abline(
+  a = 0,
+  b = 100 / 12,
+  col = "lightgray",
+  lwd = 0.7
+)
+
+for (n_seed in seed_n_vec) {
+  
+  cdf_i <- cdf_median %>%
+    filter(n_seed == !!n_seed)
+  
+  lines(
+    cdf_i$threshold_h,
+    cdf_i$pct_correct,
+    col = seed_cols[as.character(n_seed)],
+    lwd = 1.2
+  )
+}
+
+legend(
+  "bottomright",
+  legend = c("        AUC, MedAE", legend_labels),
+  col = c(NA, seed_cols[as.character(seed_n_vec)]),
+  lwd = c(NA, rep(1.2, length(seed_n_vec))),
+  bty = "o",
+  box.lwd = 0.3,
+  cex = 0.62,
+  y.intersp = 0.9
+)
+
+dev.off()
+```
+
+# Step 8. Prepare representative scatterplots
+```{r}
+# Step 8. Prepare representative scatterplots
+
+representative_runs <- readRDS(
+  file.path(out_dir, "representative_runs_by_median_MedAE.rds")
+)
+
+for (i in seq_len(nrow(representative_runs))) {
+  
+  n_seed_i <- representative_runs$n_seed[i]
+  rep_id_i <- representative_runs$repeat_id[i]
+  
+  phase_file <- file.path(
+    phase_dir,
+    paste0("res_phase_seed", n_seed_i, "_rep", rep_id_i, ".rds")
+  )
+  
+  res_phase <- readRDS(phase_file)
+  
+  point_col_i <- seed_cols[as.character(n_seed_i)]
+  
+  p_phase <- plot_phase_scatter(
+    res_phase = res_phase,
+    metadata = metadata,
+    truth_by = "t_true",
+    pred_by = "ZT_pred",
+    point_col = point_col_i
+  )
+  
+  pdf(
+    file = file.path(
+      plot_dir,
+      paste0("seed", n_seed_i, "_rep", rep_id_i, "_phase_scatter.pdf")
+    ),
+    width = 3.2,
+    height = 3.2
+  )
+  
+  print(p_phase$plot)
+  dev.off()
+  
+  tiff(
+    filename = file.path(
+      plot_dir,
+      paste0("seed", n_seed_i, "_rep", rep_id_i, "_phase_scatter.tiff")
+    ),
+    width = 3.2,
+    height = 3.2,
+    units = "in",
+    res = 300,
+    compression = "lzw"
+  )
+  
+  print(p_phase$plot)
+  dev.off()
+}
+```

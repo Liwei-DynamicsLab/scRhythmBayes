@@ -1,0 +1,412 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#algori refresh
+```{r}
+# merge algorithm benchmark results with current package scRhythmBayes baseline
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(dplyr)
+  library(Matrix)
+  library(readr)
+  library(tibble)
+})
+
+wrap24 <- function(x) {
+  ((x %% 24) + 24) %% 24
+}
+
+# Step 1. Load simulated object
+obj_master <- readRDS("/Users/zhangqian/scRhythmBayes/data/simulate_data_new2.rds")
+DefaultAssay(obj_master) <- "RNA"
+
+cs_master0 <- sum(GetAssayData(obj_master, assay = "RNA", slot = "counts"))
+
+metadata <- obj_master@meta.data
+metadata$cell <- rownames(metadata)
+
+stopifnot(identical(colnames(obj_master), metadata$cell))
+
+# Step 2. Add current package scRhythmBayes 27-seed result
+res_phase_27 <- readRDS(
+  "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_seed_number/res_phase/res_phase_seed27_rep1.rds"
+)
+
+res_phase_27 <- res_phase_27 %>%
+  mutate(cell = as.character(cell))
+
+idx_srb <- match(colnames(obj_master), res_phase_27$cell)
+stopifnot(all(!is.na(idx_srb)))
+
+obj_master$ZT_scRhythmBayes <- wrap24(res_phase_27$ZT_pred[idx_srb])
+obj_master$Rbar <- res_phase_27$Rbar[idx_srb]
+obj_master$r_cell <- res_phase_27$r_cell[idx_srb]
+
+# Step 3. Add Tempo result
+tempo_pred <- read.csv("/Users/zhangqian/scRhythmBayes/data/tempo_pred_phase_new.csv")
+
+idx_tempo <- match(colnames(obj_master), tempo_pred$cell_id)
+stopifnot(all(!is.na(idx_tempo)))
+
+obj_master$ZT_tempo <- wrap24(tempo_pred$tempo_phase_mean_hour[idx_tempo])
+
+# Step 4. Add CYCLOPS result
+obj_cycl <- readRDS(
+  "/Users/zhangqian/scRhythmBayes/data/obj_4ct_cyclops_new.rds"
+)
+
+meta_cycl <- obj_cycl@meta.data
+
+idx_cyclops <- match(colnames(obj_master), meta_cycl$cell_id)
+stopifnot(all(!is.na(idx_cyclops)))
+
+obj_master$ZT_cyclops <- wrap24(meta_cycl$ZT_cyclops[idx_cyclops])
+
+# Step 5. Add Cyclum result
+cyclum_df <- read.csv("~/scRhythmBayes/data/cyclum_eval_merged_new.csv")
+
+idx_cyclum <- match(colnames(obj_master), cyclum_df$cell_id)
+stopifnot(all(!is.na(idx_cyclum)))
+
+obj_master$ZT_cyclum <- wrap24(cyclum_df$cyclum_zt[idx_cyclum])
+
+# Step 6. Check count matrix unchanged
+cs_master1 <- sum(GetAssayData(obj_master, assay = "RNA", slot = "counts"))
+stopifnot(cs_master0 == cs_master1)
+
+# Step 7. Save merged object and metadata table
+saveRDS(
+  obj_master,
+  "~/scRhythmBayes/data/obj_4ct_ALL_4algorithms_current_package_SRB.rds"
+)
+
+meta_export <- obj_master@meta.data %>%
+  tibble::rownames_to_column("cell") %>%
+  as.data.frame()
+
+write_csv(
+  meta_export,
+  "~/scRhythmBayes/data/meta_data_algorithm_benchmark_current_package_SRB.csv"
+)
+
+head(meta_export)
+
+colnames(meta_export)
+
+# algorithm benchmark CDF plot using current package SRB result
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tibble)
+  library(readr)
+})
+
+wrap24 <- function(x) {
+  ((x %% 24) + 24) %% 24
+}
+
+# Step 1. Load merged metadata
+meta_df <- read_csv(
+  "~/scRhythmBayes/data/meta_data_algorithm_benchmark_current_package_SRB.csv"
+)
+
+# Step 2. Set output path
+out_dir <- "~/scRhythmBayes/data/Benchmark/algorithm_benchmark_current_package_SRB"
+plot_dir <- file.path(out_dir, "plots_cell_phase")
+
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Step 3. Define algorithms and colors
+method_vec <- c(
+  "ZT_scRhythmBayes",
+  "ZT_cyclops",
+  "ZT_tempo",
+  "ZT_cyclum"
+)
+
+method_label <- c(
+  "ZT_scRhythmBayes" = "SRB",
+  "ZT_cyclops" = "CP",
+  "ZT_tempo" = "TP",
+  "ZT_cyclum" = "CM"
+)
+
+method_cols <- c(
+  "ZT_scRhythmBayes" = "#A8C7E6",
+  "ZT_tempo" = "#F0918E",
+  "ZT_cyclops" = "#D591B4",
+  "ZT_cyclum" = "#DEBCD9"
+)
+
+# Step 4. Calculate AUC, MedAE, and raw CDF for each algorithm
+auc_all <- list()
+cdf_all <- list()
+
+for (method_i in method_vec) {
+  
+  message("Processing method: ", method_i)
+  
+  true_h <- as.numeric(meta_df$t_true)
+  pred_h <- as.numeric(meta_df[[method_i]])
+  
+  diff_h <- abs((pred_h - true_h) %% 24)
+  err_h <- pmin(diff_h, 24 - diff_h)
+  err_h <- sort(err_h)
+  
+  hrsoff <- c(0, err_h, 12)
+  
+  frac_wrong <- sapply(
+    hrsoff,
+    function(hrtol) {
+      100 * sum(err_h > hrtol) / length(err_h)
+    }
+  )
+  
+  pct_correct <- 100 - frac_wrong
+  
+  norm_pct_correct <- pct_correct / 100
+  norm_hrsoff <- hrsoff / 12
+  
+  auc <- sum(norm_pct_correct[-length(norm_pct_correct)] * diff(norm_hrsoff))
+  medae <- median(err_h)
+  
+  auc_i <- tibble(
+    method = method_i,
+    method_label = method_label[method_i],
+    AUC = auc,
+    MedAE = medae,
+    n_cell = length(err_h)
+  )
+  
+  cdf_i <- tibble(
+    method = method_i,
+    method_label = method_label[method_i],
+    threshold_h = hrsoff,
+    pct_correct = pct_correct
+  )
+  
+  auc_all[[method_i]] <- auc_i
+  cdf_all[[method_i]] <- cdf_i
+}
+
+auc_all <- bind_rows(auc_all)
+cdf_all <- bind_rows(cdf_all)
+
+auc_all
+
+write_csv(
+  auc_all,
+  file.path(out_dir, "algorithm_auc_medae_current_package_SRB.csv")
+)
+
+saveRDS(
+  auc_all,
+  file.path(out_dir, "algorithm_auc_medae_current_package_SRB.rds")
+)
+
+write_csv(
+  cdf_all,
+  file.path(out_dir, "algorithm_cdf_current_package_SRB.csv")
+)
+
+saveRDS(
+  cdf_all,
+  file.path(out_dir, "algorithm_cdf_current_package_SRB.rds")
+)
+
+# Step 5. Build CDF curves on fixed threshold grid
+threshold_grid <- seq(0, 12, by = 0.05)
+
+cdf_grid_all <- list()
+
+for (method_i in method_vec) {
+  
+  true_h <- as.numeric(meta_df$t_true)
+  pred_h <- as.numeric(meta_df[[method_i]])
+  
+  diff_h <- abs((pred_h - true_h) %% 24)
+  err_h <- pmin(diff_h, 24 - diff_h)
+  
+  pct_correct <- sapply(
+    threshold_grid,
+    function(hrtol) {
+      100 * sum(err_h <= hrtol) / length(err_h)
+    }
+  )
+  
+  cdf_grid_i <- tibble(
+    method = method_i,
+    method_label = method_label[method_i],
+    threshold_h = threshold_grid,
+    pct_correct = pct_correct
+  )
+  
+  cdf_grid_all[[method_i]] <- cdf_grid_i
+}
+
+cdf_grid_all <- bind_rows(cdf_grid_all)
+
+write_csv(
+  cdf_grid_all,
+  file.path(out_dir, "algorithm_cdf_grid_current_package_SRB.csv")
+)
+
+saveRDS(
+  cdf_grid_all,
+  file.path(out_dir, "algorithm_cdf_grid_current_package_SRB.rds")
+)
+
+# Step 6. Prepare legend labels
+legend_labels <- c()
+
+for (method_i in method_vec) {
+  
+  auc_i <- auc_all %>%
+    filter(method == method_i)
+  
+  label_i <- paste0(
+    method_label[method_i],
+    ": ",
+    sprintf("%.3f", auc_i$AUC),
+    ", ",
+    sprintf("%.3f", auc_i$MedAE)
+  )
+  
+  legend_labels <- c(legend_labels, label_i)
+}
+
+legend_labels
+
+# Step 7. Plot CDF as TIFF
+tiff(
+  filename = file.path(plot_dir, "algorithm_cell_phase_cdf_current_package_SRB.tiff"),
+  width = 3.2,
+  height = 3.2,
+  units = "in",
+  res = 300,
+  compression = "lzw"
+)
+
+par(
+  family = "serif",
+  mar = c(4, 4, 2.5, 1),
+  mgp = c(2.1, 0.55, 0),
+  tcl = -0.25,
+  lwd = 0.5
+)
+
+plot(
+  NA,
+  xlim = c(-0.3, 12.5),
+  ylim = c(-2, 102),
+  xlab = "Correct to within (hrs)",
+  ylab = paste0("% correct (N = ", nrow(meta_df), ")"),
+  main = "Absolute error CDF",
+  cex.main = 0.9,
+  cex.lab = 0.8,
+  cex.axis = 0.75,
+  bty = "n"
+)
+
+box(lwd = 0.5)
+
+abline(
+  a = 0,
+  b = 100 / 12,
+  col = "lightgray",
+  lwd = 0.7
+)
+
+for (method_i in c("ZT_cyclops", "ZT_tempo", "ZT_cyclum", "ZT_scRhythmBayes")) {
+  
+  cdf_i <- cdf_grid_all %>%
+    filter(method == method_i)
+  
+  lines(
+    cdf_i$threshold_h,
+    cdf_i$pct_correct,
+    col = method_cols[method_i],
+    lwd = 1.2
+  )
+}
+
+legend(
+  "bottomright",
+  legend = c("        AUC, MedAE", legend_labels),
+  col = c(NA, method_cols[method_vec]),
+  lwd = c(NA, rep(1.2, length(method_vec))),
+  bty = "o",
+  box.lwd = 0.3,
+  cex = 0.62,
+  y.intersp = 0.9
+)
+
+dev.off()
+
+# Step 8. Plot CDF as PDF
+pdf(
+  file = file.path(plot_dir, "algorithm_cell_phase_cdf_current_package_SRB.pdf"),
+  width = 3.2,
+  height = 3.2
+)
+
+par(
+  family = "serif",
+  mar = c(4, 4, 2.5, 1),
+  mgp = c(2.1, 0.55, 0),
+  tcl = -0.25,
+  lwd = 0.5
+)
+
+plot(
+  NA,
+  xlim = c(-0.3, 12.5),
+  ylim = c(-2, 102),
+  xlab = "Correct to within (hrs)",
+  ylab = paste0("% correct (N = ", nrow(meta_df), ")"),
+  main = "Absolute error CDF",
+  cex.main = 0.9,
+  cex.lab = 0.8,
+  cex.axis = 0.75,
+  bty = "n"
+)
+
+box(lwd = 0.5)
+
+abline(
+  a = 0,
+  b = 100 / 12,
+  col = "lightgray",
+  lwd = 0.7
+)
+
+for (method_i in c("ZT_cyclops", "ZT_tempo", "ZT_cyclum", "ZT_scRhythmBayes")) {
+  
+  cdf_i <- cdf_grid_all %>%
+    filter(method == method_i)
+  
+  lines(
+    cdf_i$threshold_h,
+    cdf_i$pct_correct,
+    col = method_cols[method_i],
+    lwd = 1.2
+  )
+}
+
+legend(
+  "bottomright",
+  legend = c("        AUC, MedAE", legend_labels),
+  col = c(NA, method_cols[method_vec]),
+  lwd = c(NA, rep(1.2, length(method_vec))),
+  bty = "o",
+  box.lwd = 0.3,
+  cex = 0.62,
+  y.intersp = 0.9
+)
+
+dev.off()
+```

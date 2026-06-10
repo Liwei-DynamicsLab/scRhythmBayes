@@ -1,0 +1,352 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#layer2
+```{r}
+# layer2: cell-number benchmark gene-level parameter inference
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(Matrix)
+  library(dplyr)
+  library(tibble)
+  library(readr)
+})
+
+# Step 0. IO
+
+out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_cell_number_4000g_6tp"
+
+obj_dir <- file.path(out_dir, "sim_objects")
+phase_dir <- file.path(out_dir, "res_phase")
+param_dir <- file.path(out_dir, "res_param")
+param_long_dir <- file.path(out_dir, "param_long")
+param_wide_dir <- file.path(out_dir, "param_wide")
+index_dir <- file.path(out_dir, "index")
+
+dir.create(param_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(param_long_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(param_wide_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(index_dir, recursive = TRUE, showWarnings = FALSE)
+
+target_cell_vec <- c(10500, 6000, 3000, 1500, 600)
+ZT_points <- c(0, 4, 8, 12, 16, 20)
+
+n_repeat <- 1
+B_use <- 10
+n_worker_use <- 1
+force_rerun_param <- TRUE
+
+if (force_rerun_param) {
+  unlink(param_dir, recursive = TRUE, force = TRUE)
+  unlink(param_long_dir, recursive = TRUE, force = TRUE)
+  unlink(param_wide_dir, recursive = TRUE, force = TRUE)
+  dir.create(param_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(param_long_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(param_wide_dir, recursive = TRUE, showWarnings = FALSE)
+}
+
+# Step 1. Load simulation index
+
+cell_index_file <- file.path(index_dir, "cell_number_sim_object_index.rds")
+stopifnot(file.exists(cell_index_file))
+
+cell_index <- readRDS(cell_index_file) %>%
+  mutate(
+    target_n_cell = as.numeric(target_n_cell),
+    actual_n_cell = as.numeric(actual_n_cell),
+    n_per_condition_per_ZT = as.numeric(n_per_condition_per_ZT)
+  ) %>%
+  filter(target_n_cell %in% target_cell_vec) %>%
+  arrange(desc(target_n_cell))
+
+print(cell_index)
+
+stopifnot(
+  nrow(cell_index) == length(target_cell_vec),
+  all(cell_index$n_gene == 4000),
+  all(cell_index$n_timepoint == 6),
+  all(cell_index$n_condition == 2),
+  all(cell_index$n_celltype == 1)
+)
+
+# Step 2. Run layer2
+
+param_record_all <- list()
+run_id <- 1
+
+for (i in seq_len(nrow(cell_index))) {
+  target_n_cell <- cell_index$target_n_cell[i]
+  actual_n_cell <- cell_index$actual_n_cell[i]
+  n_per_condition_per_ZT <- cell_index$n_per_condition_per_ZT[i]
+
+  for (rep_id in seq_len(n_repeat)) {
+    message("============================================================")
+    message("Running layer2 | target_n_cell = ", target_n_cell, " | actual_n_cell = ", actual_n_cell, " | repeat = ", rep_id)
+
+    obj_file <- file.path(
+      obj_dir,
+      paste0("simulate_data_cell", target_n_cell, "_4000g_6tp.rds")
+    )
+
+    phase_file <- file.path(
+      phase_dir,
+      paste0("res_phase_cell", target_n_cell, "_rep", rep_id, ".rds")
+    )
+
+    param_file <- file.path(
+      param_dir,
+      paste0("res_param_cell", target_n_cell, "_rep", rep_id, ".rds")
+    )
+
+    param_long_csv <- file.path(
+      param_long_dir,
+      paste0("param_long_cell", target_n_cell, "_rep", rep_id, ".csv")
+    )
+
+    param_long_rds <- file.path(
+      param_long_dir,
+      paste0("param_long_cell", target_n_cell, "_rep", rep_id, ".rds")
+    )
+
+    param_wide_csv <- file.path(
+      param_wide_dir,
+      paste0("param_wide_cell", target_n_cell, "_rep", rep_id, ".csv")
+    )
+
+    param_wide_rds <- file.path(
+      param_wide_dir,
+      paste0("param_wide_cell", target_n_cell, "_rep", rep_id, ".rds")
+    )
+
+    run_status <- "finished_new"
+    run_error <- NA_character_
+
+    tryCatch({
+      stopifnot(file.exists(obj_file))
+      stopifnot(file.exists(phase_file))
+
+      obj_sim <- readRDS(obj_file)
+      DefaultAssay(obj_sim) <- "RNA"
+
+      count <- Seurat::GetAssayData(
+        obj_sim,
+        assay = "RNA",
+        slot = "counts"
+      )
+
+      metadata <- obj_sim@meta.data %>%
+        as.data.frame()
+      metadata$cell <- rownames(metadata)
+
+      res_phase <- readRDS(phase_file) %>%
+        mutate(cell = as.character(cell))
+
+      metadata <- metadata %>%
+        mutate(cell = as.character(cell))
+
+      res_phase <- res_phase[match(metadata$cell, res_phase$cell), , drop = FALSE]
+
+      stopifnot(
+        nrow(count) == 4000,
+        ncol(count) == actual_n_cell,
+        identical(colnames(count), metadata$cell),
+        identical(res_phase$cell, metadata$cell),
+        all(c("cell", "theta_pred", "r_cell", "Rbar") %in% colnames(res_phase)),
+        all(c("ZT_sym", "ZT_true", "condition", "group", "celltype") %in% colnames(metadata)),
+        all(is.finite(res_phase$theta_pred)),
+        all(is.finite(res_phase$r_cell)),
+        length(unique(metadata$celltype)) == 1,
+        all(unique(metadata$celltype) == "Celltype1"),
+        length(unique(metadata$condition)) == 2,
+        all(sort(unique(as.character(metadata$condition))) == c("cond_1", "cond_2"))
+      )
+
+      zt_observed <- sort(unique(as.numeric(metadata$ZT_sym)))
+
+      message("Object dimension:")
+      print(dim(count))
+
+      message("Condition table:")
+      print(table(metadata$condition))
+
+      message("Celltype table:")
+      print(table(metadata$celltype))
+
+      message("Condition x ZT table:")
+      print(table(metadata$condition, metadata$ZT_sym))
+
+      message("Observed ZT: ", paste(zt_observed, collapse = ", "))
+      message("Expected ZT: ", paste(ZT_points, collapse = ", "))
+
+      message("Median r_cell: ", round(median(res_phase$r_cell, na.rm = TRUE), 4))
+      message("Median Rbar: ", round(median(res_phase$Rbar, na.rm = TRUE), 4))
+
+      stopifnot(
+        identical(zt_observed, ZT_points),
+        all(table(metadata$condition, metadata$ZT_sym) == n_per_condition_per_ZT)
+      )
+
+      res_param <- infer_gene_param(
+        count = count,
+        metadata = metadata,
+        theta_pred = res_phase$theta_pred,
+        r_cell = res_phase$r_cell,
+        strata_by = "condition",
+        B = B_use,
+        n_worker = n_worker_use,
+        setseed = 2026 + rep_id,
+        Verbose = TRUE
+      )
+
+      res_param$benchmark <- list(
+        benchmark = "cell_number",
+        target_n_cell = target_n_cell,
+        actual_n_cell = actual_n_cell,
+        repeat_id = rep_id,
+        ZT_points = ZT_points,
+        n_timepoint = length(ZT_points),
+        n_per_condition_per_ZT = n_per_condition_per_ZT,
+        strata_by = "condition",
+        B = B_use,
+        n_worker = n_worker_use,
+        gene_number = 4000,
+        cell_number = actual_n_cell,
+        n_condition = 2,
+        n_celltype = 1
+      )
+
+      res_param$param_long <- res_param$param_long %>%
+        mutate(
+          target_n_cell = target_n_cell,
+          actual_n_cell = actual_n_cell,
+          repeat_id = rep_id,
+          benchmark = "cell_number"
+        )
+
+      res_param$param_wide <- res_param$param_wide %>%
+        mutate(
+          target_n_cell = target_n_cell,
+          actual_n_cell = actual_n_cell,
+          repeat_id = rep_id,
+          benchmark = "cell_number"
+        )
+
+      if (!is.null(res_param$bootstrap_res)) {
+        res_param$bootstrap_res <- res_param$bootstrap_res %>%
+          mutate(
+            target_n_cell = target_n_cell,
+            actual_n_cell = actual_n_cell,
+            repeat_id = rep_id,
+            benchmark = "cell_number"
+          )
+      }
+
+      saveRDS(res_param, param_file)
+
+      write_csv(res_param$param_long, param_long_csv)
+      saveRDS(res_param$param_long, param_long_rds)
+
+      write_csv(res_param$param_wide, param_wide_csv)
+      saveRDS(res_param$param_wide, param_wide_rds)
+
+      message("Saved layer2 result: ", param_file)
+
+      param_record_all[[run_id]] <- tibble(
+        target_n_cell = target_n_cell,
+        actual_n_cell = actual_n_cell,
+        repeat_id = rep_id,
+        n_timepoint = length(ZT_points),
+        ZT_points = paste(ZT_points, collapse = ","),
+        n_per_condition_per_ZT = n_per_condition_per_ZT,
+        object_file = obj_file,
+        res_phase_file = phase_file,
+        res_param_file = param_file,
+        param_long_csv = param_long_csv,
+        param_long_rds = param_long_rds,
+        param_wide_csv = param_wide_csv,
+        param_wide_rds = param_wide_rds,
+        object_exists = file.exists(obj_file),
+        phase_exists = file.exists(phase_file),
+        param_exists = file.exists(param_file),
+        strata_by = "condition",
+        B = B_use,
+        n_worker = n_worker_use,
+        status = run_status,
+        error_message = run_error
+      )
+
+      write_csv(
+        bind_rows(param_record_all),
+        file.path(index_dir, "cell_number_res_param_file_index.csv")
+      )
+
+      rm(obj_sim, count, metadata, res_phase, res_param)
+      gc()
+
+    }, error = function(e) {
+      run_status <<- "failed"
+      run_error <<- conditionMessage(e)
+
+      message("FAILED layer2 | target_n_cell = ", target_n_cell, " | repeat = ", rep_id)
+      message("Error: ", run_error)
+
+      param_record_all[[run_id]] <<- tibble(
+        target_n_cell = target_n_cell,
+        actual_n_cell = actual_n_cell,
+        repeat_id = rep_id,
+        n_timepoint = length(ZT_points),
+        ZT_points = paste(ZT_points, collapse = ","),
+        n_per_condition_per_ZT = n_per_condition_per_ZT,
+        object_file = obj_file,
+        res_phase_file = phase_file,
+        res_param_file = param_file,
+        param_long_csv = param_long_csv,
+        param_long_rds = param_long_rds,
+        param_wide_csv = param_wide_csv,
+        param_wide_rds = param_wide_rds,
+        object_exists = file.exists(obj_file),
+        phase_exists = file.exists(phase_file),
+        param_exists = file.exists(param_file),
+        strata_by = "condition",
+        B = B_use,
+        n_worker = n_worker_use,
+        status = run_status,
+        error_message = run_error
+      )
+
+      write_csv(
+        bind_rows(param_record_all),
+        file.path(index_dir, "cell_number_res_param_file_index.csv")
+      )
+
+      gc()
+    })
+
+    run_id <- run_id + 1
+  }
+}
+
+# Step 3. Save final index
+
+param_index <- bind_rows(param_record_all) %>%
+  arrange(desc(target_n_cell), repeat_id)
+
+write_csv(
+  param_index,
+  file.path(index_dir, "cell_number_res_param_file_index.csv")
+)
+
+saveRDS(
+  param_index,
+  file.path(index_dir, "cell_number_res_param_file_index.rds")
+)
+
+print(param_index)
+
+message("Finished cell-number layer2 benchmark.")
+message("Output directory: ", out_dir)
+message("Layer2 results: ", param_dir)
+```

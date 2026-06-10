@@ -1,0 +1,255 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#stimulate data
+```{r}
+#STEP0. load seed gene and gene list 40000 of GSE11923
+load("~/scRhythmBayes/data/GSE11923_gene_list_4000random.RData")
+load("~/scRhythmBayes/data/merge_27seedgenes_bmal1.Rdata")
+gene_4000
+seed27_in
+
+#STEP1. meta: symbol-level ZT + cell-level ground truth time
+#ZT
+ZT_points <- c(0, 4, 8, 12, 16, 20)
+n_time <- length(ZT_points)
+
+#cell
+cells_per_time <- 20000
+N <- n_time * cells_per_time
+
+#celltype
+celltypes <- 1:4
+cells_per_ct_per_time <- cells_per_time / length(celltypes)  # 5000
+stopifnot(cells_per_ct_per_time == floor(cells_per_ct_per_time))  
+
+#0-24h
+wrap24 <- function(x) ((x %% 24) + 24) %% 24
+
+
+# Normal jitter around each ZT for ground truth (hours)
+sigma_t <- 0.8
+
+meta_list <- vector("list", n_time)
+
+for (k in seq_along(ZT_points)) {
+  zt <- ZT_points[k]
+
+  # 400 cells
+  ct_vec <- rep(celltypes, each = cells_per_ct_per_time)
+  n_k <- length(ct_vec)
+
+  t_true <- rnorm(n_k, mean = zt, sd = sigma_t)
+  t_true <- wrap24(t_true)
+
+  cell_id <- paste0("ZT", zt, "_cell", sprintf("%03d", seq_len(n_k)))
+
+  meta_list[[k]] <- tibble(
+    cell_id  = cell_id,
+    ZT_sym   = zt,
+    t_true   = t_true,
+    theta_rad = 2*pi*t_true/24,
+    celltype = ct_vec
+  )
+}
+
+meta <- bind_rows(meta_list) %>% as.data.frame()
+rownames(meta) <- meta$cell_id
+stopifnot(nrow(meta) == N)
+
+#STEP2. library sizes
+lib_mean <- 5000
+lib_sd_log10 <- 0.5
+
+lib_size <- round(10^(rnorm(N, mean = log10(lib_mean), sd = lib_sd_log10)))
+lib_size <- pmax(200L, as.integer(lib_size))  # clamp to avoid tiny libs
+
+meta$lib_size <- lib_size
+stopifnot(all(meta$lib_size > 0))
+
+
+#STEP3. truth parameters per gene x celltype: b, A, phi
+genes <- as.character(gene_4000)
+G <- length(genes)
+C <- length(celltypes)
+
+seed_mask <- genes %in% seed27_in
+seed_idx <- which(seed_mask)
+nonseed_idx <- which(!seed_mask)
+
+# 3.1 baseline b_{g,c} 
+b_base <- rlnorm(G, meanlog = log(0.02), sdlog = 0.8) 
+b_mat  <- matrix(rep(b_base, C), nrow = G, ncol = C)
+
+ct_drift <- c(0.10, 0.25, 0.75, 1.00) 
+b_mat <- sweep(b_mat, 2, ct_drift, "*")
+
+# 3.2 celltype markers
+set.seed(2026)
+marker_per_ct <- 120
+marker_pool_idx <- nonseed_idx
+
+marker_idx_list <- lapply(celltypes, function(ct){
+  sample(marker_pool_idx, size = min(marker_per_ct, length(marker_pool_idx)), replace = FALSE)
+})
+
+for (ct in celltypes) {
+  midx <- marker_idx_list[[ct]]
+  b_mat[midx, ct] <- b_mat[midx, ct] * 8   # marker boost
+}
+
+# 3.3 phase phi_{g,c} in hours [0,24) 
+wrap24 <- function(x) ((x %% 24) + 24) %% 24
+
+
+phi_base <- runif(G, min = 0, max = 24)
+phi_mat  <- matrix(rep(phi_base, C), nrow = G, ncol = C)
+
+ct_shift <- c(0, 0.5, 1.5, 2)  # 小时；CT之间相位轻微偏移
+phi_mat <- sweep(phi_mat, 2, ct_shift, "+")
+phi_mat <- wrap24(phi_mat)
+
+# 3.4 amplitude A_{g,c} 
+set.seed(2027)
+A_mat <- matrix(0, nrow = G, ncol = C)
+
+p_cycler_ct1_4 <- 0.45
+
+# non-seed rhythmic indicator
+R_nonseed <- matrix(0L, nrow = length(nonseed_idx), ncol = C)
+R_nonseed[, 1] <- rbinom(length(nonseed_idx), 1, p_cycler_ct1_4)
+R_nonseed[, 2] <- rbinom(length(nonseed_idx), 1, p_cycler_ct1_4)
+R_nonseed[, 3] <- rbinom(length(nonseed_idx), 1, p_cycler_ct1_4)
+R_nonseed[, 4] <- rbinom(length(nonseed_idx), 1, p_cycler_ct1_4)
+
+# draw amplitudes 
+A_draw_nonseed <- rgamma(length(nonseed_idx) * C, shape = 2.0, rate = 20)  # mean~0.1
+A_draw_nonseed <- matrix(A_draw_nonseed, nrow = length(nonseed_idx), ncol = C)
+A_nonseed <- A_draw_nonseed * R_nonseed
+A_mat[nonseed_idx, ] <- A_nonseed
+
+# seed amplitudes: always rhythmic
+A_draw_seed <- rgamma(length(seed_idx) * C, shape = 2.2, rate = 18)  
+A_draw_seed <- matrix(A_draw_seed, nrow = length(seed_idx), ncol = C)
+A_mat[seed_idx, ] <- A_draw_seed
+
+
+A_mat <- pmin(A_mat, 1.0)
+
+
+truth_params <- list(
+  genes = genes,
+  celltypes = celltypes,
+  b_mat = b_mat,
+  A_mat = A_mat,
+  phi_mat = phi_mat,
+  seed27_in = seed27_in,
+  marker_idx_list = marker_idx_list
+)
+
+
+# STEP4. generate counts by celltype blocks: (t_true, celltype)->proportion->Poisson->dropout
+omega <- 2*pi/24
+
+# dropout
+eta0 <- 1.2
+eta1 <- -1.1
+eps0 <- 1e-8
+
+
+counts_dense <- matrix(0L, nrow = G, ncol = N)
+rownames(counts_dense) <- genes
+colnames(counts_dense) <- meta$cell_id
+
+for (ct in celltypes) {
+
+  cell_idx <- which(meta$celltype == ct)
+  t_vec <- meta$t_true[cell_idx]
+  L_vec <- meta$lib_size[cell_idx]
+
+  b_vec  <- b_mat[, ct]
+  A_vec  <- A_mat[, ct]
+  ph_vec <- phi_mat[, ct]
+
+  # diff_mat[g,i] = t_i - phi_g
+  diff_mat <- outer(ph_vec, t_vec, FUN = function(p, t) t - p)
+  diff_mat <- matrix(diff_mat, nrow = G)
+  
+  mu_mat <- b_vec + A_vec * cos(omega * diff_mat)
+  mu_mat <- pmax(0, mu_mat)
+  mu_mat <- matrix(mu_mat, nrow = G)
+  
+  col_sum <- colSums(mu_mat)
+  col_sum <- pmax(col_sum, eps0)
+
+  p_mat <- sweep(mu_mat, 2, col_sum, "/")
+  lambda_mat <- sweep(p_mat, 2, L_vec, "*")
+
+  # Poisson sampling
+  y_vec <- rpois(length(lambda_mat), lambda = as.numeric(lambda_mat))
+  y_mat <- matrix(y_vec, nrow = G, ncol = length(cell_idx))
+
+  # Dropout probability depends on log(lambda)
+  dprob_mat <- plogis(eta0 + eta1 * log(lambda_mat + eps0))
+  drop_mask <- matrix(runif(length(dprob_mat)) < as.numeric(dprob_mat),
+                      nrow = G, ncol = length(cell_idx))
+  y_mat[drop_mask] <- 0L
+
+  counts_dense[, cell_idx] <- y_mat
+
+  rm(diff_mat, mu_mat, p_mat, lambda_mat, y_vec, y_mat, dprob_mat, drop_mask)
+  gc()
+
+  message("Done celltype ", ct, " | cells = ", length(cell_idx))
+}
+
+counts_sparse <- Matrix(counts_dense, sparse = TRUE)
+
+
+# STEP5. save outputs
+out_dir <- "~/scRhythmBayes/data"
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+saveRDS(counts_sparse, file = file.path(out_dir, "sim_counts.rds"))
+data.table::fwrite(meta, file = file.path(out_dir, "sim_meta_new.csv"))
+saveRDS(truth_params, file = file.path(out_dir, "sim_truth_params_new.rds"))
+
+
+str(truth_params, max.level = 1)
+colMeans(truth_params$A_mat > 0)
+
+seed_mask <- truth_params$genes %in% seed27_in
+colMeans(truth_params$A_mat[!seed_mask, , drop = FALSE] > 0)
+colMeans(truth_params$A_mat[seed_mask, ])
+
+#seurat
+sim_counts_dgCMatrix <- readRDS("~/scRhythmBayes/data/sim_counts.rds")
+sim_meta <- read_csv("~/scRhythmBayes/data/sim_meta_new.csv")
+
+sim_meta <- as.data.frame(sim_meta)
+rownames(sim_meta) <- sim_meta$cell_id
+
+stopifnot(identical(colnames(sim_counts_dgCMatrix), rownames(sim_meta)))
+sum(is.na(rownames(sim_counts_dgCMatrix)))
+valid_genes <- !is.na(rownames(sim_counts_dgCMatrix))
+
+
+sim_counts_dgCMatrix <- sim_counts_dgCMatrix[valid_genes, ]
+sim_meta <- sim_meta 
+
+stopifnot(!any(is.na(rownames(sim_counts_dgCMatrix))))
+
+obj_sim <- CreateSeuratObject(
+  counts = sim_counts_dgCMatrix,
+  meta.data = sim_meta,
+  project = "simulate data"
+)
+save(obj_sim,file = "/Users/zhangqian/scRhythmBayes/data/simulate_data_new2.Rdata")
+saveRDS(obj_sim,file = "/Users/zhangqian/scRhythmBayes/data/simulate_data_new2.rds")
+
+rm(gene_4000,seed27_in,ZT_points,n_time,cells_per_time,N,celltypes,cells_per_ct_per_time,wrap24,sigma_t,meta_list,k,zt,ct_vec,n_k,t_true,cell_id,lib_mean,lib_sd_log10,lib_size,genes,G,C,seed_mask,seed_idx,nonseed_idx,b_base,b_mat,ct_drift,marker_per_ct,marker_pool_idx,marker_idx_list,ct,midx,phi_base,phi_mat,ct_shift,p_cycler_ct1_4,R_nonseed,A_draw_nonseed,A_nonseed,A_draw_seed,A_mat,truth_params,omega,eta0,eta1,eps0,counts_dense,cell_idx,t_vec,L_vec,b_vec,A_vec,ph_vec,col_sum,out_dir,sim_counts_dgCMatrix,sim_meta,valid_genes);gc()
+
+rm(counts_sparse,meta);gc()
+```

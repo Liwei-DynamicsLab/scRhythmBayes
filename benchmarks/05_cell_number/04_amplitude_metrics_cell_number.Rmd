@@ -1,0 +1,490 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#amp metrics
+```{r}
+# amp metrics: cell-number benchmark amplitude accuracy
+# includes 20,000 cells from the existing 6-timepoint timepoint benchmark
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(tidyr)
+  library(ggplot2)
+  library(plotthis)
+  library(grid)
+})
+
+# Step 0. IO
+
+cell_out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_cell_number_4000g_6tp"
+timepoint_out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_timepoint_number_4000g_20000c"
+
+cell_param_long_dir <- file.path(cell_out_dir, "param_long")
+cell_truth_dir <- file.path(cell_out_dir, "truth_params")
+
+timepoint_param_long_dir <- file.path(timepoint_out_dir, "param_long")
+timepoint_truth_dir <- file.path(timepoint_out_dir, "truth_params")
+
+metric_dir <- file.path(cell_out_dir, "gene_param_metrics")
+plot_dir <- file.path(cell_out_dir, "plots_gene_param")
+
+dir.create(metric_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+
+cell_number_vec <- c(600, 1500, 3000, 6000, 10500, 20000)
+n_repeat <- 1
+
+CELL_NUMBER_ORDER <- c(600, 1500, 3000, 6000, 10500, 20000)
+
+CELL_NUMBER_COLORS <- c(
+  "20000" = "#A8C7E6",
+  "10500" = "#57ADDE",
+  "6000"  = "#17441e",
+  "3000"  = "#3a621f",
+  "1500"  = "#357090",
+  "600"   = "#2F6F73"
+)
+
+LINE_COLOR <- CELL_NUMBER_COLORS["20000"]
+
+CELL_NUMBER_LABELS <- c(
+  "600"   = "600",
+  "1500"  = "1,500",
+  "3000"  = "3,000",
+  "6000"  = "6,000",
+  "10500" = "10,500",
+  "20000" = "20,000"
+)
+
+eps_amp <- 1e-6
+
+# Step 1. Load amplitude truth and prediction
+
+load_amp_one_cell_number <- function(target_n_cell, rep_id = 1) {
+
+  if (target_n_cell == 20000) {
+    param_long_rds <- file.path(
+      timepoint_param_long_dir,
+      paste0("param_long_timepoint6_rep", rep_id, ".rds")
+    )
+
+    truth_file <- file.path(
+      timepoint_truth_dir,
+      "truth_params_timepoint6_4000g_20000c.rds"
+    )
+
+    actual_n_cell <- 20000
+    source_benchmark <- "timepoint_number_6tp_20000c"
+  } else {
+    param_long_rds <- file.path(
+      cell_param_long_dir,
+      paste0("param_long_cell", target_n_cell, "_rep", rep_id, ".rds")
+    )
+
+    truth_file <- file.path(
+      cell_truth_dir,
+      paste0("truth_params_cell", target_n_cell, "_4000g_6tp.rds")
+    )
+
+    actual_n_cell <- target_n_cell
+    source_benchmark <- "cell_number"
+  }
+
+  stopifnot(file.exists(param_long_rds))
+  stopifnot(file.exists(truth_file))
+
+  param_long <- readRDS(param_long_rds)
+  truth_i <- readRDS(truth_file)
+
+  genes_truth <- as.character(truth_i$genes)
+  groups_truth <- as.character(truth_i$groups)
+
+  truth_amp_df <- expand.grid(
+    gene = genes_truth,
+    Group = groups_truth,
+    stringsAsFactors = FALSE
+  ) %>%
+    as_tibble() %>%
+    mutate(
+      gene_index = match(gene, genes_truth),
+      group_index = match(Group, groups_truth),
+      truth_amp = truth_i$A_mat[cbind(gene_index, group_index)]
+    ) %>%
+    select(gene, Group, truth_amp)
+
+  param_long %>%
+    transmute(
+      gene = as.character(gene),
+      Group = as.character(condition),
+      pred_amp = as.numeric(Amplitude),
+      target_n_cell = target_n_cell,
+      actual_n_cell = actual_n_cell,
+      repeat_id = rep_id,
+      source_benchmark = source_benchmark
+    ) %>%
+    left_join(truth_amp_df, by = c("gene", "Group")) %>%
+    select(
+      gene, Group,
+      truth_amp, pred_amp,
+      target_n_cell, actual_n_cell,
+      repeat_id, source_benchmark
+    ) %>%
+    mutate(
+      truth_amp = as.numeric(truth_amp),
+      pred_amp = as.numeric(pred_amp)
+    ) %>%
+    filter(
+      is.finite(truth_amp),
+      is.finite(pred_amp)
+    )
+}
+
+# Step 2. Merge all cell-number inputs
+
+amp_all <- list()
+run_id <- 1
+
+for (target_n_cell in cell_number_vec) {
+  for (rep_id in seq_len(n_repeat)) {
+    message("Loading amplitude result | target_n_cell = ", target_n_cell, " | repeat = ", rep_id)
+
+    amp_all[[run_id]] <- load_amp_one_cell_number(
+      target_n_cell = target_n_cell,
+      rep_id = rep_id
+    )
+
+    run_id <- run_id + 1
+  }
+}
+
+amp_long <- bind_rows(amp_all) %>%
+  mutate(
+    target_n_cell = factor(target_n_cell, levels = CELL_NUMBER_ORDER),
+    Group = factor(Group, levels = c("cond_1", "cond_2"))
+  )
+
+print(head(amp_long))
+print(table(amp_long$target_n_cell))
+print(table(amp_long$Group))
+print(table(amp_long$source_benchmark))
+print(colSums(is.na(amp_long)))
+
+stopifnot(
+  nrow(amp_long) == length(cell_number_vec) * n_repeat * 4000 * 2,
+  all(!is.na(amp_long$truth_amp)),
+  all(!is.na(amp_long$pred_amp))
+)
+
+write_csv(
+  amp_long,
+  file.path(metric_dir, "Amplitude_truth_pred_long_cell_number.csv")
+)
+
+saveRDS(
+  amp_long,
+  file.path(metric_dir, "Amplitude_truth_pred_long_cell_number.rds")
+)
+
+# Step 3. Metrics
+
+metrics_amp <- amp_long %>%
+  mutate(
+    abs_error = abs(truth_amp - pred_amp),
+    sq_error = (truth_amp - pred_amp)^2,
+    ape = ifelse(abs(truth_amp) > eps_amp, abs((truth_amp - pred_amp) / truth_amp), NA_real_)
+  ) %>%
+  group_by(target_n_cell, actual_n_cell, repeat_id) %>%
+  summarise(
+    N = n(),
+    N_mape = sum(!is.na(ape)),
+    ME = mean(truth_amp - pred_amp),
+    MAE = mean(abs_error),
+    MSE = mean(sq_error),
+    RMSE = sqrt(mean(sq_error)),
+    MAPE = mean(ape, na.rm = TRUE) * 100,
+    R = cor(truth_amp, pred_amp, method = "pearson"),
+    R2 = R^2,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER))
+  )
+
+print(metrics_amp)
+
+write_csv(
+  metrics_amp,
+  file.path(metric_dir, "Amplitude_metrics_summary_cell_number_all_repeats.csv")
+)
+
+saveRDS(
+  metrics_amp,
+  file.path(metric_dir, "Amplitude_metrics_summary_cell_number_all_repeats.rds")
+)
+
+metrics_amp_median <- metrics_amp %>%
+  group_by(target_n_cell) %>%
+  summarise(
+    actual_n_cell = median(actual_n_cell, na.rm = TRUE),
+    N = median(N, na.rm = TRUE),
+    N_mape = median(N_mape, na.rm = TRUE),
+    ME = median(ME, na.rm = TRUE),
+    MAE = median(MAE, na.rm = TRUE),
+    MSE = median(MSE, na.rm = TRUE),
+    RMSE = median(RMSE, na.rm = TRUE),
+    MAPE = median(MAPE, na.rm = TRUE),
+    R = median(R, na.rm = TRUE),
+    R2 = median(R2, na.rm = TRUE),
+    n_repeat = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    target_n_cell_num = as.numeric(as.character(target_n_cell)),
+    target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER))
+  ) %>%
+  arrange(target_n_cell_num)
+
+print(metrics_amp_median)
+
+write_csv(
+  metrics_amp_median,
+  file.path(metric_dir, "Amplitude_metrics_summary_cell_number_median.csv")
+)
+
+saveRDS(
+  metrics_amp_median,
+  file.path(metric_dir, "Amplitude_metrics_summary_cell_number_median.rds")
+)
+
+metrics_amp_long <- metrics_amp_median %>%
+  select(target_n_cell, target_n_cell_num, ME, MAE, MSE, RMSE, MAPE, R2) %>%
+  pivot_longer(
+    cols = c(ME, MAE, MSE, RMSE, MAPE, R2),
+    names_to = "metric",
+    values_to = "value"
+  ) %>%
+  mutate(
+    metric = factor(metric, levels = c("ME", "MAE", "MSE", "RMSE", "MAPE", "R2")),
+    target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER)),
+    label = case_when(
+      metric == "MAPE" ~ sprintf("%.1f%%", value),
+      TRUE ~ sprintf("%.3f", value)
+    )
+  )
+
+write_csv(
+  metrics_amp_long,
+  file.path(metric_dir, "Amplitude_metrics_long_cell_number.csv")
+)
+
+saveRDS(
+  metrics_amp_long,
+  file.path(metric_dir, "Amplitude_metrics_long_cell_number.rds")
+)
+
+# Step 4. Single metric plots
+
+plot_amp_metric_line <- function(metric_use, title, ylab, out_name) {
+
+  df_plot <- metrics_amp_long %>%
+    filter(metric == metric_use) %>%
+    mutate(
+      target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER))
+    )
+
+  p <- ggplot(
+    df_plot,
+    aes(x = target_n_cell, y = value)
+  ) +
+    geom_line(
+      aes(group = 1),
+      color = LINE_COLOR,
+      linewidth = 1.35,
+      alpha = 0.9
+    ) +
+    geom_point(
+      aes(fill = target_n_cell),
+      shape = 21,
+      size = 5.6,
+      color = "black",
+      stroke = 0.45,
+      alpha = 1
+    ) +
+    geom_text(
+      aes(label = label),
+      vjust = ifelse(df_plot$value >= 0, -1.15, 1.45),
+      size = 6.2,
+      fontface = "bold",
+      family = "serif"
+    ) +
+    scale_fill_manual(
+      values = CELL_NUMBER_COLORS,
+      drop = FALSE
+    ) +
+    scale_x_discrete(
+      labels = CELL_NUMBER_LABELS
+    ) +
+    scale_y_continuous(
+      expand = expansion(mult = c(0.18, 0.40))
+    ) +
+    coord_cartesian(clip = "off") +
+    labs(
+      title = title,
+      x = "Number of cells",
+      y = ylab
+    ) +
+    theme_classic(base_size = 14, base_family = "serif") +
+    theme(
+      plot.margin = ggplot2::margin(30, 32, 32, 32),
+      plot.title = element_text(hjust = 0.5, size = 28, face = "bold"),
+      axis.title.x = element_text(size = 22, face = "bold"),
+      axis.title.y = element_text(size = 22, face = "bold"),
+      axis.text.x = element_text(size = 17, face = "bold", colour = "black"),
+      axis.text.y = element_text(size = 19, face = "bold", colour = "black"),
+      legend.position = "none"
+    )
+
+  print(p)
+
+  ggsave(
+    file.path(plot_dir, paste0(out_name, ".pdf")),
+    p,
+    width = 7.2,
+    height = 6.0
+  )
+
+  ggsave(
+    file.path(plot_dir, paste0(out_name, ".png")),
+    p,
+    width = 7.2,
+    height = 6.0,
+    dpi = 300
+  )
+
+  p
+}
+
+p_amp_me <- plot_amp_metric_line(
+  "ME",
+  "Amplitude ME",
+  "ME",
+  "Amplitude_ME_cell_number_lineplot"
+)
+
+p_amp_mae <- plot_amp_metric_line(
+  "MAE",
+  "Amplitude MAE",
+  "MAE",
+  "Amplitude_MAE_cell_number_lineplot"
+)
+
+p_amp_mse <- plot_amp_metric_line(
+  "MSE",
+  "Amplitude MSE",
+  "MSE",
+  "Amplitude_MSE_cell_number_lineplot"
+)
+
+p_amp_rmse <- plot_amp_metric_line(
+  "RMSE",
+  "Amplitude RMSE",
+  "RMSE",
+  "Amplitude_RMSE_cell_number_lineplot"
+)
+
+p_amp_mape <- plot_amp_metric_line(
+  "MAPE",
+  "Amplitude MAPE",
+  "MAPE (%)",
+  "Amplitude_MAPE_cell_number_lineplot"
+)
+
+p_amp_r2 <- plot_amp_metric_line(
+  "R2",
+  "Amplitude R2",
+  expression(R^2),
+  "Amplitude_R2_cell_number_lineplot"
+)
+
+# Step 5. Facet plot
+
+metrics_amp_plot <- metrics_amp_long %>%
+  filter(metric %in% c("ME", "MAE", "MSE", "RMSE", "MAPE", "R2")) %>%
+  mutate(
+    metric = factor(as.character(metric), levels = c("ME", "MAE", "MSE", "RMSE", "MAPE", "R2")),
+    target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER))
+  )
+
+p_amp_facet <- ggplot(
+  metrics_amp_plot,
+  aes(x = target_n_cell, y = value)
+) +
+  geom_line(
+    aes(group = 1),
+    color = LINE_COLOR,
+    linewidth = 1.15,
+    alpha = 0.9
+  ) +
+  geom_point(
+    aes(fill = target_n_cell),
+    shape = 21,
+    size = 4.6,
+    color = "black",
+    stroke = 0.4,
+    alpha = 1
+  ) +
+  scale_fill_manual(
+    values = CELL_NUMBER_COLORS,
+    drop = FALSE
+  ) +
+  scale_x_discrete(
+    labels = CELL_NUMBER_LABELS
+  ) +
+  facet_wrap(
+    ~ metric,
+    scales = "free_y",
+    nrow = 2
+  ) +
+  labs(
+    title = "Amplitude prediction metrics across cell numbers",
+    x = "Number of cells",
+    y = "Value"
+  ) +
+  theme_classic(base_size = 14, base_family = "serif") +
+  theme(
+    plot.margin = ggplot2::margin(12, 14, 22, 14),
+    plot.title = element_text(hjust = 0.5, size = 24, face = "bold"),
+    axis.title.x = element_text(size = 20, face = "bold"),
+    axis.title.y = element_text(size = 20, face = "bold"),
+    axis.text.x = element_text(size = 13, face = "bold", angle = 35, hjust = 1, colour = "black"),
+    axis.text.y = element_text(size = 14, face = "bold", colour = "black"),
+    strip.text = element_text(face = "bold", size = 18),
+    panel.spacing = grid::unit(1.2, "lines"),
+    legend.position = "none"
+  )
+
+print(p_amp_facet)
+
+ggsave(
+  file.path(plot_dir, "Amplitude_metrics_cell_number_facet_lineplot.pdf"),
+  p_amp_facet,
+  width = 11,
+  height = 7.5
+)
+
+ggsave(
+  file.path(plot_dir, "Amplitude_metrics_cell_number_facet_lineplot.png"),
+  p_amp_facet,
+  width = 11,
+  height = 7.5,
+  dpi = 300
+)
+
+message("Finished cell-number amplitude metric calculation and plotting.")
+message("Metric output: ", metric_dir)
+message("Plot output: ", plot_dir)
+```

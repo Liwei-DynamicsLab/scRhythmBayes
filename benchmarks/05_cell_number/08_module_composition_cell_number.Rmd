@@ -1,0 +1,254 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#hetamap barplot
+```{r}
+# heatmap barplot
+# module composition barplot by truth module across cell numbers
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(tibble)
+  library(readr)
+  library(ggplot2)
+  library(scales)
+})
+
+# Step 0. IO
+
+out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_cell_number_4000g_6tp"
+
+cm_dir <- file.path(out_dir, "module_confusion_matrix")
+barplot_dir <- file.path(cm_dir, "truth_module_composition_barplot")
+
+dir.create(barplot_dir, recursive = TRUE, showWarnings = FALSE)
+
+cm_long_file <- file.path(
+  cm_dir,
+  "CM_module_truth_vs_pred_all_long.csv"
+)
+
+stopifnot(file.exists(cm_long_file))
+
+CELL_NUMBER_ORDER <- c(600, 1500, 3000, 6000, 10500, 20000)
+MODULE_LEVELS <- 0:7
+MODULE_LABELS <- paste0("M", MODULE_LEVELS)
+
+CELL_NUMBER_LABELS <- c(
+  "600" = "600",
+  "1500" = "1,500",
+  "3000" = "3,000",
+  "6000" = "6,000",
+  "10500" = "10,500",
+  "20000" = "20,000"
+)
+
+MODULE_COLORS <- c(
+  "M0" = "#F7F5FA",
+  "M1" = "#EAE6F2",
+  "M2" = "#DCD5E8",
+  "M3" = "#CFC3DD",
+  "M4" = "#C1B2D2",
+  "M5" = "#B5A3C6",
+  "M6" = "#A895BA",
+  "M7" = "#9B89AE"
+)
+
+# Step 1. Read confusion matrix long table
+
+cm_long <- read_csv(cm_long_file, show_col_types = FALSE)
+
+print(colnames(cm_long))
+print(head(cm_long))
+
+cm_long2 <- cm_long %>%
+  rename_with(~ "Truth_num", matches("^Truth_num$|^truth_num$|^truth_module$|^Truth_module$")) %>%
+  rename_with(~ "Pred_num", matches("^Pred_num$|^pred_num$|^pred_module$|^Pred_module$")) %>%
+  rename_with(~ "Freq", matches("^Freq$|^freq$|^n$|^Count$|^count$")) %>%
+  mutate(
+    target_n_cell = as.integer(target_n_cell),
+    repeat_id = as.integer(repeat_id),
+    Truth_num = as.integer(Truth_num),
+    Pred_num = as.integer(Pred_num),
+    Freq = as.numeric(Freq)
+  ) %>%
+  filter(
+    Truth_num %in% MODULE_LEVELS,
+    Pred_num %in% MODULE_LEVELS,
+    target_n_cell %in% CELL_NUMBER_ORDER
+  )
+
+stopifnot(
+  all(c("target_n_cell", "repeat_id", "Truth_num", "Pred_num", "Freq") %in% colnames(cm_long2))
+)
+
+# Step 2. Calculate predicted composition within each ground-truth module
+
+composition_count <- cm_long2 %>%
+  group_by(target_n_cell, Truth_num, Pred_num) %>%
+  summarise(
+    Freq = sum(Freq, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  complete(
+    target_n_cell = CELL_NUMBER_ORDER,
+    Truth_num = MODULE_LEVELS,
+    Pred_num = MODULE_LEVELS,
+    fill = list(Freq = 0)
+  ) %>%
+  group_by(target_n_cell, Truth_num) %>%
+  mutate(
+    Truth_total = sum(Freq, na.rm = TRUE),
+    Percent = ifelse(Truth_total > 0, Freq / Truth_total * 100, NA_real_)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    target_n_cell = factor(target_n_cell, levels = CELL_NUMBER_ORDER),
+    Truth_label = factor(paste0("M", Truth_num), levels = MODULE_LABELS),
+    Pred_label = factor(paste0("M", Pred_num), levels = MODULE_LABELS),
+    label = ifelse(Percent >= 3, sprintf("%.1f%%", Percent), "")
+  )
+
+check_sum <- composition_count %>%
+  group_by(target_n_cell, Truth_num) %>%
+  summarise(
+    total_percent = sum(Percent, na.rm = TRUE),
+    total_count = sum(Freq, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+print(check_sum)
+
+stopifnot(all(abs(check_sum$total_percent - 100) < 1e-6))
+
+write_csv(
+  composition_count,
+  file.path(barplot_dir, "truth_module_predicted_composition_long.csv")
+)
+
+saveRDS(
+  composition_count,
+  file.path(barplot_dir, "truth_module_predicted_composition_long.rds")
+)
+
+# Step 3. Plot one stacked barplot per truth module
+
+plot_one_truth_module <- function(module_id) {
+  module_label <- paste0("M", module_id)
+
+  df_plot <- composition_count %>%
+    filter(Truth_num == module_id) %>%
+    mutate(
+      target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER)),
+      Pred_label = factor(as.character(Pred_label), levels = MODULE_LABELS)
+    )
+
+  stopifnot(nrow(df_plot) > 0)
+
+  check_plot <- df_plot %>%
+    group_by(target_n_cell) %>%
+    summarise(total = sum(Percent, na.rm = TRUE), .groups = "drop")
+
+  stopifnot(all(abs(check_plot$total - 100) < 1e-6))
+
+  p <- ggplot(
+    df_plot,
+    aes(x = target_n_cell, y = Freq, fill = Pred_label)
+  ) +
+    geom_col(
+      position = "fill",
+      width = 0.72,
+      color = "white",
+      linewidth = 0.35
+    ) +
+    geom_text(
+      aes(label = label),
+      position = position_fill(vjust = 0.5),
+      size = 5.5,
+      fontface = "bold",
+      family = "serif",
+      color = "black"
+    ) +
+    scale_x_discrete(
+      labels = CELL_NUMBER_LABELS
+    ) +
+    scale_fill_manual(
+      values = MODULE_COLORS,
+      drop = FALSE,
+      name = "Predicted module"
+    ) +
+    scale_y_continuous(
+      breaks = seq(0, 1, by = 0.2),
+      labels = scales::percent_format(accuracy = 1),
+      expand = expansion(mult = c(0, 0.04))
+    ) +
+    labs(
+      title = module_label,
+      x = "Number of cells",
+      y = "Proportion (%)"
+    ) +
+    theme_classic(base_size = 14, base_family = "serif") +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 28),
+      axis.title.x = element_text(face = "bold", size = 18),
+      axis.title.y = element_text(face = "bold", size = 18),
+      axis.text.x = element_text(face = "bold", size = 17, colour = "black"),
+      axis.text.y = element_text(face = "bold", size = 17, colour = "black"),
+      legend.title = element_text(face = "bold", size = 18),
+      legend.text = element_text(face = "bold", size = 17),
+      legend.position = "right"
+    )
+
+  print(p)
+
+  ggsave(
+    filename = file.path(barplot_dir, paste0("Truth_", module_label, "_predicted_composition_barplot.pdf")),
+    plot = p,
+    width = 8,
+    height = 6
+  )
+
+  ggsave(
+    filename = file.path(barplot_dir, paste0("Truth_", module_label, "_predicted_composition_barplot.png")),
+    plot = p,
+    width = 8,
+    height = 6,
+    dpi = 300
+  )
+
+  p
+}
+
+p_list <- list()
+
+for (module_id in MODULE_LEVELS) {
+  message("Plotting truth module composition barplot | M", module_id)
+  p_list[[paste0("M", module_id)]] <- plot_one_truth_module(module_id)
+}
+
+# Step 4. Save compact summary of correct proportion only
+
+correct_prop_df <- composition_count %>%
+  filter(Truth_num == Pred_num) %>%
+  transmute(
+    target_n_cell,
+    truth_module = Truth_label,
+    correct_count = Freq,
+    truth_total = Truth_total,
+    correct_percent = Percent
+  ) %>%
+  arrange(truth_module, as.numeric(as.character(target_n_cell)))
+
+write_csv(
+  correct_prop_df,
+  file.path(barplot_dir, "truth_module_correct_proportion_summary.csv")
+)
+
+print(correct_prop_df)
+
+message("Finished truth-module composition barplots.")
+message("Output: ", barplot_dir)
+```

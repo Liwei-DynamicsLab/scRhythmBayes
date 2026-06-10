@@ -1,0 +1,485 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#sim cell number
+```{r}
+# cell-number benchmark by stratified downsampling from 20k 6-timepoint master data
+
+rm(list = ls()); gc()
+
+suppressPackageStartupMessages({
+  library(qs)
+  library(Seurat)
+  library(Matrix)
+  library(dplyr)
+  library(tibble)
+  library(readr)
+})
+
+# Step 0. IO
+
+master_out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_timepoint_number_4000g_20000c"
+out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_cell_number_4000g_6tp"
+
+master_obj_file <- file.path(
+  master_out_dir,
+  "sim_objects",
+  "simulate_data_timepoint6_4000g_20000c.rds"
+)
+
+master_truth_file <- file.path(
+  master_out_dir,
+  "truth_params",
+  "truth_params_timepoint6_4000g_20000c.rds"
+)
+
+obj_dir <- file.path(out_dir, "sim_objects")
+truth_dir <- file.path(out_dir, "truth_params")
+index_dir <- file.path(out_dir, "index")
+
+dir.create(obj_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(truth_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(index_dir, recursive = TRUE, showWarnings = FALSE)
+
+target_cell_vec <- c(10500, 6000, 3000, 1500, 600)
+ZT_points <- c(0, 4, 8, 12, 16, 20)
+
+# Step 1. Helper functions
+
+wrap24 <- function(x) {
+  ((x %% 24) + 24) %% 24
+}
+
+circ_diff_h <- function(x, center) {
+  ((as.numeric(x) - as.numeric(center) + 12) %% 24) - 12
+}
+
+make_cell_design <- function(target_cell_vec, n_condition = 2, n_timepoint = 6) {
+  stopifnot(all(target_cell_vec %% (n_condition * n_timepoint) == 0))
+
+  tibble(
+    target_n_cell = target_cell_vec,
+    actual_n_cell = target_cell_vec,
+    n_per_condition_per_ZT = target_cell_vec / (n_condition * n_timepoint),
+    n_cond_1 = actual_n_cell / 2,
+    n_cond_2 = actual_n_cell / 2
+  )
+}
+
+make_quantile_bin <- function(x, n_bin = 6) {
+  x <- as.numeric(x)
+  rk <- rank(x, ties.method = "random")
+
+  brks <- quantile(
+    rk,
+    probs = seq(0, 1, length.out = n_bin + 1),
+    na.rm = TRUE,
+    names = FALSE
+  )
+
+  brks <- unique(brks)
+
+  if (length(brks) <= 2) {
+    return(rep(1L, length(x)))
+  }
+
+  as.integer(cut(
+    rk,
+    breaks = brks,
+    include.lowest = TRUE,
+    labels = FALSE
+  ))
+}
+
+sample_stratified_phase <- function(metadata, n_per_condition_per_ZT, n_bin = 6, seed = 2026) {
+  set.seed(seed)
+
+  meta_i <- metadata %>%
+    mutate(
+      cell = as.character(cell),
+      condition = as.character(condition),
+      ZT_sym = as.numeric(ZT_sym),
+      ZT_true = as.numeric(ZT_true),
+      zt_offset_h = circ_diff_h(ZT_true, ZT_sym)
+    ) %>%
+    group_by(condition, ZT_sym) %>%
+    mutate(zt_offset_bin = make_quantile_bin(zt_offset_h, n_bin = n_bin)) %>%
+    ungroup()
+
+  sampled_cells <- meta_i %>%
+    group_by(condition, ZT_sym) %>%
+    group_modify(function(.x, .y) {
+      n_need <- n_per_condition_per_ZT
+      stopifnot(nrow(.x) >= n_need)
+
+      bin_tab <- .x %>%
+        count(zt_offset_bin, name = "n_bin") %>%
+        mutate(
+          prop_bin = n_bin / sum(n_bin),
+          n_draw_raw = prop_bin * n_need,
+          n_draw = floor(n_draw_raw),
+          remainder = n_draw_raw - n_draw
+        ) %>%
+        arrange(desc(remainder), zt_offset_bin)
+
+      remain_n <- n_need - sum(bin_tab$n_draw)
+
+      if (remain_n > 0) {
+        bin_tab$n_draw[seq_len(remain_n)] <- bin_tab$n_draw[seq_len(remain_n)] + 1
+      }
+
+      out_list <- vector("list", nrow(bin_tab))
+
+      for (j in seq_len(nrow(bin_tab))) {
+        bin_j <- bin_tab$zt_offset_bin[j]
+        n_draw_j <- bin_tab$n_draw[j]
+
+        pool_j <- .x %>%
+          filter(zt_offset_bin == bin_j)
+
+        n_draw_j <- min(n_draw_j, nrow(pool_j))
+
+        out_list[[j]] <- pool_j[
+          sample(seq_len(nrow(pool_j)), size = n_draw_j, replace = FALSE),
+          ,
+          drop = FALSE
+        ]
+      }
+
+      out <- bind_rows(out_list)
+
+      if (nrow(out) > n_need) {
+        out <- out[
+          sample(seq_len(nrow(out)), size = n_need, replace = FALSE),
+          ,
+          drop = FALSE
+        ]
+      }
+
+      if (nrow(out) < n_need) {
+        pool_add <- .x %>%
+          filter(!(cell %in% out$cell))
+
+        add_n <- n_need - nrow(out)
+
+        add_cells <- pool_add[
+          sample(seq_len(nrow(pool_add)), size = add_n, replace = FALSE),
+          ,
+          drop = FALSE
+        ]
+
+        out <- bind_rows(out, add_cells)
+      }
+
+      out
+    }) %>%
+    ungroup()
+
+  sampled_cells$cell
+}
+
+check_downsample_distribution <- function(metadata, target_n_cell, actual_n_cell, n_per_condition_per_ZT) {
+  diag_zt <- metadata %>%
+    count(condition, ZT_sym, name = "n_cell") %>%
+    arrange(condition, ZT_sym)
+
+  diag_offset <- metadata %>%
+    mutate(
+      zt_offset_h = circ_diff_h(ZT_true, ZT_sym),
+      abs_zt_offset_h = abs(zt_offset_h)
+    ) %>%
+    group_by(condition, ZT_sym) %>%
+    summarise(
+      n_cell = n(),
+      mean_offset_h = mean(zt_offset_h),
+      sd_offset_h = sd(zt_offset_h),
+      median_offset_h = median(zt_offset_h),
+      median_abs_offset_h = median(abs_zt_offset_h),
+      q05_offset_h = quantile(zt_offset_h, 0.05),
+      q25_offset_h = quantile(zt_offset_h, 0.25),
+      q75_offset_h = quantile(zt_offset_h, 0.75),
+      q95_offset_h = quantile(zt_offset_h, 0.95),
+      pct_within_0.5h = mean(abs_zt_offset_h <= 0.5) * 100,
+      pct_within_1h = mean(abs_zt_offset_h <= 1) * 100,
+      pct_within_2h = mean(abs_zt_offset_h <= 2) * 100,
+      .groups = "drop"
+    )
+
+  diag_overall <- metadata %>%
+    mutate(
+      zt_offset_h = circ_diff_h(ZT_true, ZT_sym),
+      abs_zt_offset_h = abs(zt_offset_h)
+    ) %>%
+    summarise(
+      target_n_cell = target_n_cell,
+      actual_n_cell = actual_n_cell,
+      n_per_condition_per_ZT = n_per_condition_per_ZT,
+      n_cell = n(),
+      n_condition = n_distinct(condition),
+      n_ZT = n_distinct(ZT_sym),
+      n_celltype = n_distinct(celltype),
+      mean_offset_h = mean(zt_offset_h),
+      sd_offset_h = sd(zt_offset_h),
+      median_offset_h = median(zt_offset_h),
+      median_abs_offset_h = median(abs_zt_offset_h),
+      pct_within_0.5h = mean(abs_zt_offset_h <= 0.5) * 100,
+      pct_within_1h = mean(abs_zt_offset_h <= 1) * 100,
+      pct_within_2h = mean(abs_zt_offset_h <= 2) * 100
+    )
+
+  list(
+    diag_zt = diag_zt,
+    diag_offset = diag_offset,
+    diag_overall = diag_overall
+  )
+}
+
+# Step 2. Load master 20k object and truth
+
+obj_master <- readRDS(master_obj_file)
+truth_master <- readRDS(master_truth_file)
+
+DefaultAssay(obj_master) <- "RNA"
+
+count_master <- Seurat::GetAssayData(
+  obj_master,
+  assay = "RNA",
+  slot = "counts"
+)
+
+metadata_master <- obj_master@meta.data %>%
+  as.data.frame()
+
+metadata_master$cell <- rownames(metadata_master)
+
+stopifnot(
+  nrow(count_master) == 4000,
+  ncol(count_master) == 20000,
+  identical(colnames(count_master), metadata_master$cell),
+  all(c("condition", "group", "celltype", "ZT_sym", "ZT_true", "theta_true") %in% colnames(metadata_master)),
+  identical(sort(unique(as.numeric(metadata_master$ZT_sym))), ZT_points),
+  length(unique(metadata_master$condition)) == 2,
+  all(sort(unique(as.character(metadata_master$condition))) == c("cond_1", "cond_2")),
+  length(unique(metadata_master$celltype)) == 1,
+  all(unique(metadata_master$celltype) == "Celltype1")
+)
+
+cell_design <- make_cell_design(target_cell_vec)
+print(cell_design)
+
+write_csv(cell_design, file.path(index_dir, "cell_number_design.csv"))
+saveRDS(cell_design, file.path(index_dir, "cell_number_design.rds"))
+
+master_diag <- check_downsample_distribution(
+  metadata = metadata_master,
+  target_n_cell = 20000,
+  actual_n_cell = 20000,
+  n_per_condition_per_ZT = NA_real_
+)
+
+write_csv(
+  master_diag$diag_overall,
+  file.path(index_dir, "master_20k_ZT_true_distribution_overall.csv")
+)
+
+write_csv(
+  master_diag$diag_offset,
+  file.path(index_dir, "master_20k_ZT_true_offset_by_condition_ZT.csv")
+)
+
+# Step 3. Generate downsampled objects
+
+record_all <- list()
+diag_overall_all <- list()
+diag_zt_all <- list()
+diag_offset_all <- list()
+
+for (i in seq_len(nrow(cell_design))) {
+  target_n_cell <- cell_design$target_n_cell[i]
+  actual_n_cell <- cell_design$actual_n_cell[i]
+  n_per_condition_per_ZT <- cell_design$n_per_condition_per_ZT[i]
+
+  message("============================================================")
+  message("Downsampling target_n_cell = ", target_n_cell)
+  message("actual_n_cell = ", actual_n_cell)
+  message("n_per_condition_per_ZT = ", n_per_condition_per_ZT)
+
+  keep_cell <- sample_stratified_phase(
+    metadata = metadata_master,
+    n_per_condition_per_ZT = n_per_condition_per_ZT,
+    n_bin = 6,
+    seed = 2026 + target_n_cell
+  )
+
+  keep_cell <- as.character(keep_cell)
+
+  count_i <- count_master[, keep_cell, drop = FALSE]
+
+  metadata_i <- metadata_master[
+    match(keep_cell, metadata_master$cell),
+    ,
+    drop = FALSE
+  ]
+
+  stopifnot(
+    identical(colnames(count_i), metadata_i$cell),
+    nrow(count_i) == 4000,
+    ncol(count_i) == actual_n_cell,
+    all(table(metadata_i$condition, metadata_i$ZT_sym) == n_per_condition_per_ZT),
+    length(unique(metadata_i$condition)) == 2,
+    length(unique(metadata_i$celltype)) == 1,
+    all(unique(metadata_i$celltype) == "Celltype1"),
+    identical(sort(unique(as.numeric(metadata_i$ZT_sym))), ZT_points)
+  )
+
+  rownames(metadata_i) <- metadata_i$cell
+
+  obj_i <- CreateSeuratObject(
+    counts = count_i,
+    meta.data = metadata_i
+  )
+
+  DefaultAssay(obj_i) <- "RNA"
+
+  truth_i <- truth_master
+
+  truth_i$benchmark <- list(
+    benchmark = "cell_number",
+    target_n_cell = target_n_cell,
+    actual_n_cell = actual_n_cell,
+    n_per_condition_per_ZT = n_per_condition_per_ZT,
+    ZT_points = ZT_points,
+    n_timepoint = length(ZT_points),
+    n_gene = nrow(count_i),
+    n_cell = ncol(count_i),
+    n_condition = 2,
+    n_celltype = 1,
+    truth_source = "stratified_downsampling_from_20k_6tp_master_by_condition_ZT_and_ZTtrue_offset"
+  )
+
+  obj_file <- file.path(
+    obj_dir,
+    paste0("simulate_data_cell", target_n_cell, "_4000g_6tp.rds")
+  )
+
+  truth_file <- file.path(
+    truth_dir,
+    paste0("truth_params_cell", target_n_cell, "_4000g_6tp.rds")
+  )
+
+  saveRDS(obj_i, obj_file)
+  saveRDS(truth_i, truth_file)
+
+  diag_i <- check_downsample_distribution(
+    metadata = metadata_i,
+    target_n_cell = target_n_cell,
+    actual_n_cell = actual_n_cell,
+    n_per_condition_per_ZT = n_per_condition_per_ZT
+  )
+
+  diag_overall_all[[as.character(target_n_cell)]] <- diag_i$diag_overall
+
+  diag_zt_all[[as.character(target_n_cell)]] <- diag_i$diag_zt %>%
+    mutate(
+      target_n_cell = target_n_cell,
+      actual_n_cell = actual_n_cell
+    )
+
+  diag_offset_all[[as.character(target_n_cell)]] <- diag_i$diag_offset %>%
+    mutate(
+      target_n_cell = target_n_cell,
+      actual_n_cell = actual_n_cell
+    )
+
+  print(diag_i$diag_overall)
+  print(diag_i$diag_zt)
+  print(diag_i$diag_offset)
+
+  record_all[[as.character(target_n_cell)]] <- tibble(
+    target_n_cell = target_n_cell,
+    actual_n_cell = actual_n_cell,
+    n_per_condition_per_ZT = n_per_condition_per_ZT,
+    n_gene = nrow(obj_i),
+    n_cell = ncol(obj_i),
+    n_condition = length(unique(metadata_i$condition)),
+    n_celltype = length(unique(metadata_i$celltype)),
+    n_timepoint = length(ZT_points),
+    ZT_points = paste(ZT_points, collapse = ","),
+    obj_file = obj_file,
+    truth_file = truth_file,
+    n_cond_1 = sum(metadata_i$condition == "cond_1"),
+    n_cond_2 = sum(metadata_i$condition == "cond_2"),
+    status = "finished_stratified_downsampled"
+  )
+
+  rm(obj_i, truth_i, count_i, metadata_i, diag_i)
+  gc()
+}
+
+# Step 4. Save index and diagnostics
+
+cell_number_index <- bind_rows(record_all) %>%
+  arrange(desc(target_n_cell))
+
+diag_overall <- bind_rows(diag_overall_all) %>%
+  arrange(desc(target_n_cell))
+
+diag_zt <- bind_rows(diag_zt_all) %>%
+  arrange(desc(target_n_cell), condition, ZT_sym)
+
+diag_offset <- bind_rows(diag_offset_all) %>%
+  arrange(desc(target_n_cell), condition, ZT_sym)
+
+write_csv(
+  cell_number_index,
+  file.path(index_dir, "cell_number_sim_object_index.csv")
+)
+
+saveRDS(
+  cell_number_index,
+  file.path(index_dir, "cell_number_sim_object_index.rds")
+)
+
+write_csv(
+  diag_overall,
+  file.path(index_dir, "cell_number_ZT_true_distribution_overall.csv")
+)
+
+saveRDS(
+  diag_overall,
+  file.path(index_dir, "cell_number_ZT_true_distribution_overall.rds")
+)
+
+write_csv(
+  diag_zt,
+  file.path(index_dir, "cell_number_condition_ZT_table.csv")
+)
+
+saveRDS(
+  diag_zt,
+  file.path(index_dir, "cell_number_condition_ZT_table.rds")
+)
+
+write_csv(
+  diag_offset,
+  file.path(index_dir, "cell_number_ZT_true_offset_by_condition_ZT.csv")
+)
+
+saveRDS(
+  diag_offset,
+  file.path(index_dir, "cell_number_ZT_true_offset_by_condition_ZT.rds")
+)
+
+print(cell_number_index)
+print(diag_overall)
+
+message("Finished generating cell-number benchmark objects by stratified downsampling.")
+message("Object output: ", obj_dir)
+message("Truth output: ", truth_dir)
+message("Index output: ", index_dir)
+
+rm(obj_master, truth_master, count_master, metadata_master)
+gc()
+```

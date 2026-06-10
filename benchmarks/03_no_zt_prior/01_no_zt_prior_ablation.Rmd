@@ -1,0 +1,600 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#no prior
+```{r}
+# No ZT-prior ablation for 3999g_20000c time-point benchmark
+# Purpose:
+#   Compare standard 27-seed scRhythmBayes with ZT prior versus the same model without ZT prior.
+#   No ZT-prior inference has arbitrary global circular phase, so CDF is evaluated before and after global alignment.
+#   Scatter plots use simple titles: "ZT prior" and "No ZT prior".
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(Matrix)
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(data.table)
+})
+
+# Step 0. Load internal phase core
+
+source("/Users/zhangqian/Desktop/scRhythmBayes/R/infer_cell_phase.R")
+
+wrap24 <- function(x) {
+  ((x %% 24) + 24) %% 24
+}
+
+circ_abs_err_h <- function(pred_h, true_h) {
+  diff_h <- abs((pred_h - true_h) %% 24)
+  pmin(diff_h, 24 - diff_h)
+}
+
+calc_phase_metrics <- function(true_h, pred_h) {
+  err_h <- circ_abs_err_h(pred_h = pred_h, true_h = true_h)
+  err_h <- sort(err_h)
+
+  hrsoff <- c(0, err_h, 12)
+
+  frac_wrong <- sapply(
+    hrsoff,
+    function(hrtol) {
+      100 * sum(err_h > hrtol) / length(err_h)
+    }
+  )
+
+  pct_correct <- 100 - frac_wrong
+  norm_pct_correct <- pct_correct / 100
+  norm_hrsoff <- hrsoff / 12
+
+  auc <- sum(norm_pct_correct[-length(norm_pct_correct)] * diff(norm_hrsoff))
+  medae <- median(err_h)
+
+  list(
+    AUC = auc,
+    MedAE = medae,
+    n_cell = length(err_h),
+    threshold_h = hrsoff,
+    pct_correct = pct_correct,
+    err_h = err_h
+  )
+}
+
+make_grid_cdf <- function(true_h, pred_h, threshold_grid) {
+  err_h <- circ_abs_err_h(pred_h = pred_h, true_h = true_h)
+
+  pct_correct <- sapply(
+    threshold_grid,
+    function(hrtol) {
+      100 * sum(err_h <= hrtol) / length(err_h)
+    }
+  )
+
+  tibble(
+    threshold_h = threshold_grid,
+    pct_correct = pct_correct
+  )
+}
+
+find_best_global_shift <- function(true_h, pred_h, shift_grid = seq(0, 24, by = 0.01)) {
+  medae_grid <- sapply(
+    shift_grid,
+    function(s) {
+      median(
+        circ_abs_err_h(
+          pred_h = wrap24(pred_h + s),
+          true_h = true_h
+        ),
+        na.rm = TRUE
+      )
+    }
+  )
+
+  best_id <- which.min(medae_grid)
+
+  tibble(
+    shift_h = shift_grid[best_id],
+    MedAE = medae_grid[best_id]
+  )
+}
+
+save_phase_scatter_with_wrapper <- function(
+    res_phase,
+    metadata,
+    pred_by,
+    title_text,
+    point_col,
+    out_pdf,
+    out_tiff
+) {
+  res_tmp <- res_phase
+  res_tmp$ZT_pred_plot <- res_tmp[[pred_by]]
+
+  p_phase <- plot_phase_scatter(
+    res_phase = res_tmp,
+    metadata = metadata,
+    truth_by = "t_true",
+    pred_by = "ZT_pred_plot",
+    point_col = point_col
+  )
+
+  if (!is.null(p_phase$plot)) {
+    p_phase$plot <- p_phase$plot +
+      ggplot2::ggtitle(title_text)
+  }
+
+  pdf(file = out_pdf, width = 3.2, height = 3.2)
+  print(p_phase$plot)
+  dev.off()
+
+  tiff(
+    filename = out_tiff,
+    width = 3.2,
+    height = 3.2,
+    units = "in",
+    res = 300,
+    compression = "lzw"
+  )
+  print(p_phase$plot)
+  dev.off()
+
+  invisible(p_phase)
+}
+
+# Step 1. IO
+
+benchmark_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_timepoint_number_3999g_20000c"
+
+obj_dir <- file.path(benchmark_dir, "sim_objects")
+standard_phase_dir <- file.path(benchmark_dir, "res_phase")
+
+out_dir <- file.path(benchmark_dir, "benchmark_no_ZT_prior")
+phase_dir <- file.path(out_dir, "res_phase")
+plot_dir <- file.path(out_dir, "plots_cell_phase")
+index_dir <- file.path(out_dir, "index")
+
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(phase_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(index_dir, recursive = TRUE, showWarnings = FALSE)
+
+n_timepoint <- 24
+rep_id <- 1
+force_rerun_noprior <- FALSE
+
+obj_file <- file.path(
+  obj_dir,
+  paste0("simulate_data_timepoint", n_timepoint, "_3999g_20000c.rds")
+)
+
+standard_phase_file <- file.path(
+  standard_phase_dir,
+  paste0("res_phase_timepoint", n_timepoint, "_rep", rep_id, ".rds")
+)
+
+noprior_file <- file.path(
+  phase_dir,
+  paste0("res_phase_timepoint", n_timepoint, "_rep", rep_id, "_NoZTPrior.rds")
+)
+
+stopifnot(file.exists(obj_file), file.exists(standard_phase_file))
+
+# Step 2. Load data
+
+obj_sim <- readRDS(obj_file)
+DefaultAssay(obj_sim) <- "RNA"
+
+count <- Seurat::GetAssayData(
+  obj_sim,
+  assay = "RNA",
+  slot = "counts"
+)
+
+metadata <- obj_sim@meta.data %>%
+  as.data.frame()
+
+metadata$cell <- rownames(metadata)
+
+stopifnot(identical(colnames(count), metadata$cell))
+stopifnot(all(c("ZT_sym", "t_true", "theta_rad", "celltype") %in% colnames(metadata)))
+
+message("Loaded object: ", obj_file)
+message("Cells: ", ncol(count))
+message("Genes: ", nrow(count))
+message("Observed ZT: ", paste(sort(unique(as.numeric(metadata$ZT_sym))), collapse = ", "))
+message("Celltypes:")
+print(table(metadata$celltype))
+
+# Step 3. Load 27 seed genes
+
+load("~/scRhythmBayes/data/merge_27seedgenes_bmal1.Rdata")
+
+seed27 <- unique(as.character(seed27_in))
+seed27 <- seed27[!is.na(seed27)]
+seed27 <- seed27[nzchar(seed27)]
+seed27 <- seed27[seed27 %in% rownames(count)]
+
+message("Matched seed genes: ", length(seed27))
+print(seed27)
+
+if (length(seed27) != 27) {
+  stop("The number of matched seed genes is not 27.")
+}
+
+# Step 4. Run or load No ZT-prior model
+
+zt <- as.numeric(metadata$ZT_sym)
+zt <- wrap24(zt)
+
+stratum <- as.character(metadata$celltype)
+
+if (file.exists(noprior_file) && !force_rerun_noprior) {
+  message("Existing No ZT-prior result found. Loading: ", noprior_file)
+  res_phase_noprior <- readRDS(noprior_file)
+} else {
+  message("Running No ZT-prior model on 24-timepoint 3999g_20000c dataset.")
+
+  res_phase_noprior <- .infer_cell_phase_core(
+    Count = count,
+    ZT = zt,
+    Stratum = stratum,
+    seedgene = seed27,
+    Species = "mouse",
+    SeedMode = "Custom",
+    Mode = "NoPrior",
+    n_grid = 60,
+    n_iter_outer = 5,
+    n_iter_seed = 3,
+    Kappa = 5,
+    p_mix = 0.85,
+    Min_n = 200,
+    setseed = 2026 + rep_id,
+    Verbose = TRUE
+  )
+
+  res_phase_noprior <- res_phase_noprior %>%
+    mutate(
+      model = "No ZT prior",
+      n_seed = 27,
+      n_timepoint = n_timepoint,
+      repeat_id = rep_id,
+      benchmark = "no_ZT_prior"
+    )
+
+  saveRDS(res_phase_noprior, noprior_file)
+  message("Saved No ZT-prior result: ", noprior_file)
+}
+
+rm(count)
+gc()
+
+# Step 5. Load standard ZT-prior result
+
+res_phase_standard <- readRDS(standard_phase_file) %>%
+  mutate(
+    model = "ZT prior",
+    n_seed = 27,
+    n_timepoint = n_timepoint,
+    repeat_id = rep_id,
+    benchmark = "standard_ZT_prior"
+  )
+
+res_phase_noprior <- res_phase_noprior %>%
+  mutate(
+    model = "No ZT prior",
+    n_seed = 27,
+    n_timepoint = n_timepoint,
+    repeat_id = rep_id,
+    benchmark = "no_ZT_prior"
+  )
+
+res_phase_standard <- res_phase_standard[match(metadata$cell, res_phase_standard$cell), , drop = FALSE]
+res_phase_noprior <- res_phase_noprior[match(metadata$cell, res_phase_noprior$cell), , drop = FALSE]
+
+stopifnot(identical(res_phase_standard$cell, metadata$cell))
+stopifnot(identical(res_phase_noprior$cell, metadata$cell))
+
+# Step 6. Build evaluation tables
+
+eval_standard <- res_phase_standard %>%
+  mutate(cell = as.character(cell)) %>%
+  left_join(
+    metadata %>%
+      select(cell, t_true, theta_rad, ZT_sym, celltype),
+    by = "cell"
+  ) %>%
+  filter(is.finite(t_true), is.finite(ZT_pred)) %>%
+  mutate(
+    model = "ZT prior",
+    ZT_pred_raw = ZT_pred,
+    ZT_pred_aligned = ZT_pred
+  )
+
+eval_noprior <- res_phase_noprior %>%
+  mutate(cell = as.character(cell)) %>%
+  left_join(
+    metadata %>%
+      select(cell, t_true, theta_rad, ZT_sym, celltype),
+    by = "cell"
+  ) %>%
+  filter(is.finite(t_true), is.finite(ZT_pred)) %>%
+  mutate(
+    model = "No ZT prior",
+    ZT_pred_raw = ZT_pred
+  )
+
+shift_noprior <- find_best_global_shift(
+  true_h = eval_noprior$t_true,
+  pred_h = eval_noprior$ZT_pred_raw,
+  shift_grid = seq(0, 24, by = 0.01)
+)
+
+best_shift_h <- shift_noprior$shift_h[1]
+
+message("Best global shift for No ZT prior: ", round(best_shift_h, 3), " h")
+
+eval_noprior <- eval_noprior %>%
+  mutate(ZT_pred_aligned = wrap24(ZT_pred_raw + best_shift_h))
+
+eval_all <- bind_rows(eval_standard, eval_noprior) %>%
+  mutate(
+    abs_err_raw_h = circ_abs_err_h(pred_h = ZT_pred_raw, true_h = t_true),
+    abs_err_aligned_h = circ_abs_err_h(pred_h = ZT_pred_aligned, true_h = t_true)
+  )
+
+write_csv(eval_all, file.path(out_dir, "no_ZT_prior_eval_cell_all.csv"))
+saveRDS(eval_all, file.path(out_dir, "no_ZT_prior_eval_cell_all.rds"))
+
+write_csv(shift_noprior, file.path(out_dir, "no_ZT_prior_best_global_shift.csv"))
+saveRDS(shift_noprior, file.path(out_dir, "no_ZT_prior_best_global_shift.rds"))
+
+# Step 7. Metrics
+
+m_standard <- calc_phase_metrics(
+  true_h = eval_standard$t_true,
+  pred_h = eval_standard$ZT_pred_raw
+)
+
+m_noprior_raw <- calc_phase_metrics(
+  true_h = eval_noprior$t_true,
+  pred_h = eval_noprior$ZT_pred_raw
+)
+
+m_noprior_aligned <- calc_phase_metrics(
+  true_h = eval_noprior$t_true,
+  pred_h = eval_noprior$ZT_pred_aligned
+)
+
+metric_df <- tibble(
+  model = c("ZT prior", "No ZT prior", "No ZT prior"),
+  evaluation = c("standard", "unaligned", "aligned"),
+  n_seed = 27,
+  n_timepoint = n_timepoint,
+  repeat_id = rep_id,
+  global_shift_h = c(0, 0, best_shift_h),
+  AUC = c(
+    m_standard$AUC,
+    m_noprior_raw$AUC,
+    m_noprior_aligned$AUC
+  ),
+  MedAE = c(
+    m_standard$MedAE,
+    m_noprior_raw$MedAE,
+    m_noprior_aligned$MedAE
+  ),
+  n_cell = c(
+    m_standard$n_cell,
+    m_noprior_raw$n_cell,
+    m_noprior_aligned$n_cell
+  )
+)
+
+print(metric_df)
+
+write_csv(metric_df, file.path(out_dir, "no_ZT_prior_auc_medae.csv"))
+saveRDS(metric_df, file.path(out_dir, "no_ZT_prior_auc_medae.rds"))
+
+# Step 8. CDF curves
+
+threshold_grid <- seq(0, 12, by = 0.05)
+
+cdf_grid <- bind_rows(
+  make_grid_cdf(
+    true_h = eval_standard$t_true,
+    pred_h = eval_standard$ZT_pred_raw,
+    threshold_grid = threshold_grid
+  ) %>%
+    mutate(model = "ZT prior", evaluation = "standard"),
+
+  make_grid_cdf(
+    true_h = eval_noprior$t_true,
+    pred_h = eval_noprior$ZT_pred_aligned,
+    threshold_grid = threshold_grid
+  ) %>%
+    mutate(model = "No ZT prior", evaluation = "aligned")
+) %>%
+  mutate(
+    n_seed = 27,
+    n_timepoint = n_timepoint,
+    repeat_id = rep_id
+  ) %>%
+  select(model, evaluation, n_seed, n_timepoint, repeat_id, threshold_h, pct_correct)
+
+write_csv(cdf_grid, file.path(out_dir, "no_ZT_prior_cdf_grid.csv"))
+saveRDS(cdf_grid, file.path(out_dir, "no_ZT_prior_cdf_grid.rds"))
+
+# Step 9. Plot CDF
+
+curve_labels <- c(
+  "ZT prior | standard" = "ZT prior",
+  "No ZT prior | aligned" = "No ZT prior"
+)
+
+curve_cols <- c(
+  "ZT prior | standard" = "#A8C7E6",
+  "No ZT prior | aligned" = "#357090"
+)
+
+curve_order <- names(curve_labels)
+
+cdf_plot_df <- cdf_grid %>%
+  mutate(curve = paste(model, evaluation, sep = " | "))
+
+metric_plot_df <- metric_df %>%
+  mutate(curve = paste(model, evaluation, sep = " | "))
+
+legend_labels <- c()
+
+for (curve_i in curve_order) {
+  tmp <- metric_plot_df %>%
+    filter(curve == curve_i)
+
+  legend_labels <- c(
+    legend_labels,
+    paste0(
+      curve_labels[curve_i],
+      ": ",
+      sprintf("%.3f", tmp$AUC),
+      ", ",
+      sprintf("%.3f", tmp$MedAE)
+    )
+  )
+}
+
+draw_cdf <- function() {
+  par(
+    family = "serif",
+    mar = c(4, 4, 2.5, 1),
+    mgp = c(2.1, 0.55, 0),
+    tcl = -0.25,
+    lwd = 0.5
+  )
+
+  plot(
+    NA,
+    xlim = c(-0.3, 12.5),
+    ylim = c(-2, 102),
+    xlab = "Correct to within (hrs)",
+    ylab = paste0("% correct (N = ", nrow(metadata), ")"),
+    main = "Absolute error CDF",
+    cex.main = 0.9,
+    cex.lab = 0.8,
+    cex.axis = 0.75,
+    bty = "n"
+  )
+
+  box(lwd = 0.5)
+  abline(a = 0, b = 100 / 12, col = "lightgray", lwd = 0.7)
+
+  for (curve_i in curve_order) {
+    cdf_i <- cdf_plot_df %>%
+      filter(curve == curve_i)
+
+    lines(
+      cdf_i$threshold_h,
+      cdf_i$pct_correct,
+      col = curve_cols[curve_i],
+      lwd = 1.2
+    )
+  }
+
+  legend(
+    "bottomright",
+    legend = c("        AUC, MedAE", legend_labels),
+    col = c(NA, curve_cols[curve_order]),
+    lwd = c(NA, rep(1.2, length(curve_order))),
+    bty = "o",
+    box.lwd = 0.3,
+    cex = 0.66,
+    y.intersp = 0.9
+  )
+}
+
+tiff(
+  filename = file.path(plot_dir, "no_ZT_prior_cell_phase_cdf.tiff"),
+  width = 3.3,
+  height = 3.2,
+  units = "in",
+  res = 300,
+  compression = "lzw"
+)
+draw_cdf()
+dev.off()
+
+pdf(
+  file = file.path(plot_dir, "no_ZT_prior_cell_phase_cdf.pdf"),
+  width = 3.3,
+  height = 3.2
+)
+draw_cdf()
+dev.off()
+# Step 10. Scatter plots using package-style wrapper
+
+res_phase_standard_plot <- res_phase_standard %>%
+  mutate(ZT_pred_plot = ZT_pred)
+
+res_phase_noprior_plot <- res_phase_noprior %>%
+  mutate(ZT_pred_plot = eval_noprior$ZT_pred_aligned)
+
+save_phase_scatter_with_wrapper(
+  res_phase = res_phase_standard_plot,
+  metadata = metadata,
+  pred_by = "ZT_pred_plot",
+  title_text = "ZT prior",
+  point_col = "#A8C7E6",
+  out_pdf = file.path(plot_dir, "ZT_prior_phase_scatter.pdf"),
+  out_tiff = file.path(plot_dir, "ZT_prior_phase_scatter.tiff")
+)
+
+save_phase_scatter_with_wrapper(
+  res_phase = res_phase_noprior_plot,
+  metadata = metadata,
+  pred_by = "ZT_pred_plot",
+  title_text = "No ZT prior",
+  point_col = "#357090",
+  out_pdf = file.path(plot_dir, "No_ZT_prior_phase_scatter.pdf"),
+  out_tiff = file.path(plot_dir, "No_ZT_prior_phase_scatter.tiff")
+)
+
+# Step 11. Save index and clean
+
+index_df <- tibble(
+  benchmark = "no_ZT_prior",
+  n_timepoint = n_timepoint,
+  repeat_id = rep_id,
+  object_file = obj_file,
+  standard_phase_file = standard_phase_file,
+  noprior_phase_file = noprior_file,
+  metric_file = file.path(out_dir, "no_ZT_prior_auc_medae.csv"),
+  cdf_file = file.path(out_dir, "no_ZT_prior_cdf_grid.csv"),
+  eval_file = file.path(out_dir, "no_ZT_prior_eval_cell_all.csv"),
+  best_global_shift_h = best_shift_h,
+  status = "finished"
+)
+
+write_csv(index_df, file.path(index_dir, "no_ZT_prior_file_index.csv"))
+saveRDS(index_df, file.path(index_dir, "no_ZT_prior_file_index.rds"))
+
+rm(
+  obj_sim,
+  metadata,
+  res_phase_standard,
+  res_phase_noprior,
+  res_phase_standard_plot,
+  res_phase_noprior_plot,
+  eval_standard,
+  eval_noprior,
+  eval_all,
+  cdf_grid,
+  cdf_plot_df,
+  metric_plot_df
+)
+gc()
+
+message("Finished No ZT-prior ablation.")
+message("Output directory: ", out_dir)
+message("Plots: ", plot_dir)
+```

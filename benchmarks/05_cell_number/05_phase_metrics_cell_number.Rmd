@@ -1,0 +1,495 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#phase metrics
+```{r}
+# Step 0. IO
+
+cell_out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_cell_number_4000g_6tp"
+timepoint_out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_timepoint_number_4000g_20000c"
+
+cell_param_long_dir <- file.path(cell_out_dir, "param_long")
+cell_truth_dir <- file.path(cell_out_dir, "truth_params")
+
+timepoint_param_long_dir <- file.path(timepoint_out_dir, "param_long")
+timepoint_truth_dir <- file.path(timepoint_out_dir, "truth_params")
+
+metric_dir <- file.path(cell_out_dir, "gene_param_metrics")
+plot_dir <- file.path(cell_out_dir, "plots_gene_param")
+
+dir.create(metric_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
+
+cell_number_vec <- c(600, 1500, 3000, 6000, 10500, 20000)
+n_repeat <- 1
+
+CELL_NUMBER_ORDER <- c(600, 1500, 3000, 6000, 10500, 20000)
+
+CELL_NUMBER_COLORS <- c(
+  "600"   = "#2F6F73",
+  "1500"  = "#357090",
+  "3000"  = "#3a621f",
+  "6000"  = "#17441e",
+  "10500" = "#57ADDE",
+  "20000" = "#A8C7E6"
+)
+
+CELL_NUMBER_LABELS <- c(
+  "600"   = "600",
+  "1500"  = "1,500",
+  "3000"  = "3,000",
+  "6000"  = "6,000",
+  "10500" = "10,500",
+  "20000" = "20,000"
+)
+
+LINE_COLOR <- CELL_NUMBER_COLORS["20000"]
+
+amp_phase_min <- 0.1
+
+# Step 1. Helper functions
+
+rad_to_hour <- function(x) {
+  ((as.numeric(x) %% (2 * pi)) / (2 * pi)) * 24
+}
+
+circ_diff_hour <- function(truth, pred) {
+  ((as.numeric(pred) - as.numeric(truth) + 12) %% 24) - 12
+}
+
+# Step 2. Load phase truth and prediction
+
+load_phase_one_cell_number <- function(target_n_cell, rep_id = 1) {
+
+  if (target_n_cell == 20000) {
+    param_long_rds <- file.path(
+      timepoint_param_long_dir,
+      paste0("param_long_timepoint6_rep", rep_id, ".rds")
+    )
+
+    truth_file <- file.path(
+      timepoint_truth_dir,
+      "truth_params_timepoint6_4000g_20000c.rds"
+    )
+
+    actual_n_cell <- 20000
+    source_benchmark <- "timepoint_number_6tp_20000c"
+  } else {
+    param_long_rds <- file.path(
+      cell_param_long_dir,
+      paste0("param_long_cell", target_n_cell, "_rep", rep_id, ".rds")
+    )
+
+    truth_file <- file.path(
+      cell_truth_dir,
+      paste0("truth_params_cell", target_n_cell, "_4000g_6tp.rds")
+    )
+
+    actual_n_cell <- target_n_cell
+    source_benchmark <- "cell_number"
+  }
+
+  stopifnot(file.exists(param_long_rds))
+  stopifnot(file.exists(truth_file))
+
+  param_long <- readRDS(param_long_rds)
+  truth_i <- readRDS(truth_file)
+
+  genes_truth <- as.character(truth_i$genes)
+  groups_truth <- as.character(truth_i$groups)
+
+  truth_phase_df <- expand.grid(
+    gene = genes_truth,
+    Group = groups_truth,
+    stringsAsFactors = FALSE
+  ) %>%
+    as_tibble() %>%
+    mutate(
+      gene_index = match(gene, genes_truth),
+      group_index = match(Group, groups_truth),
+      truth_phase = rad_to_hour(truth_i$phi_mat[cbind(gene_index, group_index)]),
+      truth_amp = truth_i$A_mat[cbind(gene_index, group_index)]
+    ) %>%
+    select(gene, Group, truth_phase, truth_amp)
+
+  param_long %>%
+    transmute(
+      gene = as.character(gene),
+      Group = as.character(condition),
+      pred_phase = rad_to_hour(Phase),
+      pred_amp = as.numeric(Amplitude),
+      target_n_cell = target_n_cell,
+      actual_n_cell = actual_n_cell,
+      repeat_id = rep_id,
+      source_benchmark = source_benchmark
+    ) %>%
+    left_join(truth_phase_df, by = c("gene", "Group")) %>%
+    select(
+      gene, Group,
+      truth_amp, pred_amp,
+      truth_phase, pred_phase,
+      target_n_cell, actual_n_cell,
+      repeat_id, source_benchmark
+    ) %>%
+    mutate(
+      truth_amp = as.numeric(truth_amp),
+      pred_amp = as.numeric(pred_amp),
+      truth_phase = as.numeric(truth_phase),
+      pred_phase = as.numeric(pred_phase)
+    ) %>%
+    filter(
+      is.finite(truth_amp),
+      is.finite(pred_amp),
+      is.finite(truth_phase),
+      is.finite(pred_phase),
+      truth_amp > amp_phase_min
+    ) %>%
+    mutate(
+      phase_error = circ_diff_hour(truth_phase, pred_phase),
+      abs_phase_error = abs(phase_error)
+    )
+}
+
+# Step 3. Merge all cell-number inputs
+
+phase_all <- list()
+run_id <- 1
+
+for (target_n_cell in cell_number_vec) {
+  for (rep_id in seq_len(n_repeat)) {
+    message("Loading phase result | target_n_cell = ", target_n_cell, " | repeat = ", rep_id)
+
+    phase_all[[run_id]] <- load_phase_one_cell_number(
+      target_n_cell = target_n_cell,
+      rep_id = rep_id
+    )
+
+    run_id <- run_id + 1
+  }
+}
+
+phase_long <- bind_rows(phase_all) %>%
+  mutate(
+    target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER)),
+    Group = factor(Group, levels = c("cond_1", "cond_2"))
+  )
+
+print(head(phase_long))
+print(table(phase_long$target_n_cell))
+print(table(phase_long$Group))
+print(table(phase_long$source_benchmark))
+print(summary(phase_long$truth_amp))
+print(colSums(is.na(phase_long)))
+
+stopifnot(
+  all(!is.na(phase_long$truth_amp)),
+  all(!is.na(phase_long$pred_amp)),
+  all(!is.na(phase_long$truth_phase)),
+  all(!is.na(phase_long$pred_phase))
+)
+
+write_tsv(
+  phase_long,
+  file.path(metric_dir, "Phase_truth_pred_long_cell_number.tsv")
+)
+
+write_csv(
+  phase_long,
+  file.path(metric_dir, "Phase_truth_pred_long_cell_number.csv")
+)
+
+saveRDS(
+  phase_long,
+  file.path(metric_dir, "Phase_truth_pred_long_cell_number.rds")
+)
+
+# Step 4. Metrics
+
+metrics_phase <- phase_long %>%
+  group_by(target_n_cell, actual_n_cell, repeat_id) %>%
+  summarise(
+    N = n(),
+    ME = mean(phase_error),
+    MAE = mean(abs_phase_error),
+    MSE = mean(phase_error^2),
+    RMSE = sqrt(mean(phase_error^2)),
+    MAPE = mean(abs_phase_error / 12) * 100,
+    R = cor(truth_phase, pred_phase, method = "pearson"),
+    R2 = R^2,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER))
+  )
+
+print(metrics_phase)
+
+write_csv(
+  metrics_phase,
+  file.path(metric_dir, "Phase_metrics_summary_cell_number_all_repeats.csv")
+)
+
+saveRDS(
+  metrics_phase,
+  file.path(metric_dir, "Phase_metrics_summary_cell_number_all_repeats.rds")
+)
+
+# Step 5. Median summary across repeats
+
+metrics_phase_median <- metrics_phase %>%
+  group_by(target_n_cell) %>%
+  summarise(
+    actual_n_cell = median(actual_n_cell, na.rm = TRUE),
+    N = median(N, na.rm = TRUE),
+    ME = median(ME, na.rm = TRUE),
+    MAE = median(MAE, na.rm = TRUE),
+    MSE = median(MSE, na.rm = TRUE),
+    RMSE = median(RMSE, na.rm = TRUE),
+    MAPE = median(MAPE, na.rm = TRUE),
+    R = median(R, na.rm = TRUE),
+    R2 = median(R2, na.rm = TRUE),
+    n_repeat = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    target_n_cell_num = as.numeric(as.character(target_n_cell)),
+    target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER))
+  ) %>%
+  arrange(target_n_cell_num)
+
+print(metrics_phase_median)
+
+write_csv(
+  metrics_phase_median,
+  file.path(metric_dir, "Phase_metrics_summary_cell_number_median.csv")
+)
+
+saveRDS(
+  metrics_phase_median,
+  file.path(metric_dir, "Phase_metrics_summary_cell_number_median.rds")
+)
+
+# Step 6. Long format for plotting
+
+metrics_phase_long <- metrics_phase_median %>%
+  select(target_n_cell, target_n_cell_num, ME, MAE, MSE, RMSE, MAPE, R2) %>%
+  pivot_longer(
+    cols = c(ME, MAE, MSE, RMSE, MAPE, R2),
+    names_to = "metric",
+    values_to = "value"
+  ) %>%
+  mutate(
+    metric = factor(metric, levels = c("ME", "MAE", "MSE", "RMSE", "MAPE", "R2")),
+    target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER)),
+    label = case_when(
+      metric == "MAPE" ~ sprintf("%.1f%%", value),
+      TRUE ~ sprintf("%.3f", value)
+    )
+  )
+
+write_csv(
+  metrics_phase_long,
+  file.path(metric_dir, "Phase_metrics_long_cell_number.csv")
+)
+
+saveRDS(
+  metrics_phase_long,
+  file.path(metric_dir, "Phase_metrics_long_cell_number.rds")
+)
+
+# Step 7. Single metric plots
+
+plot_phase_metric_line <- function(metric_use, title, ylab, out_name) {
+
+  df_plot <- metrics_phase_long %>%
+    filter(metric == metric_use) %>%
+    mutate(
+      target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER))
+    )
+
+  p <- ggplot(
+    df_plot,
+    aes(x = target_n_cell, y = value, group = 1)
+  ) +
+    geom_line(
+      color = LINE_COLOR,
+      linewidth = 1.35,
+      alpha = 0.85
+    ) +
+    geom_point(
+      aes(fill = target_n_cell),
+      shape = 21,
+      size = 5.6,
+      color = "black",
+      stroke = 0.35,
+      alpha = 1
+    ) +
+    geom_text(
+      aes(label = label),
+      vjust = ifelse(df_plot$value >= 0, -1.15, 1.45),
+      size = 6.2,
+      fontface = "bold",
+      family = "serif"
+    ) +
+    scale_fill_manual(
+      values = CELL_NUMBER_COLORS,
+      drop = FALSE
+    ) +
+    scale_x_discrete(labels = CELL_NUMBER_LABELS) +
+    scale_y_continuous(expand = expansion(mult = c(0.22, 0.42))) +
+    coord_cartesian(clip = "off") +
+    labs(
+      title = title,
+      x = "Number of cells",
+      y = ylab
+    ) +
+    theme_classic(base_size = 14, base_family = "serif") +
+    theme(
+      plot.margin = ggplot2::margin(30, 32, 32, 32),
+      plot.title = ggplot2::element_text(hjust = 0.5, size = 28, face = "bold"),
+      axis.title.x = ggplot2::element_text(size = 22, face = "bold"),
+      axis.title.y = ggplot2::element_text(size = 22, face = "bold"),
+      axis.text.x = ggplot2::element_text(size = 17, face = "bold"),
+      axis.text.y = ggplot2::element_text(size = 19, face = "bold"),
+      legend.position = "none"
+    )
+
+  print(p)
+
+  ggsave(
+    file.path(plot_dir, paste0(out_name, ".pdf")),
+    p,
+    width = 7.2,
+    height = 6.0
+  )
+
+  ggsave(
+    file.path(plot_dir, paste0(out_name, ".png")),
+    p,
+    width = 7.2,
+    height = 6.0,
+    dpi = 300
+  )
+
+  p
+}
+
+p_phase_me <- plot_phase_metric_line(
+  "ME",
+  "Phase ME",
+  "ME (hours)",
+  "Phase_ME_cell_number_lineplot"
+)
+
+p_phase_mae <- plot_phase_metric_line(
+  "MAE",
+  "Phase MAE",
+  "MAE (hours)",
+  "Phase_MAE_cell_number_lineplot"
+)
+
+p_phase_mse <- plot_phase_metric_line(
+  "MSE",
+  "Phase MSE",
+  "MSE",
+  "Phase_MSE_cell_number_lineplot"
+)
+
+p_phase_rmse <- plot_phase_metric_line(
+  "RMSE",
+  "Phase RMSE",
+  "RMSE (hours)",
+  "Phase_RMSE_cell_number_lineplot"
+)
+
+p_phase_mape <- plot_phase_metric_line(
+  "MAPE",
+  "Phase MAPE",
+  "MAPE (%)",
+  "Phase_MAPE_cell_number_lineplot"
+)
+
+p_phase_r2 <- plot_phase_metric_line(
+  "R2",
+  "Phase R2",
+  expression(R^2),
+  "Phase_R2_cell_number_lineplot"
+)
+
+# Step 8. Facet plot
+
+metrics_phase_plot <- metrics_phase_long %>%
+  filter(metric %in% c("ME", "MAE", "MSE", "RMSE", "MAPE", "R2")) %>%
+  mutate(
+    metric = factor(as.character(metric), levels = c("ME", "MAE", "MSE", "RMSE", "MAPE", "R2")),
+    target_n_cell = factor(as.character(target_n_cell), levels = as.character(CELL_NUMBER_ORDER))
+  )
+
+p_phase_facet <- ggplot(
+  metrics_phase_plot,
+  aes(x = target_n_cell, y = value, group = 1)
+) +
+  geom_line(
+    color = LINE_COLOR,
+    linewidth = 1.15,
+    alpha = 0.85
+  ) +
+  geom_point(
+    aes(fill = target_n_cell),
+    shape = 21,
+    size = 4.6,
+    color = "black",
+    stroke = 0.35,
+    alpha = 1
+  ) +
+  scale_fill_manual(
+    values = CELL_NUMBER_COLORS,
+    drop = FALSE
+  ) +
+  scale_x_discrete(labels = CELL_NUMBER_LABELS) +
+  facet_wrap(
+    ~ metric,
+    scales = "free_y",
+    nrow = 2
+  ) +
+  labs(
+    title = "Phase prediction metrics across cell numbers",
+    x = "Number of cells",
+    y = "Value"
+  ) +
+  theme_classic(base_size = 14, base_family = "serif") +
+  theme(
+    plot.margin = ggplot2::margin(12, 14, 22, 14),
+    plot.title = ggplot2::element_text(hjust = 0.5, size = 24, face = "bold"),
+    axis.title.x = ggplot2::element_text(size = 20, face = "bold"),
+    axis.title.y = ggplot2::element_text(size = 20, face = "bold"),
+    axis.text.x = ggplot2::element_text(size = 13, face = "bold", angle = 35, hjust = 1),
+    axis.text.y = ggplot2::element_text(size = 14, face = "bold"),
+    strip.text = ggplot2::element_text(face = "bold", size = 18),
+    panel.spacing = grid::unit(1.2, "lines"),
+    legend.position = "none"
+  )
+
+print(p_phase_facet)
+
+ggsave(
+  file.path(plot_dir, "Phase_metrics_cell_number_facet_lineplot.pdf"),
+  p_phase_facet,
+  width = 11,
+  height = 7.5
+)
+
+ggsave(
+  file.path(plot_dir, "Phase_metrics_cell_number_facet_lineplot.png"),
+  p_phase_facet,
+  width = 11,
+  height = 7.5,
+  dpi = 300
+)
+
+message("Finished cell-number phase metric calculation and plotting.")
+message("Metric output: ", metric_dir)
+message("Plot output: ", plot_dir)
+```

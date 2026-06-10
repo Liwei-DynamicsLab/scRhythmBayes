@@ -1,0 +1,317 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = FALSE)
+```
+
+#layer3 heatmap
+```{r}
+# module heatmap: time-point number benchmark
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(Matrix)
+  library(dplyr)
+  library(tibble)
+  library(readr)
+})
+
+# Step 0. IO
+
+out_dir <- "/Users/zhangqian/scRhythmBayes/data/Benchmark/benchmark_timepoint_number_4000g_20000c"
+
+obj_dir <- file.path(out_dir, "sim_objects")
+phase_dir <- file.path(out_dir, "res_phase")
+param_wide_dir <- file.path(out_dir, "param_wide")
+module_dir <- file.path(out_dir, "res_module")
+module_result_dir <- file.path(out_dir, "module_result")
+heatmap_obj_dir <- file.path(out_dir, "module_heatmap_objects")
+heatmap_plot_dir <- file.path(out_dir, "plots_module_heatmap")
+index_dir <- file.path(out_dir, "index")
+
+dir.create(module_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(module_result_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(heatmap_obj_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(heatmap_plot_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(index_dir, recursive = TRUE, showWarnings = FALSE)
+
+timepoint_vec <- c(24, 12, 8, 6, 4, 2)
+n_repeat <- 1
+
+compare_by <- "condition"
+group1 <- "cond_1"
+group2 <- "cond_2"
+module_ids <- 0:7
+
+force_rerun_module_heatmap <- TRUE
+
+expected_zt_list <- list(
+  "24" = seq(0, 23, by = 1),
+  "12" = seq(0, 22, by = 2),
+  "8"  = seq(0, 21, by = 3),
+  "6"  = seq(0, 20, by = 4),
+  "4"  = seq(0, 18, by = 6),
+  "2"  = c(4, 12)
+)
+
+if (force_rerun_module_heatmap) {
+  unlink(module_dir, recursive = TRUE, force = TRUE)
+  unlink(module_result_dir, recursive = TRUE, force = TRUE)
+  unlink(heatmap_obj_dir, recursive = TRUE, force = TRUE)
+  unlink(heatmap_plot_dir, recursive = TRUE, force = TRUE)
+  dir.create(module_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(module_result_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(heatmap_obj_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(heatmap_plot_dir, recursive = TRUE, showWarnings = FALSE)
+}
+
+# Step 1. Run module inference and heatmap plotting
+
+module_record_all <- list()
+run_id <- 1
+
+for (n_timepoint in timepoint_vec) {
+  for (rep_id in seq_len(n_repeat)) {
+    message("============================================================")
+    message("Running module heatmap | n_timepoint = ", n_timepoint, " | repeat = ", rep_id)
+    
+    obj_file <- file.path(
+      obj_dir,
+      paste0("simulate_data_timepoint", n_timepoint, "_4000g_20000c.rds")
+    )
+    
+    phase_file <- file.path(
+      phase_dir,
+      paste0("res_phase_timepoint", n_timepoint, "_rep", rep_id, ".rds")
+    )
+    
+    param_wide_file <- file.path(
+      param_wide_dir,
+      paste0("param_wide_timepoint", n_timepoint, "_rep", rep_id, ".rds")
+    )
+    
+    file_tag <- paste0(
+      "timepoint", n_timepoint,
+      "_rep", rep_id,
+      "_", compare_by,
+      "_", group1, "_vs_", group2
+    )
+    
+    module_file <- file.path(
+      module_dir,
+      paste0("res_module_", file_tag, ".rds")
+    )
+    
+    module_result_csv <- file.path(
+      module_result_dir,
+      paste0("module_result_", file_tag, ".csv")
+    )
+    
+    module_result_rds <- file.path(
+      module_result_dir,
+      paste0("module_result_", file_tag, ".rds")
+    )
+    
+    heatmap_obj_file <- file.path(
+      heatmap_obj_dir,
+      paste0("hm_module_", file_tag, ".rds")
+    )
+    
+    plot_subdir <- file.path(
+      heatmap_plot_dir,
+      file_tag
+    )
+    
+    dir.create(plot_subdir, recursive = TRUE, showWarnings = FALSE)
+    
+    stopifnot(
+      file.exists(obj_file),
+      file.exists(phase_file),
+      file.exists(param_wide_file)
+    )
+    
+    obj_sim <- readRDS(obj_file)
+    DefaultAssay(obj_sim) <- "RNA"
+    
+    count <- Seurat::GetAssayData(
+      obj_sim,
+      assay = "RNA",
+      slot = "counts"
+    )
+    
+    metadata <- obj_sim@meta.data %>%
+      as.data.frame()
+    metadata$cell <- rownames(metadata)
+    metadata$condition <- as.character(metadata$condition)
+    metadata$group <- as.character(metadata$group)
+    metadata$celltype <- as.character(metadata$celltype)
+    
+    res_phase <- readRDS(phase_file) %>%
+      mutate(cell = as.character(cell))
+    
+    res_phase <- res_phase[match(metadata$cell, res_phase$cell), , drop = FALSE]
+    
+    param_wide <- readRDS(param_wide_file)
+    
+    zt_observed <- sort(unique(as.numeric(metadata$ZT_sym)))
+    zt_expected <- expected_zt_list[[as.character(n_timepoint)]]
+    
+    stopifnot(
+      nrow(count) == 4000,
+      ncol(count) == 20000,
+      identical(colnames(count), metadata$cell),
+      identical(res_phase$cell, metadata$cell),
+      all(c("cell", "theta_pred", "ZT_pred", "r_cell", "Rbar") %in% colnames(res_phase)),
+      all(c("ZT_sym", "ZT_true", "condition", "group", "celltype") %in% colnames(metadata)),
+      all(is.finite(res_phase$theta_pred)),
+      all(is.finite(res_phase$r_cell)),
+      identical(zt_observed, zt_expected),
+      length(unique(metadata$celltype)) == 1,
+      all(unique(metadata$celltype) == "Celltype1"),
+      all(sort(unique(metadata$condition)) == c(group1, group2))
+    )
+    
+    message("Object dimension:")
+    print(dim(count))
+    
+    message("Condition table:")
+    print(table(metadata$condition))
+    
+    message("Celltype table:")
+    print(table(metadata$celltype))
+    
+    message("Observed ZT points: ", paste(zt_observed, collapse = ", "))
+    message("Expected ZT points: ", paste(zt_expected, collapse = ", "))
+    
+    message("Median r_cell: ", round(median(res_phase$r_cell, na.rm = TRUE), 4))
+    message("Median Rbar: ", round(median(res_phase$Rbar, na.rm = TRUE), 4))
+    
+    res_module <- infer_rhythm_module(
+      param_wide = param_wide,
+      compare_by = compare_by,
+      group1 = group1,
+      group2 = group2,
+      out_dir = NULL,
+      Verbose = TRUE
+    )
+    
+    res_module$benchmark <- list(
+      benchmark = "timepoint_number",
+      n_timepoint = n_timepoint,
+      repeat_id = rep_id,
+      compare_by = compare_by,
+      group1 = group1,
+      group2 = group2,
+      gene_number = 4000,
+      cell_number = 20000,
+      n_condition = 2,
+      n_celltype = 1
+    )
+    
+    res_module$module_result <- res_module$module_result %>%
+      mutate(
+        n_timepoint = n_timepoint,
+        repeat_id = rep_id,
+        benchmark = "timepoint_number",
+        compare_by = compare_by,
+        group1 = group1,
+        group2 = group2
+      )
+    
+    saveRDS(res_module, module_file)
+    write_csv(res_module$module_result, module_result_csv)
+    saveRDS(res_module$module_result, module_result_rds)
+    
+    message("Module counts:")
+    print(table(res_module$module_result$module_map, useNA = "ifany"))
+    
+    hm_module <- plot_module_heatmap(
+      count = count,
+      res_phase = res_phase,
+      gene_meta = res_module$module_result,
+      metadata = metadata,
+      group_by = compare_by,
+      group1 = group1,
+      group2 = group2
+    )
+    
+    saveRDS(hm_module, heatmap_obj_file)
+    
+    for (module_id_i in module_ids) {
+      message("Plotting M", module_id_i, " | n_timepoint = ", n_timepoint)
+      
+      pdf_file <- file.path(
+        plot_subdir,
+        paste0("timepoint", n_timepoint, "_rep", rep_id, "_module", module_id_i, "_heatmap.pdf")
+      )
+      
+      png_file <- file.path(
+        plot_subdir,
+        paste0("timepoint", n_timepoint, "_rep", rep_id, "_module", module_id_i, "_heatmap.png")
+      )
+      
+      pdf(pdf_file, width = 7, height = 4.8)
+      plot(hm_module, module_id = module_id_i, title = paste0("M", module_id_i))
+      dev.off()
+      
+      png(png_file, width = 7, height = 4.8, units = "in", res = 300)
+      plot(hm_module, module_id = module_id_i, title = paste0("M", module_id_i))
+      dev.off()
+    }
+    
+    module_record_all[[run_id]] <- tibble(
+      n_timepoint = n_timepoint,
+      repeat_id = rep_id,
+      compare_by = compare_by,
+      group1 = group1,
+      group2 = group2,
+      ZT_points = paste(zt_expected, collapse = ","),
+      object_file = obj_file,
+      res_phase_file = phase_file,
+      param_wide_file = param_wide_file,
+      res_module_file = module_file,
+      module_result_csv = module_result_csv,
+      module_result_rds = module_result_rds,
+      heatmap_object_file = heatmap_obj_file,
+      heatmap_plot_dir = plot_subdir,
+      object_exists = file.exists(obj_file),
+      phase_exists = file.exists(phase_file),
+      param_wide_exists = file.exists(param_wide_file),
+      module_exists = file.exists(module_file),
+      heatmap_object_exists = file.exists(heatmap_obj_file),
+      status = "finished_new"
+    )
+    
+    write_csv(
+      bind_rows(module_record_all),
+      file.path(index_dir, "timepoint_module_heatmap_file_index.csv")
+    )
+    
+    run_id <- run_id + 1
+    
+    rm(obj_sim, count, metadata, res_phase, param_wide, res_module, hm_module)
+    gc()
+  }
+}
+
+# Step 2. Save index
+
+module_index <- bind_rows(module_record_all) %>%
+  arrange(desc(n_timepoint), repeat_id)
+
+write_csv(
+  module_index,
+  file.path(index_dir, "timepoint_module_heatmap_file_index.csv")
+)
+
+saveRDS(
+  module_index,
+  file.path(index_dir, "timepoint_module_heatmap_file_index.rds")
+)
+
+print(module_index)
+
+message("Finished time-point number module heatmap benchmark.")
+message("Module results: ", module_dir)
+message("Heatmap objects: ", heatmap_obj_dir)
+message("Heatmap plots: ", heatmap_plot_dir)
+```
