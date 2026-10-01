@@ -1,0 +1,16 @@
+cff-version: 1.0.0
+message: "If you use this software, please cite it as below."
+
+authors:
+  - family-names: Zhang
+    given-names: Qian
+
+  - family-names: Li
+    given-names: Chenyu
+
+  - family-names: Zhang
+    given-names: Liwei
+
+title: "Decoding Cell-level Circadian Phase and Rhythm-state Remodeling in Single-cell Transcriptomes With scRhythmBayes"
+version: "0.1.0"
+date-released: 2026-10-01
