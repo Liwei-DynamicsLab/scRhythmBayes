@@ -13,7 +13,7 @@
 ## Citation
 
 Source:
-[`DESCRIPTION`](https://github.com/Liwei-DynamicsLab/scRhythmBayes/blob/main/DESCRIPTION)
+[`DESCRIPTION`](https://github.com/Liwei-DynamicsLab/scRhythmBayes/blob/v2.0.0/DESCRIPTION)
 
 Zhang Q, Li C, Zhang L (2026). *scRhythmBayes: Cell-Level Circadian
 Phase Inference and Rhythm-State Remodeling for Single-Cell
