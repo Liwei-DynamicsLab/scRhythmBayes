@@ -28,7 +28,7 @@
 
     <a class="navbar-brand me-2" href="index.html">scRhythmBayes</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">2.0.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -73,65 +73,69 @@
 <p><a href="https://github.com/Liwei-DynamicsLab/scRhythmBayes/actions/workflows/R-CMD-check.yaml" class="external-link"><img src="https://github.com/Liwei-DynamicsLab/scRhythmBayes/actions/workflows/R-CMD-check.yaml/badge.svg" alt="R-CMD-check"></a></p>
 <p><strong>Cell-level circadian phase inference and rhythm-state remodeling for single-cell transcriptomes</strong></p>
 <p><code>scRhythmBayes</code> is an R package for phase-resolved circadian analysis in heterogeneous single-cell transcriptomic data.</p>
-<p>The package is designed to infer latent cell-level circadian phase, estimate gene-level rhythmic parameters, and characterize condition- and cell-type-resolved rhythm-state remodeling. It provides a core workflow for cell phase inference, rhythmic parameter estimation, and differential rhythm-state module analysis, together with extension analyses for one-vs-rest rhythmic program discovery, DTW-based phase-distribution similarity, and circular phase-concentration rho analysis.</p>
+<p>The package provides a unified framework for inferring latent cell-level circadian phase, estimating gene-level rhythmic parameters, and characterizing rhythm-state remodeling across biological conditions and cell types. Version 2.0.0 incorporates biological-sample-aware rhythmicity testing and provides extended analyses for one-versus-rest rhythmic marker discovery, dynamic time warping (DTW) of cell-phase distributions, and circular phase-concentration analysis.</p>
 <p align="center">
-<img src="reference/figures/readme.png" width="760"></p>
+<img src="reference/figures/readme.png" width="760" alt="Overview of the scRhythmBayes analysis workflow"></p>
 <div class="section level2">
 <h2 id="overview">Overview<a class="anchor" aria-label="anchor" href="#overview"></a>
 </h2>
-<p><code>scRhythmBayes</code> organizes single-cell circadian analysis into one core workflow and several extension workflows.</p>
+<p><code>scRhythmBayes</code> organizes single-cell circadian analysis into a core workflow and several extension analyses.</p>
 <div class="section level3">
 <h3 id="core-workflow">Core workflow<a class="anchor" aria-label="anchor" href="#core-workflow"></a>
 </h3>
-<p>The core workflow follows the main analysis logic of the method:</p>
+<p>The core workflow consists of three connected analytical layers:</p>
 <ol style="list-style-type: decimal">
 <li><p><strong>Cell-level circadian phase inference</strong><br>
-Infer latent circadian phase for each cell from seed rhythmic genes.</p></li>
+Infer latent circadian phase for individual cells using rhythmic seed genes and sampling-time information.</p></li>
 <li><p><strong>Gene-level rhythmic parameter inference</strong><br>
-Estimate rhythmic parameters, including mesor, mean expression, amplitude, phase, dropout rate, likelihood-ratio statistics, and FDR.</p></li>
+Estimate rhythmic parameters, including mesor, mean expression, amplitude, phase, and dropout rate. Biological-sample-aware inference supports rhythmicity testing while accounting for independent biological replicates.</p></li>
 <li><p><strong>Differential rhythm-state module analysis</strong><br>
-Classify genes into interpretable rhythm-state remodeling modules between two biological conditions.</p></li>
+Classify genes into interpretable rhythm-state remodeling modules (M0–M7), including rhythm gain, rhythm loss, amplitude changes, and phase shifts between biological conditions.</p></li>
 </ol>
 </div>
 <div class="section level3">
 <h3 id="extension-analyses">Extension analyses<a class="anchor" aria-label="anchor" href="#extension-analyses"></a>
 </h3>
-<p>Additional analysis branches are provided for heterogeneous or multi-cell-type datasets:</p>
+<p>Additional analyses are available for heterogeneous or multi-cell-type datasets:</p>
 <ol style="list-style-type: decimal">
-<li><p><strong>One-vs-rest rhythmic program discovery</strong><br>
-Identify cell-type-specific rhythmic programs by comparing one target cell type against all remaining cell types.</p></li>
+<li><p><strong>One-versus-rest rhythmic program discovery</strong><br>
+Identify cell-type-associated rhythmic markers by comparing a target cell type against all remaining cell types pooled together.</p></li>
 <li><p><strong>DTW-based phase-distribution similarity analysis</strong><br>
-Compare circular cell-phase distributions across celltype-by-condition combinations.</p></li>
-<li><p><strong>Circular phase-concentration rho analysis</strong><br>
-Summarize the concentration of inferred cell phases within cell types, groups, and optional sample-level units.</p></li>
+Compare circular cell-phase distributions across cell-type and condition combinations.</p></li>
+<li><p><strong>Circular phase-concentration analysis</strong><br>
+Quantify the concentration of inferred cell phases using the circular resultant length (rho), with optional sample-level comparisons.</p></li>
 </ol>
 </div>
 </div>
 <div class="section level2">
 <h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
 </h2>
-<p>The package can be installed from GitHub:</p>
+<p>Install the latest version from GitHub:</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="st">"remotes"</span><span class="op">)</span></span>
-<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span><span class="st">"Liwei-DynamicsLab/scRhythmBayes"</span><span class="op">)</span></span></code></pre></div>
+<span></span>
+<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span></span>
+<span>  <span class="st">"Liwei-DynamicsLab/scRhythmBayes"</span></span>
+<span><span class="op">)</span></span></code></pre></div>
 <p>Load the package:</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://liwei-dynamicslab.github.io/scRhythmBayes/">scRhythmBayes</a></span><span class="op">)</span></span></code></pre></div>
 <p>Check the installed version:</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/packageDescription.html" class="external-link">packageVersion</a></span><span class="op">(</span><span class="st">"scRhythmBayes"</span><span class="op">)</span></span></code></pre></div>
-<p>Note: if the GitHub repository is private, installation requires GitHub authentication and repository access.</p>
 </div>
 <div class="section level2">
 <h2 id="example-data">Example data<a class="anchor" aria-label="anchor" href="#example-data"></a>
 </h2>
-<p><code>scRhythmBayes</code> includes an example dataset for testing the complete workflow.</p>
+<p><code>scRhythmBayes</code> provides a simulated example dataset designed to demonstrate the complete workflow, including cell-level phase inference, biological-sample-aware gene-level testing, rhythm-state module analysis, and one-versus-rest rhythmic marker discovery.</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/data.html" class="external-link">data</a></span><span class="op">(</span><span class="st">"srb_example_data"</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">srb_example_data</span><span class="op">)</span></span>
+<span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">srb_example_data</span><span class="op">$</span><span class="va">Count</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/class.html" class="external-link">class</a></span><span class="op">(</span><span class="va">srb_example_data</span><span class="op">$</span><span class="va">Count</span><span class="op">)</span></span>
+<span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">srb_example_data</span><span class="op">$</span><span class="va">meta</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">srb_example_data</span><span class="op">$</span><span class="va">meta</span><span class="op">)</span></span></code></pre></div>
 <p>Example output:</p>
@@ -143,15 +147,52 @@ Summarize the concentration of inferred cell phases within cell types, groups, a
 attr(,"package")
 [1] "Matrix"
 
-[1] 2160   10
-
-                       cell    sample replicate ZT celltype condition     T_true Theta_true Theta_noisy     r_sim
-Cell_0001_001 Cell_0001_001 A_ZT00_R1         1  0        1         A 23.7745644 6.22416640   6.0883578 0.7240322
-Cell_0001_002 Cell_0001_002 A_ZT00_R1         1  0        1         A 23.7111107 6.20755425   6.0324486 0.6303893
-Cell_0001_003 Cell_0001_003 A_ZT00_R1         1  0        1         A 22.2182691 5.81672924   5.8263271 0.8666633
-Cell_0001_004 Cell_0001_004 A_ZT00_R1         1  0        1         A  0.5581621 0.14612650   0.2245110 0.8593562
-Cell_0001_005 Cell_0001_005 A_ZT00_R1         1  0        1         A  0.7203817 0.18859549   0.3327113 0.6901345
-Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832 0.04683152   0.1722017 0.7564754</code></pre>
+[1] 2160   10</code></pre>
+<p>The simulated dataset includes:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr>
+<th>Feature</th>
+<th>Description</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Genes</td>
+<td>138</td>
+</tr>
+<tr>
+<td>Cells</td>
+<td>2,160</td>
+</tr>
+<tr>
+<td>Biological samples</td>
+<td>36</td>
+</tr>
+<tr>
+<td>Conditions</td>
+<td>2 (A and B)</td>
+</tr>
+<tr>
+<td>Zeitgeber times</td>
+<td>0, 4, 8, 12, 16, and 20 h</td>
+</tr>
+<tr>
+<td>Biological replicates</td>
+<td>3 per condition and ZT</td>
+</tr>
+<tr>
+<td>Cell types</td>
+<td>3</td>
+</tr>
+<tr>
+<td>Ground truth</td>
+<td>Cell phase, gene rhythmic states, OVR markers, and simulation parameters</td>
+</tr>
+</tbody>
+</table>
 <p>The example object contains:</p>
 <table class="table">
 <colgroup>
@@ -165,15 +206,15 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <tbody>
 <tr>
 <td><code>srb_example_data$Count</code></td>
-<td>Gene-by-cell sparse count matrix with 138 genes and 2,160 cells</td>
+<td>Gene-by-cell sparse count matrix</td>
 </tr>
 <tr>
 <td><code>srb_example_data$meta</code></td>
-<td>Cell-level metadata for 36 biological samples from two conditions, six ZT values, and three replicates</td>
+<td>Cell-level metadata with biological sample identifiers</td>
 </tr>
 <tr>
 <td><code>srb_example_data$truth</code></td>
-<td>Gene-level M0–M7 and OVR truth, sample effects, and simulation settings</td>
+<td>Simulated gene-level rhythmic states, OVR truth, sample effects, and simulation settings</td>
 </tr>
 </tbody>
 </table>
@@ -186,7 +227,7 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <tbody>
 <tr>
 <td><code>cell</code></td>
-<td>Cell identifier matched to the count matrix column names</td>
+<td>Cell identifier matched to count matrix column names</td>
 </tr>
 <tr>
 <td><code>sample</code></td>
@@ -206,19 +247,19 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code>condition</code></td>
-<td>Simulated group or condition label</td>
+<td>Simulated biological condition</td>
 </tr>
 <tr>
 <td><code>T_true</code></td>
-<td>Simulated true circadian time in hours</td>
+<td>True simulated circadian time in hours</td>
 </tr>
 <tr>
 <td><code>Theta_true</code></td>
-<td>Simulated true circadian phase in radians</td>
+<td>True simulated circadian phase in radians</td>
 </tr>
 <tr>
 <td><code>Theta_noisy</code></td>
-<td>Simulated noisy cell phase in radians</td>
+<td>Simulated noisy cellular phase in radians</td>
 </tr>
 <tr>
 <td><code>r_sim</code></td>
@@ -226,11 +267,24 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 </tbody>
 </table>
-<p><code>T_true</code> and <code>Theta_true</code> are available only in the simulated example dataset and are used for demonstration and validation. Real single-cell datasets usually do not contain these two columns.</p>
-<p>Basic input objects:</p>
+<p><code>T_true</code> and <code>Theta_true</code> are available because this is a simulated dataset. These quantities are generally unobserved in real single-cell transcriptomic experiments.</p>
+<p>Prepare the input data:</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">count</span> <span class="op">&lt;-</span> <span class="va">srb_example_data</span><span class="op">$</span><span class="va">Count</span></span>
 <span><span class="va">metadata</span> <span class="op">&lt;-</span> <span class="va">srb_example_data</span><span class="op">$</span><span class="va">meta</span></span></code></pre></div>
+<p>Inspect the biological replication structure:</p>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">sample_design</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/unique.html" class="external-link">unique</a></span><span class="op">(</span></span>
+<span>  <span class="va">metadata</span><span class="op">[</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"sample"</span>, <span class="st">"condition"</span>, <span class="st">"ZT"</span><span class="op">)</span><span class="op">]</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/unique.html" class="external-link">unique</a></span><span class="op">(</span><span class="va">sample_design</span><span class="op">$</span><span class="va">sample</span><span class="op">)</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span></span>
+<span>  <span class="va">sample_design</span><span class="op">$</span><span class="va">condition</span>,</span>
+<span>  <span class="va">sample_design</span><span class="op">$</span><span class="va">ZT</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p>Each condition contains three independent biological samples at each of the six sampling times.</p>
 </div>
 <div class="section level2">
 <h2 id="core-workflow-1">Core workflow<a class="anchor" aria-label="anchor" href="#core-workflow-1"></a>
@@ -238,10 +292,11 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <div class="section level3">
 <h3 id="id_1-infer-cell-level-circadian-phase">1. Infer cell-level circadian phase<a class="anchor" aria-label="anchor" href="#id_1-infer-cell-level-circadian-phase"></a>
 </h3>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<p><code><a href="reference/infer_cell_phase.html">infer_cell_phase()</a></code> estimates latent circadian phase using the expression of rhythmic seed genes and a circular prior informed by sampling Zeitgeber time.</p>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_phase</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/infer_cell_phase.html">infer_cell_phase</a></span><span class="op">(</span></span>
-<span>  count <span class="op">=</span> <span class="va">srb_example_data</span><span class="op">$</span><span class="va">Count</span>,</span>
-<span>  metadata <span class="op">=</span> <span class="va">srb_example_data</span><span class="op">$</span><span class="va">meta</span>,</span>
+<span>  count <span class="op">=</span> <span class="va">count</span>,</span>
+<span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
 <span>  ZT_by <span class="op">=</span> <span class="st">"ZT"</span>,</span>
 <span>  strata_by <span class="op">=</span> <span class="st">"celltype"</span>,</span>
 <span>  Species <span class="op">=</span> <span class="st">"mouse"</span>,</span>
@@ -260,12 +315,8 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 4 Cell_0001_004        0 1            6.14   23.4   0.989  0.999
 5 Cell_0001_005        0 1            0.142   0.543 0.992  0.999
 6 Cell_0001_006        0 1            0.137   0.524 0.991  0.999</code></pre>
-<p>Example output columns:</p>
+<p>Main output columns:</p>
 <table class="table">
-<colgroup>
-<col width="50%">
-<col width="50%">
-</colgroup>
 <thead><tr>
 <th>Column</th>
 <th>Description</th>
@@ -273,7 +324,7 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <tbody>
 <tr>
 <td><code>cell</code></td>
-<td>Cell barcode or cell ID</td>
+<td>Cell barcode or cell identifier</td>
 </tr>
 <tr>
 <td><code>ZT_input</code></td>
@@ -289,11 +340,11 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code>ZT_pred</code></td>
-<td>Inferred cell-level circadian phase converted to 24-hour time</td>
+<td>Inferred circadian phase converted to 24-hour time</td>
 </tr>
 <tr>
 <td><code>Rbar</code></td>
-<td>Aggregate phase concentration statistic</td>
+<td>Aggregate circular phase-concentration statistic</td>
 </tr>
 <tr>
 <td><code>r_cell</code></td>
@@ -301,18 +352,22 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 </tbody>
 </table>
+<p>The estimated phase provides a continuous temporal coordinate for subsequent rhythmic gene modeling.</p>
 </div>
 <div class="section level3">
 <h3 id="id_2-estimate-gene-level-rhythmic-parameters">2. Estimate gene-level rhythmic parameters<a class="anchor" aria-label="anchor" href="#id_2-estimate-gene-level-rhythmic-parameters"></a>
 </h3>
-<p>For a basic condition-comparison example, the gene-level model can be run within one cell type.</p>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<p><code><a href="reference/infer_gene_param.html">infer_gene_param()</a></code> estimates gene-specific rhythmic parameters using inferred cellular phases and reliability weights.</p>
+<p>When independent biological sample identifiers are provided, the sample-aware testing framework accounts for biological replication rather than treating individual cells as independent experimental replicates.</p>
+<p>For a condition-comparison example, analyze one cell type:</p>
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">cell_use</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">metadata</span><span class="op">$</span><span class="va">celltype</span><span class="op">)</span> <span class="op">==</span> <span class="st">"1"</span></span>
 <span></span>
 <span><span class="va">count_use</span> <span class="op">&lt;-</span> <span class="va">count</span><span class="op">[</span>, <span class="va">cell_use</span>, drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
-<span><span class="va">metadata_use</span> <span class="op">&lt;-</span> <span class="va">metadata</span><span class="op">[</span><span class="va">cell_use</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
-<span></span>
-<span><span class="va">res_param</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/infer_gene_param.html">infer_gene_param</a></span><span class="op">(</span></span>
+<span><span class="va">metadata_use</span> <span class="op">&lt;-</span> <span class="va">metadata</span><span class="op">[</span><span class="va">cell_use</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span></code></pre></div>
+<p>Run gene-level inference:</p>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">res_param</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/infer_gene_param.html">infer_gene_param</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count_use</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata_use</span>,</span>
 <span>  theta_pred <span class="op">=</span> <span class="va">res_phase</span><span class="op">$</span><span class="va">theta_pred</span><span class="op">[</span><span class="va">cell_use</span><span class="op">]</span>,</span>
@@ -329,6 +384,7 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_param</span><span class="op">$</span><span class="va">param_long</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_param</span><span class="op">$</span><span class="va">param_wide</span><span class="op">)</span></span>
+<span></span>
 <span><span class="va">res_param</span><span class="op">$</span><span class="va">inference</span></span></code></pre></div>
 <p>Main outputs:</p>
 <table class="table">
@@ -343,7 +399,7 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <tbody>
 <tr>
 <td><code>param_long</code></td>
-<td>Long-format gene-level rhythmic parameter estimates for each group</td>
+<td>Long-format gene-level rhythmic parameter estimates</td>
 </tr>
 <tr>
 <td><code>param_wide</code></td>
@@ -351,7 +407,7 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code>fit_diagnostics</code></td>
-<td>Cell-level working-likelihood fit diagnostics</td>
+<td>Working-likelihood fitting diagnostics</td>
 </tr>
 <tr>
 <td><code>bootstrap_res</code></td>
@@ -363,16 +419,12 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code>inference</code></td>
-<td>Sample-aware test mode, sample columns, and sample counts</td>
+<td>Statistical testing mode, sample columns, and sample counts</td>
 </tr>
 </tbody>
 </table>
-<p>Common gene-level parameters include:</p>
+<p>Common gene-level parameters:</p>
 <table class="table">
-<colgroup>
-<col width="50%">
-<col width="50%">
-</colgroup>
 <thead><tr>
 <th>Column</th>
 <th>Description</th>
@@ -384,11 +436,11 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code>Mesor</code></td>
-<td>Baseline rhythmic expression level</td>
+<td>Baseline rhythmic expression parameter</td>
 </tr>
 <tr>
 <td><code>Mean</code></td>
-<td>Mean expression level</td>
+<td>Estimated mean expression</td>
 </tr>
 <tr>
 <td><code>Amplitude</code></td>
@@ -412,19 +464,62 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code>P_value</code></td>
-<td>Biological-sample cluster score-test P value</td>
+<td>Rhythmicity test P value</td>
 </tr>
 <tr>
 <td><code>FDR</code></td>
-<td>Multiple-testing adjusted sample-aware rhythmicity significance</td>
+<td>Multiple-testing-adjusted rhythmicity significance</td>
 </tr>
 </tbody>
 </table>
+<p>The sample-aware test uses independent biological samples as the units for statistical calibration when the required sample design is available.</p>
 </div>
 <div class="section level3">
 <h3 id="id_3-infer-differential-rhythm-state-modules">3. Infer differential rhythm-state modules<a class="anchor" aria-label="anchor" href="#id_3-infer-differential-rhythm-state-modules"></a>
 </h3>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<p><code><a href="reference/infer_rhythm_module.html">infer_rhythm_module()</a></code> compares rhythmic parameters between two biological conditions and assigns genes to eight interpretable rhythm-state classes.</p>
+<table class="table">
+<thead><tr>
+<th>Module</th>
+<th>Rhythm-state interpretation</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>M0</td>
+<td>Non-rhythmic</td>
+</tr>
+<tr>
+<td>M1</td>
+<td>Stable rhythmicity</td>
+</tr>
+<tr>
+<td>M2</td>
+<td>Rhythm gain</td>
+</tr>
+<tr>
+<td>M3</td>
+<td>Rhythm loss</td>
+</tr>
+<tr>
+<td>M4</td>
+<td>Amplitude increase</td>
+</tr>
+<tr>
+<td>M5</td>
+<td>Amplitude decrease</td>
+</tr>
+<tr>
+<td>M6</td>
+<td>Phase advance</td>
+</tr>
+<tr>
+<td>M7</td>
+<td>Phase delay</td>
+</tr>
+</tbody>
+</table>
+<p>Run the module analysis:</p>
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_module</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/infer_rhythm_module.html">infer_rhythm_module</a></span><span class="op">(</span></span>
 <span>  param_wide <span class="op">=</span> <span class="va">res_param</span><span class="op">$</span><span class="va">param_wide</span>,</span>
 <span>  compare_by <span class="op">=</span> <span class="st">"condition"</span>,</span>
@@ -435,7 +530,8 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span></span>
 <span>  <span class="va">res_module</span><span class="op">$</span><span class="va">module_result</span><span class="op">[</span></span>
-<span>    <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"gene"</span>, <span class="st">"FDR_A"</span>, <span class="st">"FDR_B"</span>, <span class="st">"module_map"</span>, <span class="st">"module_name"</span><span class="op">)</span></span>
+<span>    <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"gene"</span>, <span class="st">"FDR_A"</span>, <span class="st">"FDR_B"</span>,</span>
+<span>      <span class="st">"module_map"</span>, <span class="st">"module_name"</span><span class="op">)</span></span>
 <span>  <span class="op">]</span></span>
 <span><span class="op">)</span></span></code></pre></div>
 <p>Example output:</p>
@@ -448,12 +544,13 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 4 M0G04 0.516 0.472           0 Non-rhythmic
 5 M0G05 0.105 0.0661          0 Non-rhythmic
 6 M0G06 0.381 0.0967          0 Non-rhythmic</code></pre>
-<p>The module analysis assigns genes to interpretable rhythm-state remodeling classes based on rhythmicity, amplitude remodeling, and phase remodeling between two groups.</p>
+<p>The resulting <code>module_map</code> represents the final rhythm-state assignment. Assignment-support summaries describe normalized classifier support rather than fully Bayesian posterior probabilities.</p>
 </div>
 <div class="section level3">
 <h3 id="id_4-visualize-rhythm-state-modules">4. Visualize rhythm-state modules<a class="anchor" aria-label="anchor" href="#id_4-visualize-rhythm-state-modules"></a>
 </h3>
-<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<p>Generate a module heatmap:</p>
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">hm_module</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/plot_module_heatmap.html">plot_module_heatmap</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count_use</span>,</span>
 <span>  res_phase <span class="op">=</span> <span class="va">res_phase</span><span class="op">[</span><span class="va">cell_use</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span>,</span>
@@ -465,8 +562,10 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">hm_module</span></span>
+<span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">hm_module</span>, module_id <span class="op">=</span> <span class="fl">0</span><span class="op">)</span></span></code></pre></div>
-<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<p>Generate a polar visualization:</p>
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">p_polar</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/plot_module_polar.html">plot_module_polar</a></span><span class="op">(</span></span>
 <span>  gene_meta <span class="op">=</span> <span class="va">res_module</span><span class="op">$</span><span class="va">module_result</span>,</span>
 <span>  module_id <span class="op">=</span> <span class="fl">7</span>,</span>
@@ -478,10 +577,14 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </div>
 </div>
 <div class="section level2">
-<h2 id="extension-workflow-1-one-vs-rest-rhythmic-program-discovery">Extension workflow 1: one-vs-rest rhythmic program discovery<a class="anchor" aria-label="anchor" href="#extension-workflow-1-one-vs-rest-rhythmic-program-discovery"></a>
+<h2 id="extension-workflow-1-one-versus-rest-rhythmic-program-discovery">Extension workflow 1: one-versus-rest rhythmic program discovery<a class="anchor" aria-label="anchor" href="#extension-workflow-1-one-versus-rest-rhythmic-program-discovery"></a>
 </h2>
-<p>The one-vs-rest branch is designed for heterogeneous tissues or multi-cell-type datasets. It compares each target cell type against all remaining cell types to identify cell-type-specific rhythmic programs.</p>
-<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<p>The one-versus-rest (OVR) framework identifies rhythmic programs associated with individual cell types by comparing a target population against all remaining cell types pooled as the reference population.</p>
+<p>Candidate OVR rhythmic markers are selected based on rhythmicity evidence and amplitude in the target population, together with the absence of comparable rhythmicity evidence in the pooled reference.</p>
+<div class="section level3">
+<h3 id="run-ovr-inference">Run OVR inference<a class="anchor" aria-label="anchor" href="#run-ovr-inference"></a>
+</h3>
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">res_ovr</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/infer_ovr_rhythm.html">infer_ovr_rhythm</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
@@ -501,30 +604,38 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">res_ovr</span><span class="op">$</span><span class="va">ovr_summary</span></span>
+<span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">res_ovr</span><span class="op">$</span><span class="va">ovr_markers</span><span class="op">)</span></span></code></pre></div>
 <p>Example output:</p>
 <pre class="text"><code># A tibble: 1 × 2
   celltype n_marker
   &lt;chr&gt;       &lt;int&gt;
-1 1               5
-
-# A tibble: 5 × 17
-  gene    celltype Mesor_target Mesor_rest Delta_Mesor Mean_target Mean_rest Delta_Mean Amplitude_target Amplitude_rest Delta_Amp Phase_target Phase_rest Delta_Phase FDR_target FDR_rest ovr_marker
-  &lt;chr&gt;   &lt;chr&gt;           &lt;dbl&gt;      &lt;dbl&gt;       &lt;dbl&gt;       &lt;dbl&gt;     &lt;dbl&gt;      &lt;dbl&gt;            &lt;dbl&gt;          &lt;dbl&gt;     &lt;dbl&gt;        &lt;dbl&gt;      &lt;dbl&gt;       &lt;dbl&gt;      &lt;dbl&gt;    &lt;dbl&gt; &lt;lgl&gt;
-1 OVR1G01 1                1.54       1.62    -0.0793         4.66      5.05    -0.385              1.32         0.0528      1.27         1.07       2.10      -1.02    0.000123    0.536 TRUE
-2 OVR1G02 1                1.41       1.46    -0.0524         4.08      4.30    -0.219              1.39         0.0173      1.37         2.05       5.78       2.56    0.000123    0.925 TRUE
-3 OVR1G03 1                1.45       1.60    -0.155          4.25      4.96    -0.710              1.34         0.0443      1.29         3.07       3.74      -0.663   0.000123    0.542 TRUE
-4 OVR1G04 1                1.84       1.84    -0.00477        6.29      6.32    -0.0301             1.26         0.0687      1.19         4.17       1.64       2.52    0.000123    0.295 TRUE
-5 OVR1G06 1                1.69       1.78    -0.0971         5.39      5.94    -0.550              1.40         0.0423      1.36         6.27       5.10       1.16    0.000123    0.579 TRUE</code></pre>
-<p>Visualize one-vs-rest rhythmic programs:</p>
-<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+1 1               5</code></pre>
+<p>Representative OVR markers include:</p>
+<pre class="text"><code>gene     celltype   FDR_target   FDR_rest   ovr_marker
+OVR1G01  1          0.000123     0.536      TRUE
+OVR1G02  1          0.000123     0.925      TRUE
+OVR1G03  1          0.000123     0.542      TRUE
+OVR1G04  1          0.000123     0.295      TRUE
+OVR1G06  1          0.000123     0.579      TRUE</code></pre>
+</div>
+<div class="section level3">
+<h3 id="visualize-target-versus-rest-rhythmic-curves">Visualize target-versus-rest rhythmic curves<a class="anchor" aria-label="anchor" href="#visualize-target-versus-rest-rhythmic-curves"></a>
+</h3>
+<p><code><a href="reference/plot_ovr_curve.html">plot_ovr_curve()</a></code> displays model-fitted rhythmic trajectories for the target cell type and the pooled rest population.</p>
+<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/plot_ovr_curve.html">plot_ovr_curve</a></span><span class="op">(</span></span>
 <span>  <span class="va">res_ovr</span>,</span>
 <span>  genes <span class="op">=</span> <span class="va">res_ovr</span><span class="op">$</span><span class="va">ovr_markers</span><span class="op">$</span><span class="va">gene</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span>,</span>
 <span>  target_group <span class="op">=</span> <span class="st">"1"</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">ht_ovr</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/plot_ovr_heatmap.html">plot_ovr_heatmap</a></span><span class="op">(</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level3">
+<h3 id="visualize-ovr-markers">Visualize OVR markers<a class="anchor" aria-label="anchor" href="#visualize-ovr-markers"></a>
+</h3>
+<p>The OVR heatmap displays phase-resolved expression patterns of candidate rhythmic markers across cell types.</p>
+<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">ht_ovr</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/plot_ovr_heatmap.html">plot_ovr_heatmap</a></span><span class="op">(</span></span>
 <span>  count <span class="op">=</span> <span class="va">count</span>,</span>
 <span>  res_phase <span class="op">=</span> <span class="va">res_phase</span>,</span>
 <span>  ovr_result <span class="op">=</span> <span class="va">res_ovr</span><span class="op">$</span><span class="va">ovr_result</span>,</span>
@@ -534,13 +645,10 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">ht_ovr</span></span>
+<span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">ht_ovr</span><span class="op">)</span></span></code></pre></div>
-<p>Main output columns:</p>
+<p>Main OVR result columns:</p>
 <table class="table">
-<colgroup>
-<col width="50%">
-<col width="50%">
-</colgroup>
 <thead><tr>
 <th>Column</th>
 <th>Description</th>
@@ -558,31 +666,25 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <td>
 <code>Mesor_target</code>, <code>Mesor_rest</code>
 </td>
-<td>Mesor in target and pooled rest groups</td>
-</tr>
-<tr>
-<td>
-<code>FDR_target</code>, <code>FDR_rest</code>
-</td>
-<td>Sample-aware rhythmicity FDR in target and rest groups</td>
+<td>Mesor parameters in target and rest</td>
 </tr>
 <tr>
 <td>
 <code>Mean_target</code>, <code>Mean_rest</code>
 </td>
-<td>Mean expression in target and rest groups</td>
+<td>Mean expression in target and rest</td>
 </tr>
 <tr>
 <td>
 <code>Amplitude_target</code>, <code>Amplitude_rest</code>
 </td>
-<td>Rhythmic amplitude in target and rest groups</td>
+<td>Rhythmic amplitudes</td>
 </tr>
 <tr>
 <td>
 <code>Phase_target</code>, <code>Phase_rest</code>
 </td>
-<td>Rhythmic phase in target and rest groups</td>
+<td>Rhythmic phases</td>
 </tr>
 <tr>
 <td><code>Delta_Mean</code></td>
@@ -594,20 +696,28 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code>Delta_Phase</code></td>
-<td>Circular target-minus-rest phase difference</td>
+<td>Circular phase difference</td>
+</tr>
+<tr>
+<td>
+<code>FDR_target</code>, <code>FDR_rest</code>
+</td>
+<td>Rhythmicity FDR in target and rest</td>
 </tr>
 <tr>
 <td><code>ovr_marker</code></td>
-<td>Whether the gene is classified as a target-specific rhythmic marker</td>
+<td>Candidate target-associated rhythmic marker</td>
 </tr>
 </tbody>
 </table>
+<p>OVR rhythmic markers are defined relative to the pooled rest population and are not equivalent to a formal differential-rhythmicity significance test between every individual cell type.</p>
+</div>
 </div>
 <div class="section level2">
 <h2 id="extension-workflow-2-dtw-based-phase-distribution-similarity">Extension workflow 2: DTW-based phase-distribution similarity<a class="anchor" aria-label="anchor" href="#extension-workflow-2-dtw-based-phase-distribution-similarity"></a>
 </h2>
-<p>The DTW branch compares circular phase distributions between celltype-by-condition combinations.</p>
-<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
+<p>Dynamic time warping (DTW) can be used to compare the distributions of inferred cellular phases across cell-type and condition combinations.</p>
+<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">dtw_res</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/run_dtw_similarity.html">run_dtw_similarity</a></span><span class="op">(</span></span>
 <span>  res_phase <span class="op">=</span> <span class="va">res_phase</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
@@ -620,38 +730,29 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">dtw_res</span></span>
+<span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">dtw_res</span><span class="op">$</span><span class="va">histogram</span><span class="op">)</span></span>
+<span></span>
 <span><span class="va">dtw_res</span><span class="op">$</span><span class="va">similarity</span></span></code></pre></div>
-<p>Example histogram output:</p>
-<pre class="text"><code>  combo cell_type Group bin bin_start   bin_end   bin_mid       prop
-1 1 | A         1     A   1 0.0000000 0.2617994 0.1308997 0.05833333
-2 1 | A         1     A   2 0.2617994 0.5235988 0.3926991 0.02222222
-3 1 | A         1     A   3 0.5235988 0.7853982 0.6544985 0.01666667
-4 1 | A         1     A   4 0.7853982 1.0471976 0.9162979 0.06388889
-5 1 | A         1     A   5 1.0471976 1.3089969 1.1780972 0.07500000
-6 1 | A         1     A   6 1.3089969 1.5707963 1.4398966 0.01111111</code></pre>
-<p>Example similarity matrix:</p>
-<pre class="text"><code>          1 | A     1 | B     2 | A     2 | B     3 | A     3 | B
-1 | A 1.0000000 0.4730539 0.2743924 0.1117194 0.2089335 0.3072317
-1 | B 0.4730539 1.0000000 0.0807574 0.1062086 0.0000000 0.1623240
-2 | A 0.2743924 0.0807574 1.0000000 0.8754491 0.9337795 1.0000000
-2 | B 0.1117194 0.1062086 0.8754491 1.0000000 0.8323353 0.9520958
-3 | A 0.2089335 0.0000000 0.9337795 0.8323353 1.0000000 0.9628112
-3 | B 0.3072317 0.1623240 1.0000000 0.9520958 0.9628112 1.0000000</code></pre>
-<p>Plot DTW similarity heatmap:</p>
-<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<p>Example phase histogram:</p>
+<pre class="text"><code>combo   cell_type Group bin bin_start bin_end   bin_mid   prop
+1 | A   1         A     1   0.000000  0.261799  0.130900  0.058333
+1 | A   1         A     2   0.261799  0.523599  0.392699  0.022222
+1 | A   1         A     3   0.523599  0.785398  0.654498  0.016667
+1 | A   1         A     4   0.785398  1.047198  0.916298  0.063889
+1 | A   1         A     5   1.047198  1.308997  1.178097  0.075000
+1 | A   1         A     6   1.308997  1.570796  1.439897  0.011111</code></pre>
+<p>Plot the DTW similarity heatmap:</p>
+<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">ht_dtw</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/plot_dtw_heatmap.html">plot_dtw_heatmap</a></span><span class="op">(</span></span>
 <span>  dtw_res <span class="op">=</span> <span class="va">dtw_res</span></span>
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">ht_dtw</span></span>
+<span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">ht_dtw</span><span class="op">)</span></span></code></pre></div>
 <p>Main outputs:</p>
 <table class="table">
-<colgroup>
-<col width="50%">
-<col width="50%">
-</colgroup>
 <thead><tr>
 <th>Output</th>
 <th>Description</th>
@@ -663,7 +764,7 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code>histogram</code></td>
-<td>Circular phase histogram for each celltype-by-group combination</td>
+<td>Circular phase histogram by cell-type and condition</td>
 </tr>
 <tr>
 <td><code>distance</code></td>
@@ -671,23 +772,25 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code>similarity</code></td>
-<td>Scaled 0-to-1 DTW similarity matrix</td>
+<td>Scaled DTW similarity matrix</td>
 </tr>
 <tr>
 <td><code>annotation</code></td>
-<td>Annotation table for heatmap rows and columns</td>
+<td>Heatmap annotation table</td>
 </tr>
 </tbody>
 </table>
+<p>DTW similarity provides a descriptive measure of alignment between phase distributions rather than a direct statistical test of differential rhythmicity.</p>
 </div>
 <div class="section level2">
 <h2 id="extension-workflow-3-circular-phase-concentration-rho-analysis">Extension workflow 3: circular phase-concentration rho analysis<a class="anchor" aria-label="anchor" href="#extension-workflow-3-circular-phase-concentration-rho-analysis"></a>
 </h2>
-<p>The rho branch summarizes how concentrated inferred cell phases are within each cell type and condition.</p>
+<p>The circular resultant length (rho) summarizes the concentration of inferred cell phases within a population.</p>
+<p>Values closer to 1 indicate stronger phase concentration, whereas values closer to 0 indicate greater dispersion.</p>
 <div class="section level3">
-<h3 id="group-level-rho-summary">Group-level rho summary<a class="anchor" aria-label="anchor" href="#group-level-rho-summary"></a>
+<h3 id="group-level-rho-analysis">Group-level rho analysis<a class="anchor" aria-label="anchor" href="#group-level-rho-analysis"></a>
 </h3>
-<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb24"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">rho_res</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/run_phase_rho.html">run_phase_rho</a></span><span class="op">(</span></span>
 <span>  res_phase <span class="op">=</span> <span class="va">res_phase</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
@@ -700,17 +803,18 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">rho_res</span></span></code></pre></div>
-<p>Plot rho values:</p>
-<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
+<p>Visualize group-level rho:</p>
+<div class="sourceCode" id="cb25"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">p_rho</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/plot_phase_rho.html">plot_phase_rho</a></span><span class="op">(</span><span class="va">rho_res</span><span class="op">)</span></span>
+<span></span>
 <span><span class="va">p_rho</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
 </div>
 <div class="section level3">
-<h3 id="sample-level-rho-summary">Sample-level rho summary<a class="anchor" aria-label="anchor" href="#sample-level-rho-summary"></a>
+<h3 id="sample-level-rho-analysis">Sample-level rho analysis<a class="anchor" aria-label="anchor" href="#sample-level-rho-analysis"></a>
 </h3>
-<p>If a sample column is available, <code><a href="reference/run_phase_rho.html">run_phase_rho()</a></code> can also summarize rho at the sample level and perform sample-level group comparisons within each cell type.</p>
-<p>The example dataset contains 36 independent biological samples in the <code>sample</code> column.</p>
-<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
+<p>If independent biological sample identifiers are available, rho can also be summarized at the sample level.</p>
+<p>The example dataset contains 36 independent biological samples.</p>
+<div class="sourceCode" id="cb26"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">rho_res_sample</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/run_phase_rho.html">run_phase_rho</a></span><span class="op">(</span></span>
 <span>  res_phase <span class="op">=</span> <span class="va">res_phase</span>,</span>
 <span>  metadata <span class="op">=</span> <span class="va">metadata</span>,</span>
@@ -725,24 +829,27 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">rho_res_sample</span><span class="op">$</span><span class="va">rho_sample</span><span class="op">)</span></span></code></pre></div>
-<p>Example sample-level rho output:</p>
-<pre class="text"><code>  cell_type Group    Sample n_cell       rho mean_phase_rad mean_phase_hour
-1         1     A A_ZT00_R1     20 0.9812679    0.007222493      0.02758789
-2         1     A A_ZT00_R2     20 0.9727272    6.261130650     23.91575741
-3         1     A A_ZT00_R3     20 0.9724092    0.065011902      0.24832717
-4         1     A A_ZT04_R1     20 0.9904582    1.116099149      4.26318472
-5         1     A A_ZT04_R2     20 0.9595515    1.022346888      3.90507746
-6         1     A A_ZT04_R3     20 0.9838027    0.999653055      3.81839340</code></pre>
-<p>Plot sample-level rho values:</p>
-<div class="sourceCode" id="cb25"><pre class="downlit sourceCode r">
+<p>Example output:</p>
+<pre class="text"><code>cell_type Group Sample      n_cell rho       mean_phase_hour
+1         A     A_ZT00_R1   20     0.981268  0.027588
+1         A     A_ZT00_R2   20     0.972727 23.915757
+1         A     A_ZT00_R3   20     0.972409  0.248327
+1         A     A_ZT04_R1   20     0.990458  4.263185
+1         A     A_ZT04_R2   20     0.959552  3.905077
+1         A     A_ZT04_R3   20     0.983803  3.818393</code></pre>
+<p>Plot sample-level rho:</p>
+<div class="sourceCode" id="cb28"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">p_rho_sample</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/plot_phase_rho.html">plot_phase_rho</a></span><span class="op">(</span><span class="va">rho_res_sample</span><span class="op">)</span></span>
+<span></span>
 <span><span class="va">p_rho_sample</span><span class="op">$</span><span class="va">plot</span></span></code></pre></div>
+<p>Sample-level comparisons should be interpreted in the context of the experimental design and the number of independent biological replicates.</p>
 </div>
 </div>
 <div class="section level2">
 <h2 id="tutorials">Tutorials<a class="anchor" aria-label="anchor" href="#tutorials"></a>
 </h2>
-<p>Detailed tutorials are available through the pkgdown documentation website. These tutorials mirror the main analysis branches of <code>scRhythmBayes</code> and include step-by-step examples, output interpretation, and figure-generation workflows.</p>
+<p>Detailed tutorials are available through the scRhythmBayes documentation website.</p>
+<p>These tutorials cover the complete analysis workflow, output interpretation, and visualization of inferred circadian organization.</p>
 <div class="section level3">
 <h3 id="core-workflow-2">Core workflow<a class="anchor" aria-label="anchor" href="#core-workflow-2"></a>
 </h3>
@@ -755,13 +862,11 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </h3>
 <ul>
 <li><a href="https://liwei-dynamicslab.github.io/scRhythmBayes/articles/module-analysis.html">Rhythm-state module analysis</a></li>
-<li><a href="https://liwei-dynamicslab.github.io/scRhythmBayes/articles/ovr-analysis.html">One-vs-rest rhythmic program discovery</a></li>
+<li><a href="https://liwei-dynamicslab.github.io/scRhythmBayes/articles/ovr-analysis.html">One-versus-rest rhythmic program discovery</a></li>
 <li><a href="https://liwei-dynamicslab.github.io/scRhythmBayes/articles/phase-prioritization-dtw-rho.html">DTW and rho phase-prioritization analysis</a></li>
 </ul>
-<p>The full documentation website is available at:</p>
-<ul>
-<li><a href="https://liwei-dynamicslab.github.io/scRhythmBayes/">scRhythmBayes documentation</a></li>
-</ul>
+<p>Full documentation:</p>
+<p><a href="https://liwei-dynamicslab.github.io/scRhythmBayes/">scRhythmBayes documentation website</a></p>
 </div>
 </div>
 <div class="section level2">
@@ -771,6 +876,10 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <h3 id="core-workflow-3">Core workflow<a class="anchor" aria-label="anchor" href="#core-workflow-3"></a>
 </h3>
 <table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
 <thead><tr>
 <th>Function</th>
 <th>Description</th>
@@ -786,15 +895,15 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code><a href="reference/infer_rhythm_module.html">infer_rhythm_module()</a></code></td>
-<td>Infer differential rhythm-state modules</td>
+<td>Classify differential rhythm states</td>
 </tr>
 <tr>
 <td><code><a href="reference/plot_module_heatmap.html">plot_module_heatmap()</a></code></td>
-<td>Plot rhythm-state module heatmap</td>
+<td>Visualize rhythm-state modules</td>
 </tr>
 <tr>
 <td><code><a href="reference/plot_module_polar.html">plot_module_polar()</a></code></td>
-<td>Plot rhythm modules on polar coordinates</td>
+<td>Visualize module parameters on polar coordinates</td>
 </tr>
 </tbody>
 </table>
@@ -818,7 +927,7 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code><a href="reference/plot_phase_circle.html">plot_phase_circle()</a></code></td>
-<td>Visualize circular cell-phase distributions</td>
+<td>Visualize circular phase distributions</td>
 </tr>
 <tr>
 <td><code><a href="reference/plot_phase_flower.html">plot_phase_flower()</a></code></td>
@@ -826,7 +935,7 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code><a href="reference/plot_phase_rose.html">plot_phase_rose()</a></code></td>
-<td>Plot rose-style phase distributions</td>
+<td>Visualize circular phase histograms</td>
 </tr>
 </tbody>
 </table>
@@ -846,7 +955,7 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 <tbody>
 <tr>
 <td><code><a href="reference/infer_ovr_rhythm.html">infer_ovr_rhythm()</a></code></td>
-<td>Identify one-vs-rest cell-type-specific rhythmic programs</td>
+<td>Identify target-associated rhythmic markers</td>
 </tr>
 <tr>
 <td><code><a href="reference/plot_ovr_curve.html">plot_ovr_curve()</a></code></td>
@@ -854,39 +963,33 @@ Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832
 </tr>
 <tr>
 <td><code><a href="reference/plot_ovr_heatmap.html">plot_ovr_heatmap()</a></code></td>
-<td>Plot one-vs-rest rhythm-state heatmap</td>
+<td>Visualize OVR rhythmic markers</td>
 </tr>
 <tr>
 <td><code><a href="reference/run_dtw_similarity.html">run_dtw_similarity()</a></code></td>
-<td>Run DTW-based phase-distribution similarity analysis</td>
+<td>Compare circular phase distributions using DTW</td>
 </tr>
 <tr>
 <td><code><a href="reference/plot_dtw_heatmap.html">plot_dtw_heatmap()</a></code></td>
-<td>Plot DTW similarity or distance heatmap</td>
+<td>Visualize DTW similarity or distance</td>
 </tr>
 <tr>
 <td><code><a href="reference/run_phase_rho.html">run_phase_rho()</a></code></td>
-<td>Summarize circular phase concentration rho</td>
+<td>Calculate circular phase concentration</td>
 </tr>
 <tr>
 <td><code><a href="reference/plot_phase_rho.html">plot_phase_rho()</a></code></td>
-<td>Plot rho by cell type and group</td>
+<td>Visualize rho summaries</td>
 </tr>
 </tbody>
 </table>
 </div>
 </div>
 <div class="section level2">
-<h2 id="notes">Notes<a class="anchor" aria-label="anchor" href="#notes"></a>
-</h2>
-<p><code>scRhythmBayes</code> is intended for phase-resolved analysis of single-cell transcriptomic datasets where cells are collected across circadian or time-of-day sampling points. The core workflow focuses on latent cell-phase inference and rhythm-state remodeling analysis. The extension workflows support additional biological questions, including cell-type-specific rhythmic program discovery and comparison of inferred phase distributions across cell types and conditions.</p>
-<p>The package is under active development. Function interfaces and tutorials may be updated as the manuscript and reproducibility workflows are finalized.</p>
-</div>
-<div class="section level2">
 <h2 id="citation">Citation<a class="anchor" aria-label="anchor" href="#citation"></a>
 </h2>
-<p>If you use <code>scRhythmBayes</code>, please cite the associated manuscript:</p>
-<p>Zhang Q, Li C, Zhang L. Decoding cell-level circadian phase and rhythm-state remodeling in single-cell transcriptomes with scRhythmBayes.</p>
+<p>If you use <code>scRhythmBayes</code> in your research, please cite our preprint:</p>
+<p>Zhang Q, Li C, Deligiannis IK, et al. (2026).<br><strong>Decoding Cell-level Circadian Phase and Rhythm-state Remodeling in Single-cell Transcriptomes With scRhythmBayes.</strong><br><em>bioRxiv</em> (preprint).<br><a href="https://doi.org/10.64898/2026.10.18.759931" class="external-link uri">https://doi.org/10.64898/2026.10.18.759931</a></p>
 </div>
 <div class="section level2">
 <h2 id="license">License<a class="anchor" aria-label="anchor" href="#license"></a>

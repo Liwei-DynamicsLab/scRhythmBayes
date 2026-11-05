@@ -1,4 +1,5 @@
-# scRhythmBayes <img src="man/figures/logo.png" align="right" width="160">
+
+# scRhythmBayes <img src="man/figures/logo.png" align="right" width="230" alt="scRhythmBayes Rhythm Tree logo">
 
 [![R-CMD-check](https://github.com/Liwei-DynamicsLab/scRhythmBayes/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/Liwei-DynamicsLab/scRhythmBayes/actions/workflows/R-CMD-check.yaml)
 
@@ -6,49 +7,52 @@
 
 `scRhythmBayes` is an R package for phase-resolved circadian analysis in heterogeneous single-cell transcriptomic data.
 
-The package is designed to infer latent cell-level circadian phase, estimate gene-level rhythmic parameters, and characterize condition- and cell-type-resolved rhythm-state remodeling. It provides a core workflow for cell phase inference, rhythmic parameter estimation, and differential rhythm-state module analysis, together with extension analyses for one-vs-rest rhythmic program discovery, DTW-based phase-distribution similarity, and circular phase-concentration rho analysis.
+The package provides a unified framework for inferring latent cell-level circadian phase, estimating gene-level rhythmic parameters, and characterizing rhythm-state remodeling across biological conditions and cell types. Version 2.0.0 incorporates biological-sample-aware rhythmicity testing and provides extended analyses for one-versus-rest rhythmic marker discovery, dynamic time warping (DTW) of cell-phase distributions, and circular phase-concentration analysis.
 
 <p align="center">
-  <img src="man/figures/readme.png" width="760">
+  <img src="man/figures/readme.png" width="760" alt="Overview of the scRhythmBayes analysis workflow">
 </p>
 
 ## Overview
 
-`scRhythmBayes` organizes single-cell circadian analysis into one core workflow and several extension workflows.
+`scRhythmBayes` organizes single-cell circadian analysis into a core workflow and several extension analyses.
 
 ### Core workflow
 
-The core workflow follows the main analysis logic of the method:
+The core workflow consists of three connected analytical layers:
 
 1. **Cell-level circadian phase inference**  
-   Infer latent circadian phase for each cell from seed rhythmic genes.
+   Infer latent circadian phase for individual cells using rhythmic seed genes and sampling-time information.
 
 2. **Gene-level rhythmic parameter inference**  
-   Estimate rhythmic parameters, including mesor, mean expression, amplitude, phase, dropout rate, likelihood-ratio statistics, and FDR.
+   Estimate rhythmic parameters, including mesor, mean expression, amplitude, phase, and dropout rate. Biological-sample-aware inference supports rhythmicity testing while accounting for independent biological replicates.
 
 3. **Differential rhythm-state module analysis**  
-   Classify genes into interpretable rhythm-state remodeling modules between two biological conditions.
+   Classify genes into interpretable rhythm-state remodeling modules (M0–M7), including rhythm gain, rhythm loss, amplitude changes, and phase shifts between biological conditions.
 
 ### Extension analyses
 
-Additional analysis branches are provided for heterogeneous or multi-cell-type datasets:
+Additional analyses are available for heterogeneous or multi-cell-type datasets:
 
-1. **One-vs-rest rhythmic program discovery**  
-   Identify cell-type-specific rhythmic programs by comparing one target cell type against all remaining cell types.
+1. **One-versus-rest rhythmic program discovery**  
+   Identify cell-type-associated rhythmic markers by comparing a target cell type against all remaining cell types pooled together.
 
 2. **DTW-based phase-distribution similarity analysis**  
-   Compare circular cell-phase distributions across celltype-by-condition combinations.
+   Compare circular cell-phase distributions across cell-type and condition combinations.
 
-3. **Circular phase-concentration rho analysis**  
-   Summarize the concentration of inferred cell phases within cell types, groups, and optional sample-level units.
+3. **Circular phase-concentration analysis**  
+   Quantify the concentration of inferred cell phases using the circular resultant length (rho), with optional sample-level comparisons.
 
 ## Installation
 
-The package can be installed from GitHub:
+Install the latest version from GitHub:
 
 ```r
 install.packages("remotes")
-remotes::install_github("Liwei-DynamicsLab/scRhythmBayes")
+
+remotes::install_github(
+  "Liwei-DynamicsLab/scRhythmBayes"
+)
 ```
 
 Load the package:
@@ -63,18 +67,18 @@ Check the installed version:
 packageVersion("scRhythmBayes")
 ```
 
-Note: if the GitHub repository is private, installation requires GitHub authentication and repository access.
-
 ## Example data
 
-`scRhythmBayes` includes an example dataset for testing the complete workflow.
+`scRhythmBayes` provides a simulated example dataset designed to demonstrate the complete workflow, including cell-level phase inference, biological-sample-aware gene-level testing, rhythm-state module analysis, and one-versus-rest rhythmic marker discovery.
 
 ```r
 data("srb_example_data")
 
 names(srb_example_data)
+
 dim(srb_example_data$Count)
 class(srb_example_data$Count)
+
 dim(srb_example_data$meta)
 head(srb_example_data$meta)
 ```
@@ -91,56 +95,80 @@ attr(,"package")
 [1] "Matrix"
 
 [1] 2160   10
-
-                       cell    sample replicate ZT celltype condition     T_true Theta_true Theta_noisy     r_sim
-Cell_0001_001 Cell_0001_001 A_ZT00_R1         1  0        1         A 23.7745644 6.22416640   6.0883578 0.7240322
-Cell_0001_002 Cell_0001_002 A_ZT00_R1         1  0        1         A 23.7111107 6.20755425   6.0324486 0.6303893
-Cell_0001_003 Cell_0001_003 A_ZT00_R1         1  0        1         A 22.2182691 5.81672924   5.8263271 0.8666633
-Cell_0001_004 Cell_0001_004 A_ZT00_R1         1  0        1         A  0.5581621 0.14612650   0.2245110 0.8593562
-Cell_0001_005 Cell_0001_005 A_ZT00_R1         1  0        1         A  0.7203817 0.18859549   0.3327113 0.6901345
-Cell_0001_006 Cell_0001_006 A_ZT00_R1         1  0        1         A  0.1788832 0.04683152   0.1722017 0.7564754
 ```
+
+The simulated dataset includes:
+
+| Feature | Description |
+|---|---|
+| Genes | 138 |
+| Cells | 2,160 |
+| Biological samples | 36 |
+| Conditions | 2 (A and B) |
+| Zeitgeber times | 0, 4, 8, 12, 16, and 20 h |
+| Biological replicates | 3 per condition and ZT |
+| Cell types | 3 |
+| Ground truth | Cell phase, gene rhythmic states, OVR markers, and simulation parameters |
 
 The example object contains:
 
 | Object | Description |
 |---|---|
-| `srb_example_data$Count` | Gene-by-cell sparse count matrix with 138 genes and 2,160 cells |
-| `srb_example_data$meta` | Cell-level metadata for 36 biological samples from two conditions, six ZT values, and three replicates |
-| `srb_example_data$truth` | Gene-level M0--M7 and OVR truth, sample effects, and simulation settings |
+| `srb_example_data$Count` | Gene-by-cell sparse count matrix |
+| `srb_example_data$meta` | Cell-level metadata with biological sample identifiers |
+| `srb_example_data$truth` | Simulated gene-level rhythmic states, OVR truth, sample effects, and simulation settings |
 
 Metadata columns:
 
 | Column | Description |
 |---|---|
-| `cell` | Cell identifier matched to the count matrix column names |
+| `cell` | Cell identifier matched to count matrix column names |
 | `sample` | Independent biological sample identifier |
 | `replicate` | Biological replicate within each condition and ZT |
 | `ZT` | Sampling Zeitgeber time |
 | `celltype` | Simulated cell-type label |
-| `condition` | Simulated group or condition label |
-| `T_true` | Simulated true circadian time in hours |
-| `Theta_true` | Simulated true circadian phase in radians |
-| `Theta_noisy` | Simulated noisy cell phase in radians |
+| `condition` | Simulated biological condition |
+| `T_true` | True simulated circadian time in hours |
+| `Theta_true` | True simulated circadian phase in radians |
+| `Theta_noisy` | Simulated noisy cellular phase in radians |
 | `r_sim` | Simulated phase-reliability value |
 
-`T_true` and `Theta_true` are available only in the simulated example dataset and are used for demonstration and validation. Real single-cell datasets usually do not contain these two columns.
+`T_true` and `Theta_true` are available because this is a simulated dataset. These quantities are generally unobserved in real single-cell transcriptomic experiments.
 
-Basic input objects:
+Prepare the input data:
 
 ```r
 count <- srb_example_data$Count
 metadata <- srb_example_data$meta
 ```
 
+Inspect the biological replication structure:
+
+```r
+sample_design <- unique(
+  metadata[, c("sample", "condition", "ZT")]
+)
+
+length(unique(sample_design$sample))
+
+table(
+  sample_design$condition,
+  sample_design$ZT
+)
+```
+
+Each condition contains three independent biological samples at each of the six sampling times.
+
 ## Core workflow
 
 ### 1. Infer cell-level circadian phase
 
+`infer_cell_phase()` estimates latent circadian phase using the expression of rhythmic seed genes and a circular prior informed by sampling Zeitgeber time.
+
 ```r
 res_phase <- infer_cell_phase(
-  count = srb_example_data$Count,
-  metadata = srb_example_data$meta,
+  count = count,
+  metadata = metadata,
   ZT_by = "ZT",
   strata_by = "celltype",
   Species = "mouse",
@@ -165,28 +193,38 @@ Example output:
 6 Cell_0001_006        0 1            0.137   0.524 0.991  0.999
 ```
 
-Example output columns:
+Main output columns:
 
 | Column | Description |
 |---|---|
-| `cell` | Cell barcode or cell ID |
+| `cell` | Cell barcode or cell identifier |
 | `ZT_input` | Observed sampling Zeitgeber time |
 | `stratum` | Stratum used during phase inference |
 | `theta_pred` | Inferred cell-level circadian phase in radians |
-| `ZT_pred` | Inferred cell-level circadian phase converted to 24-hour time |
-| `Rbar` | Aggregate phase concentration statistic |
+| `ZT_pred` | Inferred circadian phase converted to 24-hour time |
+| `Rbar` | Aggregate circular phase-concentration statistic |
 | `r_cell` | Cell-level phase reliability weight |
+
+The estimated phase provides a continuous temporal coordinate for subsequent rhythmic gene modeling.
 
 ### 2. Estimate gene-level rhythmic parameters
 
-For a basic condition-comparison example, the gene-level model can be run within one cell type.
+`infer_gene_param()` estimates gene-specific rhythmic parameters using inferred cellular phases and reliability weights.
+
+When independent biological sample identifiers are provided, the sample-aware testing framework accounts for biological replication rather than treating individual cells as independent experimental replicates.
+
+For a condition-comparison example, analyze one cell type:
 
 ```r
 cell_use <- as.character(metadata$celltype) == "1"
 
 count_use <- count[, cell_use, drop = FALSE]
 metadata_use <- metadata[cell_use, , drop = FALSE]
+```
 
+Run gene-level inference:
+
+```r
 res_param <- infer_gene_param(
   count = count_use,
   metadata = metadata_use,
@@ -204,6 +242,7 @@ res_param <- infer_gene_param(
 
 head(res_param$param_long)
 head(res_param$param_wide)
+
 res_param$inference
 ```
 
@@ -211,29 +250,46 @@ Main outputs:
 
 | Output | Description |
 |---|---|
-| `param_long` | Long-format gene-level rhythmic parameter estimates for each group |
+| `param_long` | Long-format gene-level rhythmic parameter estimates |
 | `param_wide` | Wide-format paired parameter table for downstream module analysis |
-| `fit_diagnostics` | Cell-level working-likelihood fit diagnostics |
+| `fit_diagnostics` | Working-likelihood fitting diagnostics |
 | `bootstrap_res` | Whole-sample bootstrap confidence interval results |
 | `gene_eligibility` | Gene-level eligibility and sample-support diagnostics |
-| `inference` | Sample-aware test mode, sample columns, and sample counts |
+| `inference` | Statistical testing mode, sample columns, and sample counts |
 
-Common gene-level parameters include:
+Common gene-level parameters:
 
 | Column | Description |
 |---|---|
 | `gene` | Gene name |
-| `Mesor` | Baseline rhythmic expression level |
-| `Mean` | Mean expression level |
+| `Mesor` | Baseline rhythmic expression parameter |
+| `Mean` | Estimated mean expression |
 | `Amplitude` | Circadian oscillation amplitude |
 | `Amplitude_shrunk` | Joint MAP-shrunk rhythmic amplitude |
 | `Phase` | Gene-level rhythmic phase in radians |
 | `Alpha` | Dispersion-related parameter |
 | `Dropout_rate` | Estimated dropout rate |
-| `P_value` | Biological-sample cluster score-test P value |
-| `FDR` | Multiple-testing adjusted sample-aware rhythmicity significance |
+| `P_value` | Rhythmicity test P value |
+| `FDR` | Multiple-testing-adjusted rhythmicity significance |
+
+The sample-aware test uses independent biological samples as the units for statistical calibration when the required sample design is available.
 
 ### 3. Infer differential rhythm-state modules
+
+`infer_rhythm_module()` compares rhythmic parameters between two biological conditions and assigns genes to eight interpretable rhythm-state classes.
+
+| Module | Rhythm-state interpretation |
+|---|---|
+| M0 | Non-rhythmic |
+| M1 | Stable rhythmicity |
+| M2 | Rhythm gain |
+| M3 | Rhythm loss |
+| M4 | Amplitude increase |
+| M5 | Amplitude decrease |
+| M6 | Phase advance |
+| M7 | Phase delay |
+
+Run the module analysis:
 
 ```r
 res_module <- infer_rhythm_module(
@@ -246,7 +302,8 @@ res_module <- infer_rhythm_module(
 
 head(
   res_module$module_result[
-    c("gene", "FDR_A", "FDR_B", "module_map", "module_name")
+    c("gene", "FDR_A", "FDR_B",
+      "module_map", "module_name")
   ]
 )
 ```
@@ -265,9 +322,11 @@ Example output:
 6 M0G06 0.381 0.0967          0 Non-rhythmic
 ```
 
-The module analysis assigns genes to interpretable rhythm-state remodeling classes based on rhythmicity, amplitude remodeling, and phase remodeling between two groups.
+The resulting `module_map` represents the final rhythm-state assignment. Assignment-support summaries describe normalized classifier support rather than fully Bayesian posterior probabilities.
 
 ### 4. Visualize rhythm-state modules
+
+Generate a module heatmap:
 
 ```r
 hm_module <- plot_module_heatmap(
@@ -281,8 +340,11 @@ hm_module <- plot_module_heatmap(
 )
 
 hm_module
+
 plot(hm_module, module_id = 0)
 ```
+
+Generate a polar visualization:
 
 ```r
 p_polar <- plot_module_polar(
@@ -295,9 +357,13 @@ p_polar <- plot_module_polar(
 p_polar$plot
 ```
 
-## Extension workflow 1: one-vs-rest rhythmic program discovery
+## Extension workflow 1: one-versus-rest rhythmic program discovery
 
-The one-vs-rest branch is designed for heterogeneous tissues or multi-cell-type datasets. It compares each target cell type against all remaining cell types to identify cell-type-specific rhythmic programs.
+The one-versus-rest (OVR) framework identifies rhythmic programs associated with individual cell types by comparing a target population against all remaining cell types pooled as the reference population.
+
+Candidate OVR rhythmic markers are selected based on rhythmicity evidence and amplitude in the target population, together with the absence of comparable rhythmicity evidence in the pooled reference.
+
+### Run OVR inference
 
 ```r
 res_ovr <- infer_ovr_rhythm(
@@ -319,6 +385,7 @@ res_ovr <- infer_ovr_rhythm(
 )
 
 res_ovr$ovr_summary
+
 head(res_ovr$ovr_markers)
 ```
 
@@ -329,18 +396,22 @@ Example output:
   celltype n_marker
   <chr>       <int>
 1 1               5
-
-# A tibble: 5 × 17
-  gene    celltype Mesor_target Mesor_rest Delta_Mesor Mean_target Mean_rest Delta_Mean Amplitude_target Amplitude_rest Delta_Amp Phase_target Phase_rest Delta_Phase FDR_target FDR_rest ovr_marker
-  <chr>   <chr>           <dbl>      <dbl>       <dbl>       <dbl>     <dbl>      <dbl>            <dbl>          <dbl>     <dbl>        <dbl>      <dbl>       <dbl>      <dbl>    <dbl> <lgl>
-1 OVR1G01 1                1.54       1.62    -0.0793         4.66      5.05    -0.385              1.32         0.0528      1.27         1.07       2.10      -1.02    0.000123    0.536 TRUE
-2 OVR1G02 1                1.41       1.46    -0.0524         4.08      4.30    -0.219              1.39         0.0173      1.37         2.05       5.78       2.56    0.000123    0.925 TRUE
-3 OVR1G03 1                1.45       1.60    -0.155          4.25      4.96    -0.710              1.34         0.0443      1.29         3.07       3.74      -0.663   0.000123    0.542 TRUE
-4 OVR1G04 1                1.84       1.84    -0.00477        6.29      6.32    -0.0301             1.26         0.0687      1.19         4.17       1.64       2.52    0.000123    0.295 TRUE
-5 OVR1G06 1                1.69       1.78    -0.0971         5.39      5.94    -0.550              1.40         0.0423      1.36         6.27       5.10       1.16    0.000123    0.579 TRUE
 ```
 
-Visualize one-vs-rest rhythmic programs:
+Representative OVR markers include:
+
+```text
+gene     celltype   FDR_target   FDR_rest   ovr_marker
+OVR1G01  1          0.000123     0.536      TRUE
+OVR1G02  1          0.000123     0.925      TRUE
+OVR1G03  1          0.000123     0.542      TRUE
+OVR1G04  1          0.000123     0.295      TRUE
+OVR1G06  1          0.000123     0.579      TRUE
+```
+
+### Visualize target-versus-rest rhythmic curves
+
+`plot_ovr_curve()` displays model-fitted rhythmic trajectories for the target cell type and the pooled rest population.
 
 ```r
 plot_ovr_curve(
@@ -348,7 +419,13 @@ plot_ovr_curve(
   genes = res_ovr$ovr_markers$gene[1],
   target_group = "1"
 )
+```
 
+### Visualize OVR markers
+
+The OVR heatmap displays phase-resolved expression patterns of candidate rhythmic markers across cell types.
+
+```r
 ht_ovr <- plot_ovr_heatmap(
   count = count,
   res_phase = res_phase,
@@ -359,28 +436,31 @@ ht_ovr <- plot_ovr_heatmap(
 )
 
 ht_ovr
+
 plot(ht_ovr)
 ```
 
-Main output columns:
+Main OVR result columns:
 
 | Column | Description |
 |---|---|
 | `gene` | Gene name |
 | `celltype` | Target cell type |
-| `Mesor_target`, `Mesor_rest` | Mesor in target and pooled rest groups |
-| `FDR_target`, `FDR_rest` | Sample-aware rhythmicity FDR in target and rest groups |
-| `Mean_target`, `Mean_rest` | Mean expression in target and rest groups |
-| `Amplitude_target`, `Amplitude_rest` | Rhythmic amplitude in target and rest groups |
-| `Phase_target`, `Phase_rest` | Rhythmic phase in target and rest groups |
+| `Mesor_target`, `Mesor_rest` | Mesor parameters in target and rest |
+| `Mean_target`, `Mean_rest` | Mean expression in target and rest |
+| `Amplitude_target`, `Amplitude_rest` | Rhythmic amplitudes |
+| `Phase_target`, `Phase_rest` | Rhythmic phases |
 | `Delta_Mean` | Target-minus-rest mean difference |
 | `Delta_Amp` | Target-minus-rest amplitude difference |
-| `Delta_Phase` | Circular target-minus-rest phase difference |
-| `ovr_marker` | Whether the gene is classified as a target-specific rhythmic marker |
+| `Delta_Phase` | Circular phase difference |
+| `FDR_target`, `FDR_rest` | Rhythmicity FDR in target and rest |
+| `ovr_marker` | Candidate target-associated rhythmic marker |
+
+OVR rhythmic markers are defined relative to the pooled rest population and are not equivalent to a formal differential-rhythmicity significance test between every individual cell type.
 
 ## Extension workflow 2: DTW-based phase-distribution similarity
 
-The DTW branch compares circular phase distributions between celltype-by-condition combinations.
+Dynamic time warping (DTW) can be used to compare the distributions of inferred cellular phases across cell-type and condition combinations.
 
 ```r
 dtw_res <- run_dtw_similarity(
@@ -395,35 +475,25 @@ dtw_res <- run_dtw_similarity(
 )
 
 dtw_res
+
 head(dtw_res$histogram)
+
 dtw_res$similarity
 ```
 
-Example histogram output:
+Example phase histogram:
 
 ```text
-  combo cell_type Group bin bin_start   bin_end   bin_mid       prop
-1 1 | A         1     A   1 0.0000000 0.2617994 0.1308997 0.05833333
-2 1 | A         1     A   2 0.2617994 0.5235988 0.3926991 0.02222222
-3 1 | A         1     A   3 0.5235988 0.7853982 0.6544985 0.01666667
-4 1 | A         1     A   4 0.7853982 1.0471976 0.9162979 0.06388889
-5 1 | A         1     A   5 1.0471976 1.3089969 1.1780972 0.07500000
-6 1 | A         1     A   6 1.3089969 1.5707963 1.4398966 0.01111111
+combo   cell_type Group bin bin_start bin_end   bin_mid   prop
+1 | A   1         A     1   0.000000  0.261799  0.130900  0.058333
+1 | A   1         A     2   0.261799  0.523599  0.392699  0.022222
+1 | A   1         A     3   0.523599  0.785398  0.654498  0.016667
+1 | A   1         A     4   0.785398  1.047198  0.916298  0.063889
+1 | A   1         A     5   1.047198  1.308997  1.178097  0.075000
+1 | A   1         A     6   1.308997  1.570796  1.439897  0.011111
 ```
 
-Example similarity matrix:
-
-```text
-          1 | A     1 | B     2 | A     2 | B     3 | A     3 | B
-1 | A 1.0000000 0.4730539 0.2743924 0.1117194 0.2089335 0.3072317
-1 | B 0.4730539 1.0000000 0.0807574 0.1062086 0.0000000 0.1623240
-2 | A 0.2743924 0.0807574 1.0000000 0.8754491 0.9337795 1.0000000
-2 | B 0.1117194 0.1062086 0.8754491 1.0000000 0.8323353 0.9520958
-3 | A 0.2089335 0.0000000 0.9337795 0.8323353 1.0000000 0.9628112
-3 | B 0.3072317 0.1623240 1.0000000 0.9520958 0.9628112 1.0000000
-```
-
-Plot DTW similarity heatmap:
+Plot the DTW similarity heatmap:
 
 ```r
 ht_dtw <- plot_dtw_heatmap(
@@ -431,6 +501,7 @@ ht_dtw <- plot_dtw_heatmap(
 )
 
 ht_dtw
+
 plot(ht_dtw)
 ```
 
@@ -439,16 +510,20 @@ Main outputs:
 | Output | Description |
 |---|---|
 | `data` | Merged cell-level phase and metadata table |
-| `histogram` | Circular phase histogram for each celltype-by-group combination |
+| `histogram` | Circular phase histogram by cell-type and condition |
 | `distance` | Pairwise DTW distance matrix |
-| `similarity` | Scaled 0-to-1 DTW similarity matrix |
-| `annotation` | Annotation table for heatmap rows and columns |
+| `similarity` | Scaled DTW similarity matrix |
+| `annotation` | Heatmap annotation table |
+
+DTW similarity provides a descriptive measure of alignment between phase distributions rather than a direct statistical test of differential rhythmicity.
 
 ## Extension workflow 3: circular phase-concentration rho analysis
 
-The rho branch summarizes how concentrated inferred cell phases are within each cell type and condition.
+The circular resultant length (rho) summarizes the concentration of inferred cell phases within a population.
 
-### Group-level rho summary
+Values closer to 1 indicate stronger phase concentration, whereas values closer to 0 indicate greater dispersion.
+
+### Group-level rho analysis
 
 ```r
 rho_res <- run_phase_rho(
@@ -465,18 +540,19 @@ rho_res <- run_phase_rho(
 rho_res
 ```
 
-Plot rho values:
+Visualize group-level rho:
 
 ```r
 p_rho <- plot_phase_rho(rho_res)
+
 p_rho$plot
 ```
 
-### Sample-level rho summary
+### Sample-level rho analysis
 
-If a sample column is available, `run_phase_rho()` can also summarize rho at the sample level and perform sample-level group comparisons within each cell type.
+If independent biological sample identifiers are available, rho can also be summarized at the sample level.
 
-The example dataset contains 36 independent biological samples in the `sample` column.
+The example dataset contains 36 independent biological samples.
 
 ```r
 rho_res_sample <- run_phase_rho(
@@ -495,28 +571,33 @@ rho_res_sample <- run_phase_rho(
 head(rho_res_sample$rho_sample)
 ```
 
-Example sample-level rho output:
+Example output:
 
 ```text
-  cell_type Group    Sample n_cell       rho mean_phase_rad mean_phase_hour
-1         1     A A_ZT00_R1     20 0.9812679    0.007222493      0.02758789
-2         1     A A_ZT00_R2     20 0.9727272    6.261130650     23.91575741
-3         1     A A_ZT00_R3     20 0.9724092    0.065011902      0.24832717
-4         1     A A_ZT04_R1     20 0.9904582    1.116099149      4.26318472
-5         1     A A_ZT04_R2     20 0.9595515    1.022346888      3.90507746
-6         1     A A_ZT04_R3     20 0.9838027    0.999653055      3.81839340
+cell_type Group Sample      n_cell rho       mean_phase_hour
+1         A     A_ZT00_R1   20     0.981268  0.027588
+1         A     A_ZT00_R2   20     0.972727 23.915757
+1         A     A_ZT00_R3   20     0.972409  0.248327
+1         A     A_ZT04_R1   20     0.990458  4.263185
+1         A     A_ZT04_R2   20     0.959552  3.905077
+1         A     A_ZT04_R3   20     0.983803  3.818393
 ```
 
-Plot sample-level rho values:
+Plot sample-level rho:
 
 ```r
 p_rho_sample <- plot_phase_rho(rho_res_sample)
+
 p_rho_sample$plot
 ```
 
+Sample-level comparisons should be interpreted in the context of the experimental design and the number of independent biological replicates.
+
 ## Tutorials
 
-Detailed tutorials are available through the pkgdown documentation website. These tutorials mirror the main analysis branches of `scRhythmBayes` and include step-by-step examples, output interpretation, and figure-generation workflows.
+Detailed tutorials are available through the scRhythmBayes documentation website.
+
+These tutorials cover the complete analysis workflow, output interpretation, and visualization of inferred circadian organization.
 
 ### Core workflow
 
@@ -525,12 +606,12 @@ Detailed tutorials are available through the pkgdown documentation website. Thes
 ### Extension analyses
 
 - [Rhythm-state module analysis](https://liwei-dynamicslab.github.io/scRhythmBayes/articles/module-analysis.html)
-- [One-vs-rest rhythmic program discovery](https://liwei-dynamicslab.github.io/scRhythmBayes/articles/ovr-analysis.html)
+- [One-versus-rest rhythmic program discovery](https://liwei-dynamicslab.github.io/scRhythmBayes/articles/ovr-analysis.html)
 - [DTW and rho phase-prioritization analysis](https://liwei-dynamicslab.github.io/scRhythmBayes/articles/phase-prioritization-dtw-rho.html)
 
-The full documentation website is available at:
+Full documentation:
 
-- [scRhythmBayes documentation](https://liwei-dynamicslab.github.io/scRhythmBayes/)
+[scRhythmBayes documentation website](https://liwei-dynamicslab.github.io/scRhythmBayes/)
 
 ## Main functions
 
@@ -540,42 +621,39 @@ The full documentation website is available at:
 |---|---|
 | `infer_cell_phase()` | Infer cell-level circadian phase |
 | `infer_gene_param()` | Estimate gene-level rhythmic parameters |
-| `infer_rhythm_module()` | Infer differential rhythm-state modules |
-| `plot_module_heatmap()` | Plot rhythm-state module heatmap |
-| `plot_module_polar()` | Plot rhythm modules on polar coordinates |
+| `infer_rhythm_module()` | Classify differential rhythm states |
+| `plot_module_heatmap()` | Visualize rhythm-state modules |
+| `plot_module_polar()` | Visualize module parameters on polar coordinates |
 
 ### Phase visualization
 
 | Function | Description |
 |---|---|
 | `plot_phase_scatter()` | Compare inferred phase with sampling time |
-| `plot_phase_circle()` | Visualize circular cell-phase distributions |
+| `plot_phase_circle()` | Visualize circular phase distributions |
 | `plot_phase_flower()` | Visualize phase distributions by sampling time |
-| `plot_phase_rose()` | Plot rose-style phase distributions |
+| `plot_phase_rose()` | Visualize circular phase histograms |
 
 ### Extension analyses
 
 | Function | Description |
 |---|---|
-| `infer_ovr_rhythm()` | Identify one-vs-rest cell-type-specific rhythmic programs |
+| `infer_ovr_rhythm()` | Identify target-associated rhythmic markers |
 | `plot_ovr_curve()` | Plot model-fitted target-versus-rest rhythmic curves |
-| `plot_ovr_heatmap()` | Plot one-vs-rest rhythm-state heatmap |
-| `run_dtw_similarity()` | Run DTW-based phase-distribution similarity analysis |
-| `plot_dtw_heatmap()` | Plot DTW similarity or distance heatmap |
-| `run_phase_rho()` | Summarize circular phase concentration rho |
-| `plot_phase_rho()` | Plot rho by cell type and group |
-
-## Notes
-
-`scRhythmBayes` is intended for phase-resolved analysis of single-cell transcriptomic datasets where cells are collected across circadian or time-of-day sampling points. The core workflow focuses on latent cell-phase inference and rhythm-state remodeling analysis. The extension workflows support additional biological questions, including cell-type-specific rhythmic program discovery and comparison of inferred phase distributions across cell types and conditions.
-
-The package is under active development. Function interfaces and tutorials may be updated as the manuscript and reproducibility workflows are finalized.
+| `plot_ovr_heatmap()` | Visualize OVR rhythmic markers |
+| `run_dtw_similarity()` | Compare circular phase distributions using DTW |
+| `plot_dtw_heatmap()` | Visualize DTW similarity or distance |
+| `run_phase_rho()` | Calculate circular phase concentration |
+| `plot_phase_rho()` | Visualize rho summaries |
 
 ## Citation
 
-If you use `scRhythmBayes`, please cite the associated manuscript:
+If you use `scRhythmBayes` in your research, please cite our preprint:
 
-Zhang Q, Li C, Zhang L. Decoding cell-level circadian phase and rhythm-state remodeling in single-cell transcriptomes with scRhythmBayes.
+Zhang Q, Li C, Deligiannis IK, et al. (2026).  
+**Decoding Cell-level Circadian Phase and Rhythm-state Remodeling in Single-cell Transcriptomes With scRhythmBayes.**  
+*bioRxiv* (preprint).  
+https://doi.org/10.64898/2026.10.18.759931
 
 ## License
 

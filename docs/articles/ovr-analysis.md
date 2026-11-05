@@ -144,26 +144,7 @@ res_ovr <- infer_ovr_rhythm(
 )
 
 head(res_ovr$ovr_result)
-#> # A tibble: 6 × 17
-#>   gene  celltype Mesor_target Mesor_rest Delta_Mesor Mean_target Mean_rest
-#>   <chr> <chr>           <dbl>      <dbl>       <dbl>       <dbl>     <dbl>
-#> 1 M0G01 1                1.77       1.56      0.209         5.85      4.74
-#> 2 M0G02 1                1.90       2.06     -0.163         6.69      7.87
-#> 3 M0G03 1                2.22       2.09      0.129         9.20      8.08
-#> 4 M0G04 1                1.46       1.74     -0.281         4.30      5.70
-#> 5 M0G05 1                1.54       1.41      0.129         4.67      4.11
-#> 6 M0G06 1                1.88       1.91     -0.0285        6.57      6.76
-#> # ℹ 10 more variables: Delta_Mean <dbl>, Amplitude_target <dbl>,
-#> #   Amplitude_rest <dbl>, Delta_Amp <dbl>, Phase_target <dbl>,
-#> #   Phase_rest <dbl>, Delta_Phase <dbl>, FDR_target <dbl>, FDR_rest <dbl>,
-#> #   ovr_marker <lgl>
 res_ovr$ovr_summary
-#> # A tibble: 3 × 2
-#>   celltype n_marker
-#>   <chr>       <int>
-#> 1 1               5
-#> 2 2               6
-#> 3 3               6
 ```
 
 The main thresholds are:
@@ -175,9 +156,6 @@ The main thresholds are:
 
 ``` r
 table(res_ovr$ovr_result$ovr_marker, useNA = "ifany")
-#> 
-#> FALSE  TRUE 
-#>   397    17
 ```
 
 ## Interpret the OVR result
@@ -217,17 +195,8 @@ ht_ovr <- plot_ovr_heatmap(
 )
 
 ht_ovr
-#> scRhythmOVRHeatmap object
-#> Genes: 17
-#> Smoothed phase columns: 180
-#>   TargetCellType n_target_gene n_cells
-#> 1              1             5     720
-#> 2              2             6     720
-#> 3              3             6     720
 plot(ht_ovr)
 ```
-
-![](ovr-analysis_files/figure-html/ovr-heatmap-1.png)
 
 The heatmap is intended to help inspect whether OVR-selected genes show
 cell-type-associated phase-resolved expression patterns.
@@ -250,8 +219,6 @@ plot_ovr_curve(
 )
 ```
 
-![](ovr-analysis_files/figure-html/ovr-curves-1.png)
-
 ## Step 6: extract target-specific candidates
 
 The `ovr_marker` column can be used to extract candidate
@@ -261,19 +228,6 @@ cell-type-specific rhythmic genes.
 target_specific <- res_ovr$ovr_markers
 
 head(target_specific)
-#> # A tibble: 6 × 17
-#>   gene    celltype Mesor_target Mesor_rest Delta_Mesor Mean_target Mean_rest
-#>   <chr>   <chr>           <dbl>      <dbl>       <dbl>       <dbl>     <dbl>
-#> 1 OVR1G01 1                1.54       1.62    -0.0793         4.66      5.05
-#> 2 OVR1G02 1                1.41       1.46    -0.0524         4.08      4.30
-#> 3 OVR1G03 1                1.45       1.60    -0.155          4.25      4.96
-#> 4 OVR1G04 1                1.84       1.84    -0.00477        6.29      6.32
-#> 5 OVR1G06 1                1.69       1.78    -0.0971         5.39      5.94
-#> 6 OVR2G01 2                1.92       1.99    -0.0668         6.82      7.29
-#> # ℹ 10 more variables: Delta_Mean <dbl>, Amplitude_target <dbl>,
-#> #   Amplitude_rest <dbl>, Delta_Amp <dbl>, Phase_target <dbl>,
-#> #   Phase_rest <dbl>, Delta_Phase <dbl>, FDR_target <dbl>, FDR_rest <dbl>,
-#> #   ovr_marker <lgl>
 ```
 
 The number of target-specific genes depends on signal strength, the
@@ -283,9 +237,6 @@ selected thresholds, and the structure of the dataset.
 if (nrow(target_specific) > 0) {
   table(target_specific$celltype)
 }
-#> 
-#> 1 2 3 
-#> 5 6 6
 ```
 
 If no target-specific genes are detected in a small example dataset,
@@ -364,7 +315,7 @@ sessionInfo()
 #> LAPACK: /Library/Frameworks/R.framework/Versions/4.5-arm64/Resources/lib/libRlapack.dylib;  LAPACK version 3.12.1
 #> 
 #> locale:
-#> [1] C.UTF-8/C.UTF-8/C.UTF-8/C/C.UTF-8/C.UTF-8
+#> [1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8
 #> 
 #> time zone: Asia/Shanghai
 #> tzcode source: internal
@@ -373,57 +324,20 @@ sessionInfo()
 #> [1] stats     graphics  grDevices utils     datasets  methods   base     
 #> 
 #> other attached packages:
-#> [1] tidyr_1.3.2         tibble_3.3.1        dplyr_1.2.1        
-#> [4] Matrix_1.7-5        purrr_1.2.2         future_1.70.0      
-#> [7] scRhythmBayes_0.1.0
+#> [1] scRhythmBayes_2.0.0
 #> 
 #> loaded via a namespace (and not attached):
-#>   [1] RColorBrewer_1.1-3     shape_1.4.6.1          rstudioapi_0.18.0     
-#>   [4] jsonlite_2.0.0         magrittr_2.0.5         spatstat.utils_3.2-2  
-#>   [7] farver_2.1.2           rmarkdown_2.31         GlobalOptions_0.1.4   
-#>  [10] fs_2.0.1               ragg_1.5.2             vctrs_0.7.3           
-#>  [13] ROCR_1.0-12            Cairo_1.7-0            memoise_2.0.1         
-#>  [16] spatstat.explore_3.8-0 htmltools_0.5.9        sass_0.4.10           
-#>  [19] sctransform_0.4.3      parallelly_1.46.1      KernSmooth_2.23-26    
-#>  [22] bslib_0.10.0           htmlwidgets_1.6.4      desc_1.4.3            
-#>  [25] ica_1.0-3              plyr_1.8.9             plotly_4.12.0         
-#>  [28] zoo_1.8-15             cachem_1.1.0           whisker_0.4.1         
-#>  [31] igraph_2.2.3           iterators_1.0.14       mime_0.13             
-#>  [34] lifecycle_1.0.5        pkgconfig_2.0.3        R6_2.6.1              
-#>  [37] fastmap_1.2.0          clue_0.3-68            fitdistrplus_1.2-6    
-#>  [40] shiny_1.13.0           digest_0.6.39          colorspace_2.1-2      
-#>  [43] furrr_0.4.0            S4Vectors_0.46.0       patchwork_1.3.2       
-#>  [46] Seurat_5.4.0           tensor_1.5.1           RSpectra_0.16-2       
-#>  [49] irlba_2.3.7            textshaping_1.0.5      labeling_0.4.3        
-#>  [52] progressr_0.19.0       spatstat.sparse_3.1-0  httr_1.4.8            
-#>  [55] polyclip_1.10-7        abind_1.4-8            mgcv_1.9-4            
-#>  [58] compiler_4.5.1         doParallel_1.0.17      withr_3.0.2           
-#>  [61] S7_0.2.1               fastDummies_1.7.5      MASS_7.3-65           
-#>  [64] rjson_0.2.23           tools_4.5.1            lmtest_0.9-40         
-#>  [67] otel_0.2.0             httpuv_1.6.17          future.apply_1.20.2   
-#>  [70] goftest_1.2-3          glue_1.8.0             nlme_3.1-169          
-#>  [73] promises_1.5.0         grid_4.5.1             Rtsne_0.17            
-#>  [76] cluster_2.1.8.2        reshape2_1.4.5         generics_0.1.4        
-#>  [79] gtable_0.3.6           spatstat.data_3.1-9    data.table_1.18.2.1   
-#>  [82] sp_2.2-1               xml2_1.5.2             utf8_1.2.6            
-#>  [85] BiocGenerics_0.54.1    spatstat.geom_3.7-3    RcppAnnoy_0.0.23      
-#>  [88] foreach_1.5.2          ggrepel_0.9.8          RANN_2.6.2            
-#>  [91] pillar_1.11.1          stringr_1.6.0          spam_2.11-3           
-#>  [94] RcppHNSW_0.6.0         later_1.4.8            circlize_0.4.18       
-#>  [97] splines_4.5.1          lattice_0.22-9         survival_3.8-6        
-#> [100] deldir_2.0-4           tidyselect_1.2.1       ComplexHeatmap_2.24.1 
-#> [103] miniUI_0.1.2           pbapply_1.7-4          downlit_0.4.5         
-#> [106] knitr_1.51             gridExtra_2.3          IRanges_2.42.0        
-#> [109] scattermore_1.2        stats4_4.5.1           xfun_0.57             
-#> [112] matrixStats_1.5.0      stringi_1.8.7          lazyeval_0.2.3        
-#> [115] yaml_2.3.12            evaluate_1.0.5         codetools_0.2-20      
-#> [118] cli_3.6.6              uwot_0.2.4             xtable_1.8-8          
-#> [121] reticulate_1.46.0      systemfonts_1.3.2      jquerylib_0.1.4       
-#> [124] dichromat_2.0-0.1      Rcpp_1.1.1             globals_0.19.1        
-#> [127] spatstat.random_3.4-5  png_0.1-9              spatstat.univar_3.1-7 
-#> [130] parallel_4.5.1         pkgdown_2.2.0          ggplot2_4.0.2         
-#> [133] dotCall64_1.2          listenv_0.10.1         viridisLite_0.4.3     
-#> [136] scales_1.4.0           ggridges_0.5.7         crayon_1.5.3          
-#> [139] SeuratObject_5.4.0     GetoptLong_1.1.1       rlang_1.2.0           
-#> [142] cowplot_1.2.0
+#>  [1] Matrix_1.7-6       gtable_0.3.6       jsonlite_2.0.0     dplyr_1.2.1       
+#>  [5] compiler_4.5.1     Rcpp_1.1.1         tidyselect_1.2.1   jquerylib_0.1.4   
+#>  [9] systemfonts_1.3.2  scales_1.4.0       textshaping_1.0.5  yaml_2.3.12       
+#> [13] fastmap_1.2.0      lattice_0.22-9     ggplot2_4.0.3      R6_2.6.1          
+#> [17] generics_0.1.4     knitr_1.51         MASS_7.3-65        htmlwidgets_1.6.4 
+#> [21] ggrepel_0.9.8      tibble_3.3.1       desc_1.4.3         bslib_0.10.0      
+#> [25] pillar_1.11.1      RColorBrewer_1.1-3 rlang_1.1.7        utf8_1.2.6        
+#> [29] cachem_1.1.0       xfun_0.57          fs_1.6.7           sass_0.4.10       
+#> [33] S7_0.2.1           otel_0.2.0         cli_3.6.5          pkgdown_2.2.0     
+#> [37] magrittr_2.0.4     digest_0.6.39      grid_4.5.1         rstudioapi_0.18.0 
+#> [41] lifecycle_1.0.5    vctrs_0.7.2        evaluate_1.0.5     glue_1.8.0        
+#> [45] farver_2.1.2       ragg_1.5.2         rmarkdown_2.30     tools_4.5.1       
+#> [49] pkgconfig_2.0.3    htmltools_0.5.9
 ```

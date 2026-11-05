@@ -1,7 +1,7 @@
 Package: scRhythmBayes
 Type: Package
 Title: Cell-Level Circadian Phase Inference and Rhythm-State Remodeling for Single-Cell Transcriptomes
-Version: 0.1.0
+Version: 2.0.0
 Authors@R: c(
     person(
       given = "Qian",
@@ -73,4 +73,3 @@ Suggests:
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 Config/Needs/website: pkgdown
-
