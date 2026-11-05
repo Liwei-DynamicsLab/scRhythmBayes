@@ -17,7 +17,8 @@ plot_module_heatmap(
   phase_levels = c(2, 6, 10, 14, 18, 22),
   scale_factor = 10000,
   palette = NULL,
-  Verbose = FALSE
+  Verbose = FALSE,
+  compare_groups = NULL
 )
 }
 \arguments{
@@ -39,11 +40,11 @@ to \code{count} by the \code{cell} column if available, otherwise by rownames.}
 \item{group_by}{A character vector specifying the column name in
 \code{metadata} used to define the two paired cell groups.}
 
-\item{group1}{A character vector specifying the first group to plot. This
-should usually match \code{group1} used in \code{infer_rhythm_module()}.}
+\item{group1}{A character vector specifying the first (left) group to plot.
+This controls display order, not the inference comparison direction.}
 
-\item{group2}{A character vector specifying the second group to plot. This
-should usually match \code{group2} used in \code{infer_rhythm_module()}.}
+\item{group2}{A character vector specifying the second (right) group to plot.
+This controls display order, not the inference comparison direction.}
 
 \item{theta_by}{A character vector specifying the column name in
 \code{res_phase} containing inferred cell phase in radians. Defaults to
@@ -64,9 +65,22 @@ default scRhythmBayes group colors, and a blue-red heatmap palette are used.
 Defaults to \code{NULL}.}
 
 \item{Verbose}{Logical; if \code{TRUE}, progress messages are printed.}
+
+\item{compare_groups}{Optional character vector \code{c(group1, group2)}
+specifying the original \code{infer_rhythm_module()} comparison direction.
+Inferred from \code{gene_meta$group1/group2} when available; required for
+M2-M7 in legacy results lacking these columns. M2/M4 use comparison group2
+and the other modules use comparison group1 for row ordering, regardless of display order.
+This selects the gained/stronger side for gain or amplitude changes.
+Default group colors follow comparison identities, not left/right position.
+Phase annotations label four-hour intervals by their left endpoints.
+Missing reference phases are retained last with a warning. Nonzero modules
+with no finite reference phase produce an error rather than an unsorted plot.}
 }
 \value{
-An object of class \code{scRhythmModuleHeatmap}.
+An object of class \code{scRhythmModuleHeatmap}. Each successful
+module includes a \code{phase_order} table; \code{summary$n_phase_ordered}
+and \code{summary$n_phase_missing} count reference phases before smoothing.
 }
 \description{
 This function builds paired module-level heatmaps showing smoothed rhythmic
@@ -101,7 +115,8 @@ res_param <- infer_gene_param(
   theta_pred = res_phase$theta_pred[cell_use],
   r_cell = res_phase$r_cell[cell_use],
   strata_by = "condition",
-  B = 100,
+  ZT_by = "ZT",
+  B = 5,
   n_worker = 1,
   setseed = 1,
   Verbose = FALSE

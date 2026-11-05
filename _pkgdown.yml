@@ -1,0 +1,54 @@
+url: https://liwei-dynamicslab.github.io/scRhythmBayes/
+
+template:
+  bootstrap: 5
+
+navbar:
+  structure:
+    left: [intro, reference, articles]
+    right: [search, github]
+  components:
+    intro:
+      text: Get started
+      href: articles/basic-workflow.html
+
+articles:
+- title: Core workflow
+  navbar: Core workflow
+  contents:
+  - basic-workflow
+- title: Extension analyses
+  navbar: Extension analyses
+  contents:
+  - module-analysis
+  - ovr-analysis
+  - phase-prioritization-dtw-rho
+
+reference:
+- title: Cell phase
+  contents:
+  - infer_cell_phase
+  - starts_with("plot_phase_")
+- title: Gene rhythms and modules
+  contents:
+  - infer_gene_param
+  - infer_rhythm_module
+  - starts_with("plot_module_")
+- title: One-vs-rest analysis
+  contents:
+  - infer_ovr_rhythm
+  - starts_with("plot_ovr_")
+- title: Phase-distribution analysis
+  contents:
+  - run_dtw_similarity
+  - plot_dtw_heatmap
+  - run_phase_rho
+- title: Data and themes
+  contents:
+  - srb_example_data
+  - starts_with("theme_srb")
+  - palette_srb_phase
+- title: Object methods
+  contents:
+  - starts_with("plot.scRhythm")
+  - starts_with("print.scRhythm")

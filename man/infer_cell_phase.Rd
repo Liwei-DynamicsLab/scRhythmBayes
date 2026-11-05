@@ -18,7 +18,9 @@ infer_cell_phase(
   p_mix = 0.85,
   Min_n = 200,
   setseed = 1,
-  Verbose = TRUE
+  Verbose = TRUE,
+  min_seed = 0.01,
+  family = c("NB", "Poisson")
 )
 }
 \arguments{
@@ -60,11 +62,20 @@ parameter updating.}
 \item{setseed}{Integer random seed used for reproducibility.}
 
 \item{Verbose}{Logical; if \code{TRUE}, progress messages are printed.}
+
+\item{min_seed}{Minimum fraction of supplied cells with nonzero counts for
+a matched seed gene. Defaults to 0.01.}
+
+\item{family}{Count distribution used for gene fitting and phase likelihood.
+One of \code{"NB"} (default) or \code{"Poisson"}.}
 }
 \value{
 A tibble with one row per cell. The returned columns include
 \code{cell}, \code{ZT_input}, \code{stratum}, \code{theta_pred},
-\code{ZT_pred}, \code{Rbar}, and \code{r_cell}.
+\code{ZT_pred}, \code{Rbar}, and \code{r_cell}. Attributes seed_genes,
+seed_diagnostics (all matched genes before filtering), n_seed_candidate,
+n_seed_matched, n_seed_retained, min_seed and family
+record the exact seed selection and count distribution.
 }
 \description{
 This function infers cell-level circadian phase from a gene-by-cell count

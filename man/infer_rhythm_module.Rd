@@ -19,14 +19,16 @@ infer_rhythm_module(
 }
 \arguments{
 \item{param_wide}{A wide-format data.frame returned by
-\code{infer_gene_param()}.}
+\code{infer_gene_param()}, with at least two unique genes.}
 
 \item{compare_by}{Comparison variable name. Defaults to
 \code{"condition"}.}
 
-\item{group1}{The first group used for comparison.}
+\item{group1}{Reference group (baseline). This is not a plotting position.}
 
-\item{group2}{The second group used for comparison.}
+\item{group2}{Target group. Gain/loss, amplitude enhancement/attenuation and
+phase advance/delay describe group2 relative to group1. For CV-to-PV liver
+comparisons, use group1 = "Hep.CV", group2 = "Hep.PV".}
 
 \item{tau_q}{FDR threshold for significant rhythmicity. Defaults to
 \code{0.05}.}
@@ -45,7 +47,11 @@ are written. Defaults to \code{NULL}.}
 \value{
 A list containing rhythm-state module assignment results and module
 summaries. The main components are \code{module_result} and
-\code{module_summary}.
+\code{module_summary}. \code{comparison} records reference/target identities
+and effect conventions. \code{input_diagnostics} flags incomplete original
+two-group parameter sets before any non-rhythmic-side display masking.
+Incomplete inputs trigger a warning but retain the existing classification
+algorithm; a posterior assignment does not establish unestimated rhythm states.
 }
 \description{
 This function assigns genes to rhythm-state modules based on two-group
@@ -73,6 +79,7 @@ res_param <- infer_gene_param(
   theta_pred = res_phase$theta_pred[cell_use],
   r_cell = res_phase$r_cell[cell_use],
   strata_by = "condition",
+  ZT_by = "ZT",
   B = 5,
   n_worker = 1,
   setseed = 1,

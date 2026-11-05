@@ -10,45 +10,59 @@ infer_gene_param(
   theta_pred,
   r_cell,
   strata_by,
+  ZT_by,
   B = 100,
   n_worker = NULL,
   setseed = 1,
-  Verbose = TRUE
+  Verbose = TRUE,
+  sample_by = NULL,
+  sample_boot_by = NULL
 )
 }
 \arguments{
-\item{count}{A gene-by-cell raw count matrix. Rows are genes and columns are
-cells. It can be a base R matrix or a sparse \code{Matrix} object.}
+\item{count}{Gene-by-cell raw count matrix with gene and cell names.}
 
-\item{metadata}{A data.frame containing cell-level metadata.}
+\item{metadata}{Data frame containing cell-level metadata.}
 
-\item{theta_pred}{A numeric vector of inferred cell phases in radians.}
+\item{theta_pred}{Numeric vector of inferred cell phases in radians.}
 
-\item{r_cell}{A numeric vector of cell-level posterior rhythmic
-probabilities.}
+\item{r_cell}{Numeric vector of cell-level posterior rhythmic probabilities.}
 
-\item{strata_by}{A character string specifying the metadata column used to
-define strata for gene-level rhythmic fitting.}
+\item{strata_by}{Metadata column defining gene-level fitting strata.}
 
-\item{B}{Number of bootstrap iterations. Defaults to \code{100}.}
+\item{ZT_by}{Metadata column defining zeitgeber-time or experimental-time bins.}
 
-\item{n_worker}{Number of workers used for parallel computation. If
-\code{NULL}, \code{max(1, future::availableCores() - 1)} is used. Defaults to
-\code{NULL}.}
+\item{B}{Number of bootstrap iterations for confidence intervals. Cells are
+resampled in cell-level mode; whole biological samples are resampled when
+\code{sample_by} is supplied.}
 
-\item{setseed}{Random seed. Defaults to \code{1}.}
+\item{n_worker}{Number of parallel workers; \code{NULL} uses available cores.}
 
-\item{Verbose}{Logical; if \code{TRUE}, progress messages are printed.}
+\item{setseed}{Random seed.}
+
+\item{Verbose}{Logical; whether to print progress messages.}
+
+\item{sample_by}{Optional metadata column identifying independent biological samples.}
+
+\item{sample_boot_by}{Optional metadata column stratifying sample-aware bootstrap resampling.}
 }
 \value{
-A list containing gene-level rhythmic parameter estimates. The main
-components are \code{param_long}, a long-format parameter table, and
-\code{param_wide}, a wide-format table for downstream rhythm-state module
-inference.
+A list containing main result tables \code{param_long} and
+\code{param_wide}, \code{bootstrap_res}, eligibility records for all input
+genes, fit diagnostics, and stratum-level shrinkage metadata.
 }
 \description{
-This function estimates gene-level rhythmic parameters within each metadata
-stratum using fixed cell phase and cell-level rhythmic probability.
+Fits an unrestricted zero-inflated negative-binomial harmonic model within
+each metadata stratum using fixed cell phase and rhythmic probability.
+Time-resolved expression eligibility precedes testing, and empirical-Bayes
+shrinkage provides stabilized harmonic effect-size estimates.
+}
+\details{
+Within each fitting stratum, genes are eligible when their maximum
+time-bin pseudobulk relative UMI exceeds \code{1e-5}; only eligible genes are
+tested and bootstrapped. P values and BH FDR are calculated from the
+unrestricted fit. Empirical-Bayes shrinkage stabilizes amplitude but does
+not alter significance testing.
 }
 \examples{
 \dontrun{
@@ -72,6 +86,7 @@ res_param <- infer_gene_param(
   theta_pred = res_phase$theta_pred[cell_use],
   r_cell = res_phase$r_cell[cell_use],
   strata_by = "condition",
+  ZT_by = "ZT",
   B = 5,
   n_worker = 1,
   setseed = 1,

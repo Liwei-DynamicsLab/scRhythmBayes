@@ -5,16 +5,22 @@
 \alias{srb_example_data}
 \title{Example single-cell circadian dataset}
 \format{
-A list with two elements:
+A list with three elements:
 \describe{
-\item{Count}{A gene-by-cell count matrix. Rows are genes and columns are cells.}
-\item{meta}{A data.frame containing cell-level metadata, including
-\code{cell}, \code{ZT}, \code{celltype}, \code{condition},
-\code{T_true}, and \code{Theta_true}.}
+\item{Count}{A sparse 138 gene by 2,160 cell count matrix.}
+\item{meta}{Cell metadata containing \code{cell}, biological
+\code{sample}, \code{replicate}, \code{ZT}, \code{celltype},
+\code{condition}, true phase (\code{T_true}, \code{Theta_true}), and
+simulated noisy phase inputs (\code{Theta_noisy}, \code{r_sim}). The data
+contain 36 samples: two conditions by six ZT values by three replicates.}
+\item{truth}{A list containing gene-level M0--M7 and OVR truth,
+sample design, native sample-specific mesor and phase effects, and the
+simulation settings.}
 }
 }
 \source{
-Simulated example data generated for scRhythmBayes package examples.
+Simulated for the scRhythmBayes teaching workflow with
+\code{data-raw/generate_srb_example_data.R}.
 }
 \usage{
 srb_example_data
@@ -24,5 +30,13 @@ A simulated example dataset used to demonstrate the scRhythmBayes workflow.
 The object contains count data and cell-level metadata for testing cell-phase
 inference, gene-level rhythmic parameter estimation, rhythm-state module
 analysis, OVR analysis, DTW similarity analysis, and phase-rho summaries.
+}
+\details{
+Counts were generated from a sample-aware negative-binomial model
+with mean-dependent zero inflation. Biological samples have native
+sample-specific mesor and phase perturbations. The 24 phase-seed genes use
+mouse gene symbols, including \code{Arntl}, \code{Clock}, \code{Cry1},
+\code{Cry2}, and \code{Per1--Per3}. Simulated phase columns are retained as
+ground truth and are not outputs from \code{infer_cell_phase()}.
 }
 \keyword{datasets}

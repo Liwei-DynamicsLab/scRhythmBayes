@@ -25,6 +25,8 @@ knitr::opts_chunk$set(
   fig.align = "center",
   out.width = "85%"
 )
+
+run_ovr <- identical(tolower(Sys.getenv("SRB_RUN_OVR_TUTORIAL")), "true")
 ```
 
 # Overview
@@ -43,11 +45,10 @@ This branch starts from the gene-level rhythmic parameter layer. It is different
 In this tutorial, the workflow is:
 
 1. infer cell-level circadian phase;
-2. estimate gene-level rhythmic parameters by cell type;
-3. compare each target cell type against the pooled rest;
-4. inspect the OVR output table;
-5. visualize cell-type-associated rhythmic programs using the OVR heatmap;
-6. extract target-specific candidate genes.
+2. fit each target cell type and the pooled rest with sample-aware inference;
+3. inspect the OVR output table;
+4. visualize target-associated programs with a heatmap or fitted curves;
+5. extract target-specific candidate genes.
 
 # Load package and example data
 
@@ -72,7 +73,7 @@ The two required input objects are:
 | Object | Description |
 |---|---|
 | `count` | Gene-by-cell count matrix |
-| `metadata` | Cell-level metadata containing cell IDs, cell-type labels, and sampling time |
+| `metadata` | Cell metadata containing cell IDs, sample IDs, cell types, conditions, and sampling time |
 
 For the example dataset, `metadata$celltype` defines the cell-type groups used for OVR testing.
 
@@ -103,56 +104,31 @@ The key output columns used downstream are:
 | `ZT_pred` | Inferred cell-level circadian phase converted to 24-hour time |
 | `r_cell` | Cell-level phase reliability weight |
 
-# Step 2: estimate gene-level rhythmic parameters by cell type
+# Step 2: run one-vs-rest analysis
 
-For OVR analysis, gene-level rhythmic parameters should be estimated across cell types. Therefore, use `strata_by = "celltype"`.
+`infer_ovr_rhythm()` fits each target cell type and the pooled rest directly. Supplying `sample_by = "sample"` uses independent biological samples for rhythmicity testing. The complete three-target example takes a few minutes; use `target_groups = "1"` for a shorter first run.
 
-```{r ovr-param}
-res_ovr_param <- infer_gene_param(
+```{r ovr-infer, eval=run_ovr}
+res_ovr <- infer_ovr_rhythm(
   count = count,
   metadata = metadata,
   theta_pred = res_phase$theta_pred,
   r_cell = res_phase$r_cell,
-  strata_by = "celltype",
-  B = 10,
+  group_by = "celltype",
+  ZT_by = "ZT",
+  target_groups = c("1", "2", "3"),
+  q_cut = 0.05,
+  amp_cut = 0.25,
+  sample_by = "sample",
+  sample_boot_by = "ZT",
+  B = 3,
   n_worker = 1,
   setseed = 1,
   Verbose = FALSE
 )
-```
-
-The main table used by `infer_ovr_rhythm()` is `param_long`.
-
-```{r ovr-param-long}
-head(res_ovr_param$param_long)
-```
-
-The long-format parameter table contains one row per gene and cell type.
-
-| Column | Description |
-|---|---|
-| `gene` | Gene name |
-| `celltype` | Cell-type group |
-| `Mesor` | Baseline rhythmic expression level |
-| `Mean` | Mean expression level |
-| `Amplitude` | Rhythmic amplitude |
-| `Phase` | Rhythmic phase in radians |
-| `FDR` | Adjusted rhythmicity significance |
-
-# Step 3: run one-vs-rest analysis
-
-`infer_ovr_rhythm()` compares each target cell type against the pooled rest.
-
-```{r ovr-infer}
-res_ovr <- infer_ovr_rhythm(
-  param_long = res_ovr_param$param_long,
-  group_by = "celltype",
-  q_cut = 0.05,
-  amp_cut = 0.25,
-  Verbose = FALSE
-)
 
 head(res_ovr$ovr_result)
+res_ovr$ovr_summary
 ```
 
 The main thresholds are:
@@ -162,9 +138,8 @@ The main thresholds are:
 | `q_cut` | FDR cutoff for rhythmicity |
 | `amp_cut` | Minimum target-group amplitude cutoff used for target-specific calls |
 
-```{r ovr-summary}
-table(res_ovr$ovr_result$rhythm_pattern, useNA = "ifany")
-table(res_ovr$ovr_result$target_specific_flag, useNA = "ifany")
+```{r ovr-summary, eval=run_ovr}
+table(res_ovr$ovr_result$ovr_marker, useNA = "ifany")
 ```
 
 # Interpret the OVR result
@@ -174,17 +149,15 @@ The OVR result is a gene-by-target-cell-type table.
 | Column | Meaning |
 |---|---|
 | `gene` | Gene name |
-| `TargetCellType` | Target cell type being tested |
-| `RestCellTypes` | Pooled non-target cell types |
-| `rhythm_pattern` | One-vs-rest rhythm-state pattern |
-| `FDR_group1` | Rhythmicity FDR in the target group |
-| `FDR_group2` | Rhythmicity FDR in the pooled rest group |
-| `Mean_group1`, `Mean_group2` | Mean expression in target and rest groups |
-| `Amplitude_group1`, `Amplitude_group2` | Rhythmic amplitude in target and rest groups |
-| `Phase_group1`, `Phase_group2` | Rhythmic phase in target and rest groups |
+| `celltype` | Target cell type being tested |
+| `FDR_target`, `FDR_rest` | Sample-aware rhythmicity FDR in Target and Rest |
+| `Mesor_target`, `Mesor_rest` | Fitted log-scale mesor values |
+| `Mean_target`, `Mean_rest` | Fitted baseline means |
+| `Amplitude_target`, `Amplitude_rest` | Fitted rhythmic amplitudes |
+| `Phase_target`, `Phase_rest` | Fitted phases in radians |
 | `Delta_Mean` | Target-minus-rest mean difference |
 | `Delta_Amp` | Target-minus-rest amplitude difference |
-| `target_specific_flag` | Whether the gene is classified as target-specific |
+| `ovr_marker` | Whether the gene is classified as target-specific |
 
 A typical target-specific rhythmic program is expected to have strong rhythmic evidence and sufficient amplitude in the target cell type, with weaker or absent rhythmic evidence in the pooled rest.
 
@@ -192,7 +165,7 @@ A typical target-specific rhythmic program is expected to have strong rhythmic e
 
 The OVR heatmap visualizes target-associated rhythmic programs across the heterogeneous dataset.
 
-```{r ovr-heatmap, fig.width=7.5, fig.height=6}
+```{r ovr-heatmap, eval=run_ovr, fig.width=7.5, fig.height=6}
 ht_ovr <- plot_ovr_heatmap(
   count = count,
   res_phase = res_phase,
@@ -208,23 +181,37 @@ plot(ht_ovr)
 
 The heatmap is intended to help inspect whether OVR-selected genes show cell-type-associated phase-resolved expression patterns.
 
-# Step 5: extract target-specific candidates
+# Step 5: plot fitted Target-versus-Rest curves
 
-The `target_specific_flag` column can be used to extract candidate cell-type-specific rhythmic genes.
+The curve function reproduces the original Figure 5F design from the fitted
+harmonic parameters retained by `infer_ovr_rhythm()`. Each Target and Rest
+trajectory is normalized to mean one; no second smoother is fitted.
 
-```{r ovr-candidates}
-target_specific <- res_ovr$ovr_result[
-  res_ovr$ovr_result$target_specific_flag %in% TRUE,
-]
+```{r ovr-curves, eval=run_ovr, fig.width=7, fig.height=5}
+gene_1 <- res_ovr$ovr_markers$gene[res_ovr$ovr_markers$celltype == "1"][1]
+
+plot_ovr_curve(
+  res_ovr,
+  genes = gene_1,
+  target_group = "1"
+)
+```
+
+# Step 6: extract target-specific candidates
+
+The `ovr_marker` column can be used to extract candidate cell-type-specific rhythmic genes.
+
+```{r ovr-candidates, eval=run_ovr}
+target_specific <- res_ovr$ovr_markers
 
 head(target_specific)
 ```
 
 The number of target-specific genes depends on signal strength, the selected thresholds, and the structure of the dataset.
 
-```{r ovr-candidates-by-celltype}
+```{r ovr-candidates-by-celltype, eval=run_ovr}
 if (nrow(target_specific) > 0) {
-  table(target_specific$TargetCellType)
+  table(target_specific$celltype)
 }
 ```
 
@@ -243,23 +230,19 @@ res_phase <- infer_cell_phase(
   Verbose = FALSE
 )
 
-res_ovr_param <- infer_gene_param(
+res_ovr <- infer_ovr_rhythm(
   count = count,
   metadata = metadata,
   theta_pred = res_phase$theta_pred,
   r_cell = res_phase$r_cell,
-  strata_by = "celltype",
-  B = 10,
+  group_by = "celltype",
+  ZT_by = "ZT",
+  target_groups = "1",
+  sample_by = "sample",
+  sample_boot_by = "ZT",
+  B = 3,
   n_worker = 1,
   setseed = 1,
-  Verbose = FALSE
-)
-
-res_ovr <- infer_ovr_rhythm(
-  param_long = res_ovr_param$param_long,
-  group_by = "celltype",
-  q_cut = 0.05,
-  amp_cut = 0.25,
   Verbose = FALSE
 )
 

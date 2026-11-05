@@ -84,11 +84,14 @@ The metadata contains:
 | Column | Description |
 |---|---|
 | `cell` | Cell identifier |
+| `sample` | Independent biological sample |
+| `replicate` | Replicate within condition and ZT |
 | `ZT` | Sampling Zeitgeber time |
 | `celltype` | Cell-type label |
 | `condition` | Condition or group label |
 | `T_true` | Simulated true circadian time in hours |
 | `Theta_true` | Simulated true circadian phase in radians |
+| `Theta_noisy`, `r_sim` | Simulated noisy phase truth retained for validation |
 
 `T_true` and `Theta_true` are available only in the simulated example dataset. Real single-cell datasets usually do not contain these two columns.
 
@@ -229,8 +232,10 @@ The gene-level model requires:
 | `theta_pred` | Inferred cell-level phase |
 | `r_cell` | Cell-level phase reliability weight |
 | `strata_by` | Grouping variable for parameter estimation |
+| `sample_by` | Independent biological-sample column |
+| `sample_boot_by` | Optional sample-bootstrap stratum, here ZT |
 
-For condition-level module analysis within one cell type, use `strata_by = "condition"`. For cell-type-level comparison, use `strata_by = "celltype"` on the full dataset or a larger subset.
+For condition-level module analysis within one cell type, use `strata_by = "condition"`. For cell-type-level comparison, use `strata_by = "celltype"` on the full dataset or a larger subset. Supplying `sample_by = "sample"` prevents cells from the same sample being treated as independent biological replicates.
 
 ## Run condition-level rhythmic parameter inference
 
@@ -241,7 +246,10 @@ res_param <- infer_gene_param(
   theta_pred = res_phase_use$theta_pred,
   r_cell = res_phase_use$r_cell,
   strata_by = "condition",
-  B = 10,
+  ZT_by = "ZT",
+  sample_by = "sample",
+  sample_boot_by = "ZT",
+  B = 3,
   n_worker = 1,
   setseed = 1,
   Verbose = TRUE
@@ -259,7 +267,10 @@ res_param_celltype <- infer_gene_param(
   theta_pred = res_phase$theta_pred,
   r_cell = res_phase$r_cell,
   strata_by = "celltype",
-  B = 10,
+  ZT_by = "ZT",
+  sample_by = "sample",
+  sample_boot_by = "ZT",
+  B = 3,
   n_worker = 1,
   setseed = 1,
   Verbose = FALSE
@@ -273,6 +284,7 @@ The result contains long-format and wide-format gene-level parameter tables.
 ```{r show-param-long}
 head(res_param$param_long)
 head(res_param_celltype$param_long)
+res_param$inference
 ```
 
 ```{r show-param-wide}
@@ -296,11 +308,11 @@ Common gene-level parameters:
 | `Mesor` | Baseline rhythmic expression level |
 | `Mean` | Mean expression level |
 | `Amplitude` | Circadian oscillation amplitude |
+| `Amplitude_shrunk` | Empirical-Bayes stabilized amplitude |
 | `Phase` | Gene-level rhythmic phase in radians |
 | `Alpha` | Dispersion-related parameter |
 | `Dropout_rate` | Estimated dropout rate |
-| `LRT_stat` | Likelihood-ratio test statistic |
-| `P_value` | Nominal rhythmicity test P value |
+| `P_value` | Rhythmicity P value from the active inference mode |
 | `FDR` | Multiple-testing adjusted rhythmicity significance |
 
 # Step 4: infer differential rhythm-state modules
@@ -467,7 +479,10 @@ res_param <- infer_gene_param(
   theta_pred = res_phase$theta_pred[cell_use],
   r_cell = res_phase$r_cell[cell_use],
   strata_by = "condition",
-  B = 10,
+  ZT_by = "ZT",
+  sample_by = "sample",
+  sample_boot_by = "ZT",
+  B = 3,
   n_worker = 1,
   setseed = 1,
   Verbose = FALSE
@@ -504,23 +519,19 @@ The following analyses are extensions of the core workflow. They are introduced 
 The one-vs-rest workflow is designed for heterogeneous tissues or multi-cell-type datasets. It compares each target cell type against all remaining cell types.
 
 ```{r ovr-analysis, eval=FALSE}
-res_ovr_param <- infer_gene_param(
+res_ovr <- infer_ovr_rhythm(
   count = count,
   metadata = metadata,
   theta_pred = res_phase$theta_pred,
   r_cell = res_phase$r_cell,
-  strata_by = "celltype",
-  B = 10,
+  group_by = "celltype",
+  ZT_by = "ZT",
+  target_groups = "1",
+  sample_by = "sample",
+  sample_boot_by = "ZT",
+  B = 3,
   n_worker = 1,
   setseed = 1,
-  Verbose = FALSE
-)
-
-res_ovr <- infer_ovr_rhythm(
-  param_long = res_ovr_param$param_long,
-  group_by = "celltype",
-  q_cut = 0.05,
-  amp_cut = 0.25,
   Verbose = FALSE
 )
 

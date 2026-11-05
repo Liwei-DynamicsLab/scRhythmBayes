@@ -74,11 +74,14 @@ The key metadata columns used in this tutorial are:
 | Column | Description |
 |---|---|
 | `cell` | Cell identifier |
+| `sample` | Independent biological sample |
+| `replicate` | Replicate within condition and ZT |
 | `ZT` | Sampling Zeitgeber time |
 | `celltype` | Cell-type label |
 | `condition` | Group or condition label |
 | `T_true` | Simulated true circadian time in hours |
 | `Theta_true` | Simulated true circadian phase in radians |
+| `Theta_noisy`, `r_sim` | Simulated noisy phase truth retained for validation |
 
 # Step 1: infer cell-level circadian phase
 
@@ -269,38 +272,16 @@ The plot summarizes phase concentration across cell types and groups.
 
 Sample-level rho analysis is useful when the dataset contains biological sample IDs, replicate IDs, patient IDs, animal IDs, or other sample-level units.
 
-The example dataset does not contain real biological sample IDs. The following code creates artificial sample labels for demonstration only.
+The example data contain 36 sample IDs assigned during simulation. They are
+independent experimental units, not labels randomly added to cells.
 
-```{r rho-create-sample}
-set.seed(1)
-
-meta_rho_test <- metadata
-
-if (!"cell" %in% colnames(meta_rho_test)) {
-  meta_rho_test$cell <- rownames(meta_rho_test)
-}
-
-meta_rho_test$Sample <- NA_character_
-
-sample_per_group <- 4
-
-split_key <- interaction(
-  meta_rho_test$celltype,
-  meta_rho_test$condition,
-  drop = TRUE
+```{r rho-sample-design}
+sample_design <- unique(
+  metadata[c("sample", "condition", "ZT", "replicate")]
 )
 
-for (kk in levels(split_key)) {
-  idx <- which(split_key == kk)
-
-  meta_rho_test$Sample[idx] <- sample(
-    paste0("S", seq_len(sample_per_group)),
-    size = length(idx),
-    replace = TRUE
-  )
-}
-
-head(meta_rho_test)
+nrow(sample_design)
+with(sample_design, table(condition, ZT))
 ```
 
 ## Run sample-level rho analysis
@@ -308,12 +289,13 @@ head(meta_rho_test)
 ```{r rho-sample-run}
 rho_res_sample <- run_phase_rho(
   res_phase = res_phase,
-  metadata = meta_rho_test,
+  metadata = metadata,
   celltype_by = "celltype",
   group_by = "condition",
-  sample_by = "Sample",
+  sample_by = "sample",
   theta_by = "theta_pred",
   group_levels = c("A", "B"),
+  compare_groups = c("A", "B"),
   min_cell = 10,
   Verbose = FALSE
 )
@@ -341,7 +323,9 @@ p_rho_sample <- plot_phase_rho(rho_res_sample)
 p_rho_sample$plot
 ```
 
-The sample-level plot is more appropriate for real biological datasets with replicate structure. It can help distinguish cell-level phase-distribution patterns from sample-level variability.
+The sample-level plot and statistical comparison use sample-level rho values.
+This distinguishes biological-sample variation from the number of cells
+observed within each sample.
 
 # Recommended minimal workflow
 

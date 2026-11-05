@@ -101,7 +101,8 @@ res_param <- infer_gene_param(
   theta_pred = res_phase$theta_pred[cell_use],
   r_cell = res_phase$r_cell[cell_use],
   strata_by = "condition",
-  B = 100,
+  ZT_by = "ZT",
+  B = 5,
   n_worker = 1,
   setseed = 1,
   Verbose = FALSE

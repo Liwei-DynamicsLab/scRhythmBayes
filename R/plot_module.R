@@ -22,10 +22,10 @@
 #' to \code{count} by the \code{cell} column if available, otherwise by rownames.
 #' @param group_by A character vector specifying the column name in
 #' \code{metadata} used to define the two paired cell groups.
-#' @param group1 A character vector specifying the first group to plot. This
-#' should usually match \code{group1} used in \code{infer_rhythm_module()}.
-#' @param group2 A character vector specifying the second group to plot. This
-#' should usually match \code{group2} used in \code{infer_rhythm_module()}.
+#' @param group1 A character vector specifying the first (left) group to plot.
+#' This controls display order, not the inference comparison direction.
+#' @param group2 A character vector specifying the second (right) group to plot.
+#' This controls display order, not the inference comparison direction.
 #' @param theta_by A character vector specifying the column name in
 #' \code{res_phase} containing inferred cell phase in radians. Defaults to
 #' \code{"theta_pred"}.
@@ -40,8 +40,20 @@
 #' default scRhythmBayes group colors, and a blue-red heatmap palette are used.
 #' Defaults to \code{NULL}.
 #' @param Verbose Logical; if \code{TRUE}, progress messages are printed.
+#' @param compare_groups Optional character vector \code{c(group1, group2)}
+#' specifying the original \code{infer_rhythm_module()} comparison direction.
+#' Inferred from \code{gene_meta$group1/group2} when available; required for
+#' M2-M7 in legacy results lacking these columns. M2/M4 use comparison group2
+#' and the other modules use comparison group1 for row ordering, regardless of display order.
+#' This selects the gained/stronger side for gain or amplitude changes.
+#' Default group colors follow comparison identities, not left/right position.
+#' Phase annotations label four-hour intervals by their left endpoints.
+#' Missing reference phases are retained last with a warning. Nonzero modules
+#' with no finite reference phase produce an error rather than an unsorted plot.
 #'
-#' @return An object of class \code{scRhythmModuleHeatmap}.
+#' @return An object of class \code{scRhythmModuleHeatmap}. Each successful
+#' module includes a \code{phase_order} table; \code{summary$n_phase_ordered}
+#' and \code{summary$n_phase_missing} count reference phases before smoothing.
 #'
 #' @examples
 #' \dontrun{
@@ -65,7 +77,8 @@
 #'   theta_pred = res_phase$theta_pred[cell_use],
 #'   r_cell = res_phase$r_cell[cell_use],
 #'   strata_by = "condition",
-#'   B = 100,
+#'   ZT_by = "ZT",
+#'   B = 5,
 #'   n_worker = 1,
 #'   setseed = 1,
 #'   Verbose = FALSE
@@ -111,7 +124,8 @@ plot_module_heatmap <- function(
     phase_levels = c(2, 6, 10, 14, 18, 22),
     scale_factor = 10000,
     palette = NULL,
-    Verbose = FALSE
+    Verbose = FALSE,
+    compare_groups = NULL
 ) {
   req_pkgs <- c(
     "Seurat",
@@ -167,6 +181,15 @@ plot_module_heatmap <- function(
 
   if (!"module_map" %in% colnames(gene_meta)) {
     stop("gene_meta must contain a 'module_map' column.")
+  }
+  if (anyDuplicated(rownames(count)) || anyDuplicated(colnames(count))) {
+    stop("Expression gene/cell names must be unique.")
+  }
+  if (anyNA(gene_meta$gene) || anyDuplicated(gene_meta$gene)) {
+    stop("gene_meta must contain unique, non-missing genes for one comparison.")
+  }
+  if (anyNA(res_phase$cell) || anyDuplicated(res_phase$cell)) {
+    stop("res_phase must contain unique, non-missing cell identifiers.")
   }
 
   if (!is.character(group_by) || length(group_by) != 1) {
@@ -236,6 +259,31 @@ plot_module_heatmap <- function(
 
   group_levels_use <- c(group1, group2)
 
+  # Comparison direction is independent of the left/right display order.
+  direction_cols <- c("group1", "group2") %in% colnames(gene_meta)
+  if (any(direction_cols) && !all(direction_cols)) {
+    stop("gene_meta must contain both group1 and group2, or neither.")
+  }
+  if (all(direction_cols) && nrow(gene_meta) > 0) {
+    direction <- unique(as.data.frame(gene_meta[, c("group1", "group2")]))
+    if (nrow(direction) != 1 || anyNA(direction)) {
+      stop("gene_meta must contain one complete comparison; subset it before plotting.")
+    }
+    direction <- c(as.character(direction$group1), as.character(direction$group2))
+    if (!is.null(compare_groups) && !identical(unname(compare_groups), direction)) {
+      stop("compare_groups conflicts with gene_meta$group1/group2.")
+    }
+    compare_groups <- direction
+  }
+  if (!is.null(compare_groups)) {
+    if (!is.character(compare_groups) || length(compare_groups) != 2 ||
+        anyNA(compare_groups) || anyDuplicated(compare_groups) ||
+        !setequal(compare_groups, group_levels_use)) {
+      stop("compare_groups must be the original inference c(group1, group2), matching the plotted groups.")
+    }
+    compare_groups <- unname(compare_groups)
+  }
+
   keep_group <- as.character(meta[[group_by]]) %in% group_levels_use
   meta <- meta[keep_group, , drop = FALSE]
   count <- count[, rownames(meta), drop = FALSE]
@@ -243,12 +291,18 @@ plot_module_heatmap <- function(
   if (ncol(count) == 0) {
     stop("No cells remain after filtering to group1 and group2.")
   }
+  if (!is.numeric(meta[[theta_by]]) || any(!is.finite(meta[[theta_by]]))) {
+    stop("Cell phases must be finite numeric radians for every plotted cell.")
+  }
 
   module_ids <- unique(as.integer(module_ids))
   module_ids <- module_ids[!is.na(module_ids)]
 
   if (length(module_ids) == 0) {
     stop("module_ids must contain at least one integer module ID.")
+  }
+  if (any(!module_ids %in% 0:7)) {
+    stop("module_ids must be integers from 0 to 7.")
   }
 
   phase_levels <- as.numeric(phase_levels)
@@ -264,7 +318,7 @@ plot_module_heatmap <- function(
 
   make_phase_cat_from_theta <- function(theta_grid) {
     zt_grid <- (theta_grid / (2 * pi) * 24) %% 24
-    phase_cat <- floor((zt_grid - 2) / 4) * 4 + 2
+    phase_cat <- floor((round(zt_grid, 10) - 2) / 4) * 4 + 2
     phase_cat <- phase_cat %% 24
     factor(phase_cat, levels = phase_levels)
   }
@@ -305,20 +359,19 @@ plot_module_heatmap <- function(
   }
 
   get_scaled_data <- function(obj) {
-    out <- tryCatch(
+    out <- if (utils::packageVersion("SeuratObject") >= "5.0.0") {
       SeuratObject::GetAssayData(
         object = obj,
         assay = "RNA",
         layer = "scale.data"
-      ),
-      error = function(e) {
-        SeuratObject::GetAssayData(
-          object = obj,
-          assay = "RNA",
-          slot = "scale.data"
-        )
-      }
-    )
+      )
+    } else {
+      SeuratObject::GetAssayData(
+        object = obj,
+        assay = "RNA",
+        slot = "scale.data"
+      )
+    }
 
     as.matrix(out)
   }
@@ -416,7 +469,7 @@ plot_module_heatmap <- function(
       rep(c("#000000", "#F5F5F5"), length.out = length(phase_levels)),
       as.character(phase_levels)
     ),
-    group = .srb_group_colors(group_levels_use),
+    group = .srb_group_colors(if (is.null(compare_groups)) group_levels_use else compare_groups),
     heatmap = rev(RColorBrewer::brewer.pal(11, "RdYlBu"))
   )
 
@@ -603,6 +656,9 @@ plot_module_heatmap <- function(
     "6" = group1,
     "7" = group1
   )
+  if (!is.null(compare_groups)) {
+    order_ref_map[] <- compare_groups[c(1, 1, 2, 1, 2, 1, 1, 1)]
+  }
 
   module_list <- list()
   summary_list <- list()
@@ -644,6 +700,9 @@ plot_module_heatmap <- function(
       next
     }
 
+    if (module_use %in% 2:7 && is.null(compare_groups)) {
+      stop("M2-M7 need comparison direction: retain gene_meta$group1/group2 or supply compare_groups = c(original_group1, original_group2).")
+    }
     ref_group_use <- unname(order_ref_map[as.character(module_use)])
 
     if (is.na(ref_group_use) || length(ref_group_use) == 0) {
@@ -679,6 +738,17 @@ plot_module_heatmap <- function(
     ]
 
     gene_order <- gene_order_df$gene
+    n_phase_ordered <- sum(is.finite(gene_order_df$phase_wrap))
+    n_phase_missing <- nrow(gene_order_df) - n_phase_ordered
+    if (module_use != 0 && n_phase_ordered == 0) {
+      stop("Module ", module_use, ": no finite phases in reference group ", ref_group_use,
+           "; cannot phase-order this heatmap. Check gene_meta and comparison direction.")
+    }
+    if (module_use != 0 && n_phase_missing > 0) {
+      warning("Module ", module_use, ": ", n_phase_missing,
+              " genes lack reference phase in ", ref_group_use,
+              "; retained last, without phase ordering.", call. = FALSE)
+    }
 
     if (length(gene_order) == 0) {
       module_list[[paste0("module", module_use)]] <- list(
@@ -906,6 +976,7 @@ plot_module_heatmap <- function(
       status = "ok",
       module_type = "paired_heatmap",
       ref_group = ref_group_use,
+      phase_order = gene_order_df,
       gene_df = gene_df,
       gene_pool = gene_pool,
       gene_keep = gene_keep,
@@ -943,6 +1014,7 @@ plot_module_heatmap <- function(
       group_by = group_by,
       group1 = group1,
       group2 = group2,
+      compare_groups = compare_groups,
       theta_by = theta_by,
       param_col_map = param_col_map_use,
       module_ids = module_ids,
@@ -954,6 +1026,15 @@ plot_module_heatmap <- function(
     module_list = module_list,
     summary = do.call(rbind, summary_list)
   )
+
+  out$summary$n_phase_ordered <- vapply(out$module_list, function(x) {
+    if (is.null(x$phase_order)) return(if (x$status == "no_genes") 0L else NA_integer_)
+    sum(is.finite(x$phase_order$phase_wrap))
+  }, integer(1))
+  out$summary$n_phase_missing <- vapply(out$module_list, function(x) {
+    if (is.null(x$phase_order)) return(if (x$status == "no_genes") 0L else NA_integer_)
+    sum(!is.finite(x$phase_order$phase_wrap))
+  }, integer(1))
 
   class(out) <- "scRhythmModuleHeatmap"
 
@@ -1182,7 +1263,8 @@ print.scRhythmModuleHeatmap <- function(x, ...) {
 #'   theta_pred = res_phase$theta_pred[cell_use],
 #'   r_cell = res_phase$r_cell[cell_use],
 #'   strata_by = "condition",
-#'   B = 100,
+#'   ZT_by = "ZT",
+#'   B = 5,
 #'   n_worker = 1,
 #'   setseed = 1,
 #'   Verbose = FALSE

@@ -5,91 +5,61 @@
 \title{Infer one-vs-rest rhythmic markers}
 \usage{
 infer_ovr_rhythm(
-  param_long,
+  count,
+  metadata,
+  theta_pred,
+  r_cell,
   group_by,
+  ZT_by,
   target_groups = NULL,
   q_cut = 0.05,
   amp_cut = 0.25,
-  Verbose = TRUE
+  n_worker = NULL,
+  setseed = 1,
+  Verbose = TRUE,
+  sample_by = NULL,
+  ...
 )
 }
 \arguments{
-\item{param_long}{A long-format data.frame returned by
-\code{infer_gene_param()}. It must contain \code{"gene"}, the column
-specified by \code{group_by}, \code{"Mean"}, \code{"Amplitude"},
-\code{"Phase"}, and \code{"FDR"}.}
+\item{count}{Gene-by-cell raw count matrix.}
 
-\item{group_by}{A character string specifying the group column in
-\code{param_long}, such as \code{"celltype"}.}
+\item{metadata}{Cell-level metadata aligned by the \code{cell} column.}
 
-\item{target_groups}{A character vector specifying target groups for
-one-vs-rest comparison. If \code{NULL}, all groups in \code{group_by} are
-used. Defaults to \code{NULL}.}
+\item{theta_pred}{Inferred cell phases in radians.}
 
-\item{q_cut}{FDR cutoff used to define rhythmic genes. Defaults to
-\code{0.05}.}
+\item{r_cell}{Cell-level rhythmic reliability values between 0 and 1.}
 
-\item{amp_cut}{Minimum amplitude cutoff used to define rhythmic genes.
-Defaults to \code{0.25}.}
+\item{group_by}{Metadata column containing the groups to compare.}
 
-\item{Verbose}{Logical; if \code{TRUE}, progress messages are printed.
-Defaults to \code{TRUE}.}
+\item{ZT_by}{Metadata column containing zeitgeber-time bins.}
+
+\item{target_groups}{Optional groups to test. By default, all groups are used.}
+
+\item{q_cut}{FDR threshold for target-specific rhythmic markers.}
+
+\item{amp_cut}{Minimum fitted target amplitude.}
+
+\item{n_worker}{Number of parallel workers passed to \code{infer_gene_param()}.}
+
+\item{setseed}{Random seed.}
+
+\item{Verbose}{Logical; whether to print progress messages.}
+
+\item{sample_by}{Optional metadata column identifying independent biological
+samples for sample-aware inference.}
+
+\item{...}{Additional arguments passed to \code{infer_gene_param()}, such as
+\code{B} and \code{sample_boot_by}.}
 }
 \value{
-A list containing:
-\describe{
-\item{\code{ovr_result}}{A full one-vs-rest result table for all target
-groups and genes.}
-\item{\code{ovr_marker}}{A filtered table containing target-specific
-rhythmic markers.}
-\item{\code{ovr_summary}}{A summary table reporting the number and
-fraction of target-specific rhythmic genes per target group.}
-}
+A list containing \code{ovr_result}, \code{ovr_markers},
+\code{ovr_summary}, the name of \code{group_by}, and analysis settings.
+The result table retains fitted Target and Rest Mesor, mean, amplitude, and
+phase values so that model-based curves can be drawn with
+\code{plot_ovr_curve()}.
 }
 \description{
-This function identifies target-specific rhythmic genes from gene-level
-rhythmic parameter estimates across multiple groups. For each target group,
-all remaining groups are pooled as the rest group, and genes are classified
-as target-specific rhythmic markers when they are rhythmic in the target
-group but not rhythmic in the pooled rest group.
-}
-\examples{
-\dontrun{
-data("srb_example_data")
-
-res_phase <- infer_cell_phase(
-  count = srb_example_data$Count,
-  metadata = srb_example_data$meta,
-  ZT_by = "ZT",
-  strata_by = "celltype",
-  Species = "mouse",
-  setseed = 1,
-  Verbose = FALSE
-)
-
-res_param <- infer_gene_param(
-  count = srb_example_data$Count,
-  metadata = srb_example_data$meta,
-  theta_pred = res_phase$theta_pred,
-  r_cell = res_phase$r_cell,
-  strata_by = "celltype",
-  B = 5,
-  n_worker = 1,
-  setseed = 1,
-  Verbose = FALSE
-)
-
-res_ovr <- infer_ovr_rhythm(
-  param_long = res_param$param_long,
-  group_by = "celltype",
-  q_cut = 0.05,
-  amp_cut = 0.25,
-  Verbose = FALSE
-)
-
-head(res_ovr$ovr_result)
-head(res_ovr$ovr_marker)
-res_ovr$ovr_summary
-}
-
+For each target group, all remaining cells are pooled as Rest.
+Target and Rest are fitted with infer_gene_param() using the same inputs.
 }

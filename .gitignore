@@ -9,3 +9,15 @@ renv.lock
 .Rprofile
 .Rhistory
 .Rproj.user/
+data-raw/backups/
+data-raw/generated/
+data/figure3_revision/
+data/ovr_baseline/
+data/ovr_baseline.zip
+data/ovr_figure_revision/
+data/ovr_loco/
+data/ovr_loco.zip
+data/ovr_rest_target_figure/
+data/liver_ovr_loco_all.rds
+data/liver_ovr_loco_summary.csv
+figure/

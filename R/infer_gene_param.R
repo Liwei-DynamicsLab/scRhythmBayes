@@ -1,27 +1,34 @@
 #' Infer gene-level rhythmic parameters
 #'
-#' This function estimates gene-level rhythmic parameters within each metadata
-#' stratum using fixed cell phase and cell-level rhythmic probability.
+#' Fits an unrestricted zero-inflated negative-binomial harmonic model within
+#' each metadata stratum using fixed cell phase and rhythmic probability.
+#' Time-resolved expression eligibility precedes testing, and empirical-Bayes
+#' shrinkage provides stabilized harmonic effect-size estimates.
 #'
-#' @param count A gene-by-cell raw count matrix. Rows are genes and columns are
-#' cells. It can be a base R matrix or a sparse \code{Matrix} object.
-#' @param metadata A data.frame containing cell-level metadata.
-#' @param theta_pred A numeric vector of inferred cell phases in radians.
-#' @param r_cell A numeric vector of cell-level posterior rhythmic
-#' probabilities.
-#' @param strata_by A character string specifying the metadata column used to
-#' define strata for gene-level rhythmic fitting.
-#' @param B Number of bootstrap iterations. Defaults to \code{100}.
-#' @param n_worker Number of workers used for parallel computation. If
-#' \code{NULL}, \code{max(1, future::availableCores() - 1)} is used. Defaults to
-#' \code{NULL}.
-#' @param setseed Random seed. Defaults to \code{1}.
-#' @param Verbose Logical; if \code{TRUE}, progress messages are printed.
+#' @param count Gene-by-cell raw count matrix with gene and cell names.
+#' @param metadata Data frame containing cell-level metadata.
+#' @param theta_pred Numeric vector of inferred cell phases in radians.
+#' @param r_cell Numeric vector of cell-level posterior rhythmic probabilities.
+#' @param strata_by Metadata column defining gene-level fitting strata.
+#' @param ZT_by Metadata column defining zeitgeber-time or experimental-time bins.
+#' @param B Number of bootstrap iterations for confidence intervals. Cells are
+#' resampled in cell-level mode; whole biological samples are resampled when
+#' \code{sample_by} is supplied.
+#' @param n_worker Number of parallel workers; \code{NULL} uses available cores.
+#' @param setseed Random seed.
+#' @param Verbose Logical; whether to print progress messages.
+#' @param sample_by Optional metadata column identifying independent biological samples.
+#' @param sample_boot_by Optional metadata column stratifying sample-aware bootstrap resampling.
 #'
-#' @return A list containing gene-level rhythmic parameter estimates. The main
-#' components are \code{param_long}, a long-format parameter table, and
-#' \code{param_wide}, a wide-format table for downstream rhythm-state module
-#' inference.
+#' @details Within each fitting stratum, genes are eligible when their maximum
+#' time-bin pseudobulk relative UMI exceeds \code{1e-5}; only eligible genes are
+#' tested and bootstrapped. P values and BH FDR are calculated from the
+#' unrestricted fit. Empirical-Bayes shrinkage stabilizes amplitude but does
+#' not alter significance testing.
+#'
+#' @return A list containing main result tables \code{param_long} and
+#' \code{param_wide}, \code{bootstrap_res}, eligibility records for all input
+#' genes, fit diagnostics, and stratum-level shrinkage metadata.
 #'
 #' @examples
 #' \dontrun{
@@ -45,6 +52,7 @@
 #'   theta_pred = res_phase$theta_pred[cell_use],
 #'   r_cell = res_phase$r_cell[cell_use],
 #'   strata_by = "condition",
+#'   ZT_by = "ZT",
 #'   B = 5,
 #'   n_worker = 1,
 #'   setseed = 1,
@@ -56,7 +64,7 @@
 #' }
 #'
 #' @importFrom magrittr %>%
-#' @importFrom stats plogis p.adjust quantile sd median
+#' @importFrom stats plogis
 #' @export
 infer_gene_param <- function(
     count,
@@ -64,12 +72,35 @@ infer_gene_param <- function(
     theta_pred,
     r_cell,
     strata_by,
+    ZT_by,
     B = 100,
     n_worker = NULL,
     setseed = 1,
-    Verbose = TRUE
+    Verbose = TRUE,
+    sample_by = NULL,
+    sample_boot_by = NULL
 ) {
   t_start <- Sys.time()
+  `%>%` <- magrittr::`%>%`
+
+  eligibility_threshold <- 1e-5
+  shrink_min_genes <- 100L
+  sample_score_B <- 9999L
+  sample_min <- 6L
+  sample_min_valid <- 0.8
+
+  sample_mode <- !is.null(sample_by)
+  if (!is.character(ZT_by) || length(ZT_by) != 1L || is.na(ZT_by) || !nzchar(ZT_by))
+    stop("ZT_by must be a metadata column name.")
+  if (sample_mode) {
+    if (!is.character(sample_by) || length(sample_by) != 1L ||
+        is.na(sample_by) || !nzchar(sample_by)) stop("sample_by must be a column name or NULL.")
+    if (!is.null(sample_boot_by) && (!is.character(sample_boot_by) ||
+        length(sample_boot_by) != 1L || is.na(sample_boot_by)))
+      stop("sample_boot_by must be a column name or NULL.")
+  } else if (!is.null(sample_boot_by)) {
+    stop("sample_boot_by requires sample_by.")
+  }
 
   if (!(is.matrix(count) || inherits(count, "Matrix"))) {
     stop("count must be a matrix or Matrix-derived sparse matrix, with genes in rows and cells in columns.")
@@ -111,6 +142,8 @@ infer_gene_param <- function(
     stop("strata_by is not found in metadata.")
   }
 
+  if (!ZT_by %in% colnames(meta)) stop("ZT_by is not found in metadata.")
+
   idx <- match(colnames(count), meta$cell)
 
   if (any(is.na(idx))) {
@@ -140,6 +173,38 @@ infer_gene_param <- function(
   }
 
   stratum <- as.character(meta[[strata_by]])
+  eligibility_bin <- as.character(meta[[ZT_by]])
+  if (anyNA(eligibility_bin) || any(!nzchar(trimws(eligibility_bin))))
+    stop("ZT_by contains missing or empty labels.")
+  if (sample_mode) {
+    if (!sample_by %in% names(meta)) stop("sample_by is not found in metadata.")
+    sample_id <- as.character(meta[[sample_by]])
+    if (anyNA(sample_id) || any(!nzchar(trimws(sample_id))))
+      stop("sample_by contains missing or empty sample identifiers.")
+    boot_stratum <- rep("all", nrow(meta))
+    if (!is.null(sample_boot_by)) {
+      if (!sample_boot_by %in% names(meta)) stop("sample_boot_by is not found in metadata.")
+      boot_stratum <- as.character(meta[[sample_boot_by]])
+      if (anyNA(boot_stratum) || any(!nzchar(trimws(boot_stratum))))
+        stop("sample_boot_by contains missing or empty labels.")
+    }
+    for (g in unique(stratum[!is.na(stratum)])) {
+      ii <- which(stratum == g)
+      blocks <- split(ii, sample_id[ii])
+      if (length(blocks) < sample_min)
+        stop(sprintf("Stratum '%s' has %d independent samples; need at least %d.",
+                     g, length(blocks), sample_min))
+      labels <- vapply(blocks, function(i) {
+        v <- unique(boot_stratum[i])
+        if (length(v) != 1L) stop("sample_boot_by must be constant within each sample and fitting stratum.")
+        v
+      }, character(1))
+      if (any(table(labels) < 2L))
+        stop("Each sample_boot_by level needs at least two independent samples per fitting stratum.")
+      if (qr(cbind(1, cos(theta_pred[ii]), sin(theta_pred[ii])))$rank < 3L)
+        stop(sprintf("Stratum '%s' has a rank-deficient phase design.", g))
+    }
+  }
 
   if (any(!is.finite(theta_pred))) {
     stop("theta_pred contains NA/Inf. Please provide valid numeric phase values.")
@@ -158,6 +223,7 @@ infer_gene_param <- function(
   }
 
   B <- as.integer(B)
+  sample_B <- B
 
   if (is.null(n_worker)) {
     n_worker <- max(1L, future::availableCores() - 1L)
@@ -193,6 +259,11 @@ infer_gene_param <- function(
     r_cell = as.numeric(r_cell)
   )
 
+  if (sample_mode) {
+    meta_fit$sample_id <- sample_id
+    meta_fit$boot_stratum <- boot_stratum
+  }
+  meta_fit$eligibility_bin <- eligibility_bin
   meta_fit <- as.data.frame(meta_fit)
   rownames(meta_fit) <- meta_fit$cell
 
@@ -249,6 +320,7 @@ infer_gene_param <- function(
   genes_all <- rownames(X)
   genes_fit <- genes_all[gene_nnz > 0]
   n_groups <- length(strata_use)
+  if (sample_mode && length(genes_fit) == 0L) stop("No genes with positive counts to fit.")
 
   if (Verbose) {
     message(
@@ -260,8 +332,13 @@ infer_gene_param <- function(
     )
   }
 
+  old_plan <- future::plan()
+  old_future_max_size <- getOption("future.globals.maxSize")
+  on.exit({
+    future::plan(old_plan)
+    options(future.globals.maxSize = old_future_max_size)
+  }, add = TRUE)
   options(future.globals.maxSize = Inf)
-  on.exit(future::plan(future::sequential), add = TRUE)
 
   future::plan(
     strategy = future::multisession,
@@ -274,17 +351,53 @@ infer_gene_param <- function(
     packages = c("Matrix", "dplyr", "tibble", "tidyr", "stats", "methods")
   )
 
+  full_lower <- c(-20, -10, -10, -10, -8)
+  full_upper <- c(20, 10, 10, 10, 8)
+  beta_bound_inner <- 9.999
+
+  make_nll_full <- function(y_vec, cos_vec, sin_vec, p_vec, log_sf_vec) {
+    function(par) {
+      M <- par[1]
+      beta1 <- par[2]
+      beta2 <- par[3]
+      alpha <- exp(par[4])
+      pi_drop <- stats::plogis(par[5])
+
+      mu_rhythm <- exp(M + beta1 * cos_vec + beta2 * sin_vec + log_sf_vec)
+      mu_null <- exp(M + log_sf_vec)
+      lik_rhythm <- (1 - pi_drop) * stats::dnbinom(y_vec, mu = mu_rhythm, size = 1 / alpha)
+      lik_null <- (1 - pi_drop) * stats::dnbinom(y_vec, mu = mu_null, size = 1 / alpha)
+      is_zero <- y_vec == 0
+      lik_rhythm[is_zero] <- pi_drop + (1 - pi_drop) *
+        stats::dnbinom(0, mu = mu_rhythm[is_zero], size = 1 / alpha)
+      lik_null[is_zero] <- pi_drop + (1 - pi_drop) *
+        stats::dnbinom(0, mu = mu_null[is_zero], size = 1 / alpha)
+      lik_mix <- p_vec * lik_rhythm + (1 - p_vec) * lik_null
+      -sum(log(pmax(lik_mix, 1e-12)))
+    }
+  }
+
   fit_one_gene_group <- function(y_vec, cos_vec, sin_vec, p_vec, log_sf_vec) {
+    if (sample_mode && qr(cbind(1, cos_vec, sin_vec))$rank < 3L) {
+      out <- setNames(rep(NA_real_, 18), c(
+        "Mesor", "Amplitude", "Phase", "Alpha", "Dropout_rate", "LRT_stat",
+        "P_value", "Mean", "beta1_est", "beta2_est", "log_alpha_est",
+        "logit_pi_est", "conv_code", "feasible", "beta1_se", "beta2_se",
+        "hessian_ok", "beta_bound_hit"))
+      out["feasible"] <- 0
+      return(out)
+    }
     nnz <- sum(y_vec > 0)
     y_sum <- sum(y_vec)
     feasible <- (nnz >= 2) & (y_sum > 0)
 
-    out <- rep(NA_real_, 14)
+    out <- rep(NA_real_, 18)
     names(out) <- c(
       "Mesor", "Amplitude", "Phase", "Alpha", "Dropout_rate",
       "LRT_stat", "P_value", "Mean",
       "beta1_est", "beta2_est",
-      "log_alpha_est", "logit_pi_est", "conv_code", "feasible"
+      "log_alpha_est", "logit_pi_est", "conv_code", "feasible",
+      "beta1_se", "beta2_se", "hessian_ok", "beta_bound_hit"
     )
 
     y_norm <- y_vec / exp(log_sf_vec)
@@ -323,43 +436,7 @@ infer_gene_param <- function(
     zero_rate <- mean(y_vec == 0)
     init_logit_pi <- stats::qlogis(pmin(pmax(zero_rate * 0.95, 0.01), 0.95))
 
-    nll_full <- function(par) {
-      M <- par[1]
-      beta1 <- par[2]
-      beta2 <- par[3]
-      log_alpha <- par[4]
-      logit_pi <- par[5]
-
-      alpha <- exp(log_alpha)
-      pi_drop <- plogis(logit_pi)
-
-      eta_rhythm <- M + beta1 * cos_vec + beta2 * sin_vec + log_sf_vec
-      eta_null <- M + log_sf_vec
-
-      mu_rhythm <- exp(eta_rhythm)
-      mu_null <- exp(eta_null)
-
-      prob_zero_rhythm <- pi_drop + (1 - pi_drop) *
-        stats::dnbinom(0, mu = mu_rhythm, size = 1 / alpha)
-      prob_nonzero_rhythm <- (1 - pi_drop) *
-        stats::dnbinom(y_vec, mu = mu_rhythm, size = 1 / alpha)
-
-      lik_rhythm <- prob_nonzero_rhythm
-      lik_rhythm[y_vec == 0] <- prob_zero_rhythm[y_vec == 0]
-
-      prob_zero_null <- pi_drop + (1 - pi_drop) *
-        stats::dnbinom(0, mu = mu_null, size = 1 / alpha)
-      prob_nonzero_null <- (1 - pi_drop) *
-        stats::dnbinom(y_vec, mu = mu_null, size = 1 / alpha)
-
-      lik_null <- prob_nonzero_null
-      lik_null[y_vec == 0] <- prob_zero_null[y_vec == 0]
-
-      lik_mix <- p_vec * lik_rhythm + (1 - p_vec) * lik_null
-      lik_mix[lik_mix < 1e-12] <- 1e-12
-
-      -sum(log(lik_mix))
-    }
+    nll_full <- make_nll_full(y_vec, cos_vec, sin_vec, p_vec, log_sf_vec)
 
     nll_null <- function(par) {
       M <- par[1]
@@ -389,8 +466,8 @@ infer_gene_param <- function(
         par = c(init_M, init_beta1, init_beta2, init_log_alpha, init_logit_pi),
         fn = nll_full,
         method = "L-BFGS-B",
-        lower = c(-20, -10, -10, -10, -8),
-        upper = c(20, 10, 10, 10, 8),
+        lower = full_lower,
+        upper = full_upper,
         control = list(maxit = 150, factr = 1e7)
       ),
       silent = TRUE
@@ -421,7 +498,27 @@ infer_gene_param <- function(
     )
 
     ok_null <- !inherits(fit_null, "try-error")
+    # The sample-aware branch retries from the nested null for numerical stability.
+    if (sample_mode && ok_null && is.finite(fit_null$value)) {
+      retry <- try(stats::optim(
+        c(fit_null$par[1], 0, 0, fit_null$par[2:3]), nll_full,
+        method = "L-BFGS-B", lower = full_lower,
+        upper = full_upper,
+        control = list(maxit = 300, factr = 1e7)), silent = TRUE)
+      if (!inherits(retry, "try-error") && retry$convergence == 0L &&
+          is.finite(retry$value) && (!ok_full || fit_full$convergence != 0L ||
+          !is.finite(fit_full$value) || retry$value < fit_full$value)) {
+        fit_full <- retry
+        ok_full <- TRUE
+      }
+    }
     ok_both <- feasible & ok_full & ok_null
+    if (sample_mode && ok_both) {
+      ok_both <- fit_full$convergence == 0L && fit_null$convergence == 0L &&
+        all(is.finite(c(fit_full$par, fit_null$par, fit_full$value, fit_null$value))) &&
+        fit_full$value <= fit_null$value + 1e-6 &&
+        all(abs(fit_full$par[2:3]) < beta_bound_inner) && abs(fit_full$par[1]) < 19.999
+    }
 
     if (!ok_both) {
       out["feasible"] <- as.numeric(feasible)
@@ -445,32 +542,517 @@ infer_gene_param <- function(
     Dropout_rate <- plogis(logit_pi_est)
     P_value <- stats::pchisq(lrt_stat, df = 2, lower.tail = FALSE)
     Mean <- exp(M_est)
+    beta1_se <- beta2_se <- NA_real_
+    hessian_ok <- 0
+    beta_bound_hit <- as.numeric(any(abs(c(beta1_est, beta2_est)) >= beta_bound_inner))
+
+    # Hessian uncertainty is used only to estimate the EB prior, never for P values.
+    if (fit_full$convergence == 0L && all(is.finite(c(fit_full$par, fit_full$value)))) {
+      H_full <- try(stats::optimHess(fit_full$par, nll_full), silent = TRUE)
+      if (!inherits(H_full, "try-error") && is.matrix(H_full) &&
+          all(dim(H_full) == c(5L, 5L)) && all(is.finite(H_full))) {
+        H_full <- (H_full + t(H_full)) / 2
+        H_chol <- try(chol(H_full), silent = TRUE)
+        if (!inherits(H_chol, "try-error")) {
+          V_full <- try(chol2inv(H_chol), silent = TRUE)
+          if (!inherits(V_full, "try-error") && all(is.finite(V_full)) &&
+              all(diag(V_full)[2:3] > 0)) {
+            beta1_se <- sqrt(V_full[2, 2])
+            beta2_se <- sqrt(V_full[3, 3])
+            hessian_ok <- 1
+          }
+        }
+      }
+    }
 
     out[] <- c(
       Mesor, Amplitude, Phase, Alpha, Dropout_rate,
       lrt_stat, P_value, Mean,
       beta1_est, beta2_est,
-      log_alpha_est, logit_pi_est, conv_code, 1
+      log_alpha_est, logit_pi_est, conv_code, 1,
+      beta1_se, beta2_se, hessian_ok, beta_bound_hit
     )
 
     out
   }
 
+  estimate_beta_prior <- function(fit_df) {
+    valid <- fit_df$feasible == 1 & fit_df$conv_code == 0 & fit_df$hessian_ok == 1 &
+      fit_df$beta_bound_hit == 0 & is.finite(fit_df$beta1_est) &
+      is.finite(fit_df$beta2_est) & is.finite(fit_df$beta1_se) &
+      is.finite(fit_df$beta2_se) & fit_df$beta1_se > 0 & fit_df$beta2_se > 0
+    valid[is.na(valid)] <- FALSE
+    n_valid <- sum(valid)
+    beta2_by_gene <- fit_df$beta1_est[valid]^2 + fit_df$beta2_est[valid]^2
+    max_gene_fraction <- if (length(beta2_by_gene) && sum(beta2_by_gene) > 0)
+      max(beta2_by_gene) / sum(beta2_by_gene) else NA_real_
+
+    base <- list(
+      tau_beta = NA_real_, status = "not_estimated", source = "none",
+      n_valid_genes = n_valid,
+      n_beta_bound_hits = sum(fit_df$beta_bound_hit == 1, na.rm = TRUE),
+      max_gene_beta2_fraction = max_gene_fraction
+    )
+    if (n_valid < shrink_min_genes) {
+      base$status <- "fallback_insufficient_eb_genes"
+      base$source <- "empirical_bayes"
+      return(base)
+    }
+
+    beta_hat <- c(fit_df$beta1_est[valid], fit_df$beta2_est[valid])
+    beta_se <- c(fit_df$beta1_se[valid], fit_df$beta2_se[valid])
+    neg_log_marginal <- function(log_tau) {
+      variance <- exp(2 * log_tau) + beta_se^2
+      0.5 * sum(log(variance) + beta_hat^2 / variance)
+    }
+    tau_bounds <- c(1e-4, 10)
+    tau_fit <- try(stats::optimize(
+      neg_log_marginal, interval = log(tau_bounds), tol = .Machine$double.eps^0.25
+    ), silent = TRUE)
+    if (inherits(tau_fit, "try-error") || !is.finite(tau_fit$minimum) ||
+        !is.finite(tau_fit$objective)) {
+      base$status <- "fallback_tau_optimization_failed"
+      base$source <- "empirical_bayes"
+      return(base)
+    }
+    base$tau_beta <- exp(tau_fit$minimum)
+    base$status <- if (base$tau_beta <= tau_bounds[1] * 1.001) "ok_eb_lower_boundary" else
+      if (base$tau_beta >= tau_bounds[2] / 1.001) "ok_eb_upper_boundary" else "ok_eb"
+    base$source <- "empirical_bayes"
+    base
+  }
+
+  fit_shrunk_gene_group <- function(y_vec, cos_vec, sin_vec, p_vec, log_sf_vec,
+                                    init_par, tau_beta) {
+    raw_beta <- init_par[2:3]
+    fallback <- function(status, conv = NA_real_) data.frame(
+      beta1_shrunk = raw_beta[1], beta2_shrunk = raw_beta[2],
+      Amplitude_shrunk = sqrt(sum(raw_beta^2)),
+      Phase_shrunk = atan2(raw_beta[2], raw_beta[1]) %% (2 * pi),
+      Shrink_status = status, shrink_conv_code = conv,
+      stringsAsFactors = FALSE
+    )
+    if (length(init_par) != 5L || any(!is.finite(init_par)) ||
+        !is.finite(tau_beta) || tau_beta <= 0)
+      return(fallback("fallback_invalid_map_input"))
+
+    nll_full <- make_nll_full(y_vec, cos_vec, sin_vec, p_vec, log_sf_vec)
+    objective <- function(par) nll_full(par) + sum(par[2:3]^2) / (2 * tau_beta^2)
+    start_value <- objective(init_par)
+    run_map <- function(par0) try(stats::optim(
+      par = par0, fn = objective, method = "L-BFGS-B",
+      lower = full_lower, upper = full_upper,
+      control = list(maxit = 200, factr = 1e7)
+    ), silent = TRUE)
+    valid_map <- function(z) !inherits(z, "try-error") && z$convergence == 0L &&
+      is.finite(z$value) && all(is.finite(z$par)) && z$value <= start_value + 1e-6 &&
+      all(abs(z$par[2:3]) < beta_bound_inner)
+
+    fit_map <- run_map(init_par)
+    status <- "ok_map"
+    if (!valid_map(fit_map)) {
+      retry_par <- init_par
+      retry_par[2:3] <- 0
+      fit_map <- run_map(retry_par)
+      status <- "ok_map_retry"
+    }
+    if (!valid_map(fit_map)) {
+      conv <- if (!inherits(fit_map, "try-error") && length(fit_map$convergence))
+        fit_map$convergence else NA_real_
+      return(fallback("fallback_map_failed", conv))
+    }
+
+    beta_map <- fit_map$par[2:3]
+    data.frame(
+      beta1_shrunk = beta_map[1], beta2_shrunk = beta_map[2],
+      Amplitude_shrunk = sqrt(sum(beta_map^2)),
+      Phase_shrunk = atan2(beta_map[2], beta_map[1]) %% (2 * pi),
+      Shrink_status = status, shrink_conv_code = fit_map$convergence,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  copy_raw_shrink <- function(fit_df, status) {
+    ok <- is.finite(fit_df$beta1_est) & is.finite(fit_df$beta2_est)
+    data.frame(
+      beta1_shrunk = ifelse(ok, fit_df$beta1_est, NA_real_),
+      beta2_shrunk = ifelse(ok, fit_df$beta2_est, NA_real_),
+      Amplitude_shrunk = ifelse(ok, sqrt(fit_df$beta1_est^2 + fit_df$beta2_est^2), NA_real_),
+      Phase_shrunk = ifelse(ok, atan2(fit_df$beta2_est, fit_df$beta1_est) %% (2 * pi), NA_real_),
+      Shrink_status = ifelse(ok, status, "unavailable_mle"),
+      shrink_conv_code = NA_real_,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # Resample biological units with replacement, not their individual cells.
+  # Index into seq_along(pool): sample(pool) is unsafe for singleton numeric pools.
+  fit_bootstrap_full <- function(y_vec, cos_vec, sin_vec, p_vec, log_sf_vec, init_par) {
+    out <- setNames(rep(NA_real_, 9), c("Mesor", "Mean", "Amplitude", "Phase", "beta1_est", "beta2_est", "log_alpha_est", "logit_pi_est", "conv_code"))
+    if (sum(y_vec > 0) < 2L || sum(y_vec) <= 0) return(out)
+    if (qr(cbind(1, cos_vec, sin_vec))$rank < 3L) return(out)
+    if (length(init_par) != 5L || any(!is.finite(init_par))) return(out)
+
+    nll_full <- function(par) {
+      M <- par[1]
+      beta1 <- par[2]
+      beta2 <- par[3]
+      log_alpha <- par[4]
+      logit_pi <- par[5]
+
+      alpha <- exp(log_alpha)
+      pi_drop <- stats::plogis(logit_pi)
+
+      eta_rhythm <- M + beta1 * cos_vec + beta2 * sin_vec + log_sf_vec
+      eta_null <- M + log_sf_vec
+
+      mu_rhythm <- exp(eta_rhythm)
+      mu_null <- exp(eta_null)
+
+      prob_zero_rhythm <- pi_drop + (1 - pi_drop) * stats::dnbinom(0, mu = mu_rhythm, size = 1 / alpha)
+      prob_nonzero_rhythm <- (1 - pi_drop) * stats::dnbinom(y_vec, mu = mu_rhythm, size = 1 / alpha)
+
+      lik_rhythm <- prob_nonzero_rhythm
+      lik_rhythm[y_vec == 0] <- prob_zero_rhythm[y_vec == 0]
+
+      prob_zero_null <- pi_drop + (1 - pi_drop) * stats::dnbinom(0, mu = mu_null, size = 1 / alpha)
+      prob_nonzero_null <- (1 - pi_drop) * stats::dnbinom(y_vec, mu = mu_null, size = 1 / alpha)
+
+      lik_null <- prob_nonzero_null
+      lik_null[y_vec == 0] <- prob_zero_null[y_vec == 0]
+
+      lik_mix <- p_vec * lik_rhythm + (1 - p_vec) * lik_null
+      lik_mix[lik_mix < 1e-12] <- 1e-12
+
+      -sum(log(lik_mix))
+    }
+
+    fit_full <- try(
+      stats::optim(
+        par = init_par,
+        fn = nll_full,
+        method = "L-BFGS-B",
+        lower = c(-20, -10, -10, -10, -8),
+        upper = c(20, 10, 10, 10, 8),
+        control = list(maxit = 80, factr = 1e7)
+      ),
+      silent = TRUE
+    )
+
+    if (inherits(fit_full, "try-error")) return(out)
+    if (fit_full$convergence != 0L) return(out)
+    if (!is.finite(fit_full$value) || any(!is.finite(fit_full$par))) return(out)
+
+    M_est <- fit_full$par[1]
+    beta1_est <- fit_full$par[2]
+    beta2_est <- fit_full$par[3]
+    log_alpha_est <- fit_full$par[4]
+    logit_pi_est <- fit_full$par[5]
+
+    out[] <- c(
+      M_est,
+      exp(M_est),
+      sqrt(beta1_est^2 + beta2_est^2),
+      atan2(beta2_est, beta1_est) %% (2 * pi),
+      beta1_est,
+      beta2_est,
+      log_alpha_est,
+      logit_pi_est,
+      fit_full$convergence
+    )
+
+    out
+  }
+
+  make_sample_draws <- function(sample0, boot0) {
+    blocks <- split(seq_along(sample0), sample0)
+    labels <- vapply(blocks, function(i) boot0[i[1]], character(1))
+    pools <- split(seq_along(blocks), labels)
+    lapply(seq_len(sample_B), function(b) {
+      chosen <- unlist(lapply(pools, function(pool)
+        pool[sample.int(length(pool), length(pool), replace = TRUE)]), use.names = FALSE)
+      unlist(blocks[chosen], use.names = FALSE)
+    })
+  }
+
+  cluster_multiplier_score_test <- function(y, co, si, pr, sf, sample_id,
+                                            sample_levels, wild_weights) {
+    out <- list(
+      P_value = NA_real_, statistic = NA_real_, n_valid = 0L,
+      valid_fraction = 0, status = "score_test_failed"
+    )
+
+    if (sum(y > 0) < 2L || sum(y) <= 0) {
+      out$status <- "score_test_infeasible"
+      return(out)
+    }
+
+    y_norm <- y / exp(sf)
+    init_M <- log(mean(y_norm) + 1e-8)
+    mu0 <- mean(y_norm)
+    v0 <- stats::var(y_norm)
+    alpha0 <- pmax((v0 - mu0) / pmax(mu0^2, 1e-8), 1e-3)
+    init_log_alpha <- log(alpha0)
+    zero_rate <- mean(y == 0)
+    init_logit_pi <- stats::qlogis(pmin(pmax(zero_rate * 0.95, 0.01), 0.95))
+
+    nll_null <- function(par) {
+      M <- par[1]
+      log_alpha <- par[2]
+      logit_pi <- par[3]
+      alpha <- exp(log_alpha)
+      pi_drop <- stats::plogis(logit_pi)
+      mu <- exp(M + sf)
+      prob_zero <- pi_drop + (1 - pi_drop) *
+        stats::dnbinom(0, mu = mu, size = 1 / alpha)
+      prob_nonzero <- (1 - pi_drop) *
+        stats::dnbinom(y, mu = mu, size = 1 / alpha)
+      lik <- prob_nonzero
+      lik[y == 0] <- prob_zero[y == 0]
+      lik[lik < 1e-12] <- 1e-12
+      -sum(log(lik))
+    }
+
+    fit_null <- try(
+      stats::optim(
+        par = c(init_M, init_log_alpha, init_logit_pi),
+        fn = nll_null,
+        method = "L-BFGS-B",
+        lower = c(-20, -10, -8),
+        upper = c(20, 10, 8),
+        control = list(maxit = 150, factr = 1e7)
+      ),
+      silent = TRUE
+    )
+
+    if (inherits(fit_null, "try-error") || fit_null$convergence != 0L ||
+        !is.finite(fit_null$value) || any(!is.finite(fit_null$par))) {
+      out$status <- "null_fit_failed"
+      return(out)
+    }
+
+    par0 <- c(fit_null$par[1], 0, 0, fit_null$par[2], fit_null$par[3])
+
+    loglik_vec <- function(par) {
+      M <- par[1]
+      beta1 <- par[2]
+      beta2 <- par[3]
+      log_alpha <- par[4]
+      logit_pi <- par[5]
+      alpha <- exp(log_alpha)
+      pi_drop <- stats::plogis(logit_pi)
+
+      eta_rhythm <- M + beta1 * co + beta2 * si + sf
+      eta_null <- M + sf
+      mu_rhythm <- exp(eta_rhythm)
+      mu_null <- exp(eta_null)
+
+      prob_zero_rhythm <- pi_drop + (1 - pi_drop) *
+        stats::dnbinom(0, mu = mu_rhythm, size = 1 / alpha)
+      prob_nonzero_rhythm <- (1 - pi_drop) *
+        stats::dnbinom(y, mu = mu_rhythm, size = 1 / alpha)
+      lik_rhythm <- prob_nonzero_rhythm
+      lik_rhythm[y == 0] <- prob_zero_rhythm[y == 0]
+
+      prob_zero_null <- pi_drop + (1 - pi_drop) *
+        stats::dnbinom(0, mu = mu_null, size = 1 / alpha)
+      prob_nonzero_null <- (1 - pi_drop) *
+        stats::dnbinom(y, mu = mu_null, size = 1 / alpha)
+      lik_null <- prob_nonzero_null
+      lik_null[y == 0] <- prob_zero_null[y == 0]
+
+      lik_mix <- pr * lik_rhythm + (1 - pr) * lik_null
+      lik_mix[lik_mix < 1e-12] <- 1e-12
+      log(lik_mix)
+    }
+
+    score <- matrix(NA_real_, nrow = length(y), ncol = 5L)
+    eps <- 1e-5 * pmax(1, abs(par0))
+
+    for (k in seq_len(5L)) {
+      p_plus <- par0
+      p_minus <- par0
+      p_plus[k] <- p_plus[k] + eps[k]
+      p_minus[k] <- p_minus[k] - eps[k]
+      ll_plus <- loglik_vec(p_plus)
+      ll_minus <- loglik_vec(p_minus)
+      score[, k] <- (ll_plus - ll_minus) / (2 * eps[k])
+    }
+
+    if (any(!is.finite(score))) {
+      out$status <- "nonfinite_score"
+      return(out)
+    }
+
+    nll_full0 <- function(par) -sum(loglik_vec(par))
+    H <- try(stats::optimHess(par0, nll_full0), silent = TRUE)
+
+    if (inherits(H, "try-error") || !is.matrix(H) ||
+        !all(dim(H) == c(5L, 5L)) || any(!is.finite(H))) {
+      out$status <- "hessian_failed"
+      return(out)
+    }
+
+    beta_idx <- c(2L, 3L)
+    nuisance_idx <- c(1L, 4L, 5L)
+    H_nn <- H[nuisance_idx, nuisance_idx, drop = FALSE]
+    H_bn <- H[beta_idx, nuisance_idx, drop = FALSE]
+    H_nn_inv <- try(solve(H_nn), silent = TRUE)
+
+    if (inherits(H_nn_inv, "try-error") || any(!is.finite(H_nn_inv))) {
+      out$status <- "nuisance_hessian_singular"
+      return(out)
+    }
+
+    projection <- H_bn %*% H_nn_inv
+    efficient_cell_score <- score[, beta_idx, drop = FALSE] -
+      score[, nuisance_idx, drop = FALSE] %*% t(projection)
+
+    G <- length(sample_levels)
+    if (G < sample_min || ncol(wild_weights) != G) {
+      out$status <- "sample_mapping_failed"
+      return(out)
+    }
+
+    psi <- matrix(0, nrow = G, ncol = 2L)
+    for (s in seq_len(G)) {
+      ii <- which(sample_id == sample_levels[s])
+      if (length(ii) == 0L) {
+        out$status <- "sample_mapping_failed"
+        return(out)
+      }
+      psi[s, ] <- colSums(efficient_cell_score[ii, , drop = FALSE])
+    }
+
+    if (any(!is.finite(psi))) {
+      out$status <- "nonfinite_cluster_score"
+      return(out)
+    }
+
+    U_obs <- colSums(psi)
+    # Restricted-null cluster sandwich meat. Do not center the cluster scores:
+    # under H0 their expectation is zero, and the observed total score is the
+    # quantity being tested. The finite-G multiplier distribution is empirical.
+    V <- crossprod(psi) * G / (G - 1)
+
+    if (any(!is.finite(V))) {
+      out$status <- "nonfinite_cluster_covariance"
+      return(out)
+    }
+
+    ev <- try(eigen(V, symmetric = TRUE, only.values = TRUE)$values, silent = TRUE)
+    if (inherits(ev, "try-error") || length(ev) != 2L || any(!is.finite(ev)) ||
+        max(ev) <= 0 || min(ev) <= max(ev) * 1e-8) {
+      out$status <- "singular_cluster_covariance"
+      return(out)
+    }
+
+    Vinv <- try(solve(V), silent = TRUE)
+    if (inherits(Vinv, "try-error") || any(!is.finite(Vinv))) {
+      out$status <- "cluster_covariance_inverse_failed"
+      return(out)
+    }
+
+    T_obs <- as.numeric(crossprod(U_obs, Vinv %*% U_obs))
+    if (!is.finite(T_obs) || T_obs < 0) {
+      out$status <- "invalid_observed_statistic"
+      return(out)
+    }
+
+    U_star <- wild_weights %*% psi
+    T_star <- rowSums((U_star %*% Vinv) * U_star)
+    valid <- is.finite(T_star) & T_star >= 0
+    n_valid <- sum(valid)
+
+    if (n_valid < ceiling(0.8 * nrow(wild_weights))) {
+      out$status <- "insufficient_valid_multiplier_draws"
+      out$n_valid <- n_valid
+      out$valid_fraction <- mean(valid)
+      return(out)
+    }
+
+    out$P_value <- (1 + sum(T_star[valid] >= T_obs)) / (n_valid + 1)
+    out$statistic <- T_obs
+    out$n_valid <- n_valid
+    out$valid_fraction <- mean(valid)
+    out$status <- "ok_cluster_multiplier_score"
+    out
+  }
+
+  sample_fit <- function(y, co, si, pr, sf, n_samples,
+                             sample_id, sample_levels, wild_weights) {
+    fit <- fit_one_gene_group(y, co, si, pr, sf)
+    naive_p <- unname(fit["P_value"])
+    fit["P_value"] <- NA_real_
+
+    score_test <- cluster_multiplier_score_test(
+      y = y, co = co, si = si, pr = pr, sf = sf,
+      sample_id = sample_id,
+      sample_levels = sample_levels,
+      wild_weights = wild_weights
+    )
+    fit["P_value"] <- score_test$P_value
+
+    list(
+      fit = fit,
+      diagnostics = data.frame(
+        P_value_LRT_naive = naive_p,
+        Sample_score_stat = score_test$statistic,
+        N_samples = n_samples,
+        Sample_score_valid = score_test$n_valid,
+        Sample_score_valid_fraction = score_test$valid_fraction,
+        Sample_status = score_test$status
+      )
+    )
+  }
+
   stratum_results <- vector("list", length(strata_use))
   names(stratum_results) <- strata_use
+  diagnostic_results <- vector("list", length(strata_use))
+  names(diagnostic_results) <- strata_use
+  eligibility_results <- vector("list", length(strata_use))
+  names(eligibility_results) <- strata_use
+  point_fit_results <- vector("list", length(strata_use))
+  names(point_fit_results) <- strata_use
+  shrinkage_metadata_results <- vector("list", length(strata_use))
+  names(shrinkage_metadata_results) <- strata_use
 
   for (grp in strata_use) {
     stratum_start <- Sys.time()
 
     idx <- which(meta_fit$stratum == grp)
     meta_g <- meta_fit[idx, , drop = FALSE]
-    Xg <- X[genes_fit, idx, drop = FALSE]
+    Xg_input <- X[genes_all, idx, drop = FALSE]
+
+    # Eligibility uses the maximum time-bin pseudobulk relative UMI.
+    bins <- split(seq_len(ncol(Xg_input)), meta_g$eligibility_bin)
+    max_relative_umi <- numeric(nrow(Xg_input))
+    for (bin_idx in bins) {
+      bin_total <- sum(Xg_input[, bin_idx, drop = FALSE])
+      if (bin_total > 0) {
+        max_relative_umi <- pmax(
+          max_relative_umi,
+          Matrix::rowSums(Xg_input[, bin_idx, drop = FALSE]) / bin_total
+        )
+      }
+    }
+    eligible <- max_relative_umi > eligibility_threshold
+    Xg <- Xg_input[eligible, , drop = FALSE]
+
+    eligibility_results[[grp]] <- data.frame(
+      gene = genes_all, stratum = grp, eligible = eligible,
+      max_relative_umi = max_relative_umi,
+      threshold = eligibility_threshold,
+      n_time_bins = length(bins),
+      stringsAsFactors = FALSE
+    )
 
     if (Verbose) {
       message(
         sprintf(
-          "[stratum %d/%d] %s: %d cells",
-          match(grp, strata_use), length(strata_use), grp, ncol(Xg)
+          "[stratum %d/%d] %s: %d cells, %d/%d eligible genes",
+          match(grp, strata_use), length(strata_use), grp, ncol(Xg),
+          nrow(Xg), nrow(Xg_input)
         )
       )
     }
@@ -481,6 +1063,20 @@ infer_gene_param <- function(
     p_vec <- meta_g$p_cell
     log_sf_vec <- meta_g$log_size_factor
 
+    if (sample_mode) {
+      sample_levels <- unique(meta_g$sample_id)
+      n_samples <- length(sample_levels)
+      set.seed(setseed + 10000L * match(grp, strata_use))
+      wild_weights <- matrix(
+        sample(c(-1, 1), sample_score_B * n_samples, replace = TRUE),
+        nrow = sample_score_B,
+        ncol = n_samples
+      )
+    } else {
+      sample_levels <- NULL
+      n_samples <- NA_integer_
+      wild_weights <- NULL
+    }
     gene_ids <- seq_len(nrow(Xg))
 
     res_list <- furrr::future_map(
@@ -488,6 +1084,19 @@ infer_gene_param <- function(
       .f = function(j) {
         y_vec <- as.numeric(Xg[j, ])
 
+        if (sample_mode) {
+          return(sample_fit(
+            y = y_vec,
+            co = cos_vec,
+            si = sin_vec,
+            pr = p_vec,
+            sf = log_sf_vec,
+            n_samples = n_samples,
+            sample_id = meta_g$sample_id,
+            sample_levels = sample_levels,
+            wild_weights = wild_weights
+          ))
+        }
         fit_one_gene_group(
           y_vec = y_vec,
           cos_vec = cos_vec,
@@ -497,22 +1106,109 @@ infer_gene_param <- function(
         )
       },
       .options = furrr_opts,
-      .progress = Verbose
+      .progress = Verbose && interactive()
     )
 
-    res_mat <- do.call(rbind, res_list)
+    res_mat <- if (length(res_list)) {
+      do.call(rbind, if (sample_mode) lapply(res_list, `[[`, "fit") else res_list)
+    } else {
+      matrix(numeric(0), nrow = 0, ncol = 18, dimnames = list(NULL, c(
+        "Mesor", "Amplitude", "Phase", "Alpha", "Dropout_rate", "LRT_stat",
+        "P_value", "Mean", "beta1_est", "beta2_est", "log_alpha_est",
+        "logit_pi_est", "conv_code", "feasible", "beta1_se", "beta2_se",
+        "hessian_ok", "beta_bound_hit")))
+    }
+    res_fit <- as.data.frame(res_mat)
+    res_fit$gene <- genes_all[eligible]
+    if (sample_mode) res_fit <- dplyr::bind_cols(res_fit, dplyr::bind_rows(lapply(res_list, `[[`, "diagnostics")))
+    # BH is intentionally limited to eligible hypotheses; ineligible genes
+    # retain NA P/FDR and are not counted as tested non-rhythmic genes.
+    res_fit$FDR <- stats::p.adjust(res_fit$P_value, method = "BH", n = sum(eligible))
 
-    res_df <- as.data.frame(res_mat)
-    res_df$gene <- rownames(Xg)
+    prior_info <- estimate_beta_prior(res_fit)
+    if (!is.finite(prior_info$tau_beta)) {
+      shrink_df <- copy_raw_shrink(res_fit, prior_info$status)
+    } else {
+      shrink_list <- furrr::future_map(
+        .x = seq_len(nrow(res_fit)),
+        .f = function(j) {
+          init_par <- unlist(res_fit[j, c(
+            "Mesor", "beta1_est", "beta2_est", "log_alpha_est", "logit_pi_est"
+          )], use.names = FALSE)
+          if (length(init_par) != 5L || any(!is.finite(init_par)))
+            return(data.frame(
+              beta1_shrunk = NA_real_, beta2_shrunk = NA_real_,
+              Amplitude_shrunk = NA_real_, Phase_shrunk = NA_real_,
+              Shrink_status = "unavailable_mle", shrink_conv_code = NA_real_,
+              stringsAsFactors = FALSE
+            ))
+          fit_shrunk_gene_group(
+            y_vec = as.numeric(Xg[j, ]), cos_vec = cos_vec, sin_vec = sin_vec,
+            p_vec = p_vec, log_sf_vec = log_sf_vec,
+            init_par = init_par, tau_beta = prior_info$tau_beta
+          )
+        },
+        .options = furrr_opts,
+        .progress = Verbose && interactive()
+      )
+      shrink_df <- dplyr::bind_rows(shrink_list)
+    }
+    res_fit <- dplyr::bind_cols(res_fit, shrink_df)
+
+    shrinkage_metadata_results[[grp]] <- data.frame(
+      stratum = grp,
+      shrinkage_enabled = TRUE,
+      prior_source = prior_info$source,
+      tau_beta = prior_info$tau_beta,
+      tau_status = prior_info$status,
+      n_eligible = sum(eligible),
+      n_pass1_finite = sum(is.finite(res_fit$beta1_est) & is.finite(res_fit$beta2_est)),
+      n_valid_eb_genes = prior_info$n_valid_genes,
+      n_hessian_valid = sum(res_fit$hessian_ok == 1, na.rm = TRUE),
+      n_beta_bound_hits = prior_info$n_beta_bound_hits,
+      max_gene_beta2_fraction = prior_info$max_gene_beta2_fraction,
+      n_map_ok = sum(res_fit$Shrink_status == "ok_map", na.rm = TRUE),
+      n_map_retry = sum(res_fit$Shrink_status == "ok_map_retry", na.rm = TRUE),
+      n_map_fallback = sum(grepl("^fallback_map", res_fit$Shrink_status), na.rm = TRUE),
+      n_unavailable_mle = sum(res_fit$Shrink_status == "unavailable_mle", na.rm = TRUE),
+      stringsAsFactors = FALSE
+    )
+
+    res_df <- dplyr::left_join(data.frame(gene = genes_fit), res_fit, by = "gene")
     res_df$stratum <- grp
-    res_df$FDR <- stats::p.adjust(res_df$P_value, method = "BH")
+    res_df$Shrink_status[is.na(res_df$Shrink_status)] <- "ineligible"
+
+    fit_diag <- res_df %>%
+      dplyr::select(
+        gene, stratum, feasible, conv_code, LRT_stat,
+        beta1_est, beta2_est, beta1_se, beta2_se, hessian_ok, beta_bound_hit,
+        beta1_shrunk, beta2_shrunk, Phase_shrunk,
+        log_alpha_est, logit_pi_est, shrink_conv_code, Shrink_status
+      ) %>%
+      dplyr::mutate(
+        Hessian_status = dplyr::case_when(
+          is.na(feasible) ~ "ineligible",
+          hessian_ok == 1 ~ "ok",
+          feasible == 0 ~ "infeasible",
+          is.finite(conv_code) & conv_code != 0 ~ "full_not_converged",
+          TRUE ~ "invalid_or_singular"
+        )
+      )
+
+    if (sample_mode) fit_diag <- dplyr::bind_cols(
+      fit_diag,
+      res_df %>% dplyr::select(P_value_LRT_naive, Sample_score_stat, N_samples,
+                               Sample_score_valid, Sample_score_valid_fraction, Sample_status)
+    )
+
+    diagnostic_results[[grp]] <- fit_diag
+    point_fit_results[[grp]] <- res_df
 
     res_df <- res_df %>%
       dplyr::select(
         gene, stratum,
-        Mesor, Amplitude, Phase, Alpha, Dropout_rate,
-        LRT_stat, P_value, FDR, Mean,
-        beta1_est, beta2_est, log_alpha_est, logit_pi_est, conv_code
+        Mesor, Mean, Amplitude, Amplitude_shrunk, Phase,
+        Alpha, Dropout_rate, P_value, FDR
       )
 
     stratum_results[[grp]] <- res_df
@@ -529,15 +1225,22 @@ infer_gene_param <- function(
   }
 
   param_long <- dplyr::bind_rows(stratum_results)
+  fit_diagnostics <- dplyr::bind_rows(diagnostic_results)
+  gene_eligibility <- dplyr::bind_rows(eligibility_results)
+  shrinkage_metadata <- dplyr::bind_rows(shrinkage_metadata_results)
 
   param_wide <- param_long %>%
     dplyr::select(
       gene, stratum,
-      Mesor, Mean, Amplitude, Phase, Alpha, Dropout_rate, FDR
+      Mesor, Mean, Amplitude, Amplitude_shrunk, Phase,
+      Alpha, Dropout_rate, FDR
     ) %>%
     tidyr::pivot_wider(
       names_from = stratum,
-      values_from = c(Mesor, Mean, Amplitude, Phase, Alpha, Dropout_rate, FDR)
+      values_from = c(
+        Mesor, Mean, Amplitude, Amplitude_shrunk,
+        Phase, Alpha, Dropout_rate, FDR
+      )
     )
 
   if (n_groups == 2) {
@@ -552,6 +1255,8 @@ infer_gene_param <- function(
           .data[[paste0("Mean_", grp1)]],
         Delta_Amp = .data[[paste0("Amplitude_", grp2)]] -
           .data[[paste0("Amplitude_", grp1)]],
+        Delta_Amp_shrunk = .data[[paste0("Amplitude_shrunk_", grp2)]] -
+          .data[[paste0("Amplitude_shrunk_", grp1)]],
         Delta_Phase = (
           (.data[[paste0("Phase_", grp2)]] -
              .data[[paste0("Phase_", grp1)]] + pi) %% (2 * pi)
@@ -675,22 +1380,150 @@ infer_gene_param <- function(
     )
   }
 
+  bootstrap_sample_gene_group <- function(
+    y0, cos0, sin0, p0, logsf0, draws,
+    point_mesor, point_mean, point_amp, point_phase,
+    point_beta1, point_beta2, point_log_alpha, point_logit_pi
+  ) {
+    fields <- c("Mesor", "Mean", "Amplitude", "Phase")
+    boot <- matrix(NA_real_, length(draws), length(fields), dimnames = list(NULL, fields))
+    init_par <- c(point_mesor, point_beta1, point_beta2, point_log_alpha, point_logit_pi)
+
+    if (all(is.finite(init_par))) {
+      for (b in seq_along(draws)) {
+        i <- draws[[b]]
+        z <- fit_bootstrap_full(
+          y_vec = y0[i], cos_vec = cos0[i], sin_vec = sin0[i], p_vec = p0[i],
+          log_sf_vec = logsf0[i], init_par = init_par
+        )
+        if (is.finite(z["conv_code"]) && z["conv_code"] == 0L) boot[b, ] <- z[fields]
+      }
+    }
+
+    valid <- apply(boot, 1, function(z) all(is.finite(z)))
+    n_valid <- sum(valid)
+    fraction <- mean(valid)
+    enough <- n_valid >= max(30L, ceiling(sample_min_valid * length(draws)))
+
+    ci <- function(nm) {
+      if (!enough) return(c(NA_real_, NA_real_))
+      v <- boot[valid, nm]
+      if (nm == "Phase") {
+        v <- ((v - point_phase + pi) %% (2 * pi)) - pi
+        return((point_phase + as.numeric(stats::quantile(v, c(0.025, 0.975), na.rm = TRUE))) %% (2 * pi))
+      }
+      as.numeric(stats::quantile(v, c(0.025, 0.975), na.rm = TRUE))
+    }
+
+    mc <- ci("Mesor")
+    nc <- ci("Mean")
+    ac <- ci("Amplitude")
+    pc <- ci("Phase")
+
+    data.frame(
+      Mesor_est = point_mesor,
+      Mesor_CI_low = mc[1], Mesor_CI_high = mc[2],
+      Mean_est = point_mean,
+      Mean_CI_low = nc[1], Mean_CI_high = nc[2],
+      Amplitude_est = point_amp,
+      Amp_CI_low = ac[1], Amp_CI_high = ac[2],
+      Phase_est = point_phase,
+      Phase_CI_low = pc[1], Phase_CI_high = pc[2],
+      Bootstrap_valid_fraction = fraction,
+      stringsAsFactors = FALSE
+    )
+  }
+
   boot_all <- list()
 
-  if (length(genes_boot) > 0) {
+  if (sample_mode && length(genes_boot) > 0) {
+    for (grp in strata_use) {
+      boot_start <- Sys.time()
+      idx <- which(meta_fit$stratum == grp)
+      meta_g <- meta_fit[idx, , drop = FALSE]
+      eligible_grp <- eligibility_results[[grp]]$gene[eligibility_results[[grp]]$eligible]
+      genes_boot_grp <- genes_boot[genes_boot %in% eligible_grp]
+      if (!length(genes_boot_grp)) next
+      Xg <- X[genes_boot_grp, idx, drop = FALSE]
+
+      if (Verbose) {
+        message(sprintf(
+          "[sample bootstrap %d/%d] %s: %d genes, B = %d",
+          match(grp, strata_use), length(strata_use), grp, length(genes_boot_grp), sample_B
+        ))
+      }
+
+      theta0 <- meta_g$theta_pred
+      cos0 <- cos(theta0)
+      sin0 <- sin(theta0)
+      p0 <- meta_g$p_cell
+      logsf0 <- meta_g$log_size_factor
+      point_g <- point_fit_results[[grp]]
+      point_g <- point_g[match(genes_boot_grp, point_g$gene), ]
+      set.seed(setseed + 20000L * match(grp, strata_use))
+      draws <- make_sample_draws(meta_g$sample_id, meta_g$boot_stratum)
+
+      boot_gene_list <- furrr::future_map(
+        .x = seq_along(genes_boot_grp),
+        .f = function(j) {
+          boot_df_j <- bootstrap_sample_gene_group(
+            y0 = as.numeric(Xg[j, ]),
+            cos0 = cos0,
+            sin0 = sin0,
+            p0 = p0,
+            logsf0 = logsf0,
+            draws = draws,
+            point_mesor = point_g$Mesor[j],
+            point_mean = point_g$Mean[j],
+            point_amp = point_g$Amplitude[j],
+            point_phase = point_g$Phase[j],
+            point_beta1 = point_g$beta1_est[j],
+            point_beta2 = point_g$beta2_est[j],
+            point_log_alpha = point_g$log_alpha_est[j],
+            point_logit_pi = point_g$logit_pi_est[j]
+          )
+          boot_df_j$gene <- genes_boot_grp[j]
+          boot_df_j$stratum <- grp
+          boot_df_j %>% dplyr::select(
+            gene, stratum,
+            Mesor_est, Mesor_CI_low, Mesor_CI_high,
+            Mean_est, Mean_CI_low, Mean_CI_high,
+            Amplitude_est, Amp_CI_low, Amp_CI_high,
+            Phase_est, Phase_CI_low, Phase_CI_high,
+            Bootstrap_valid_fraction
+          )
+        },
+        .options = furrr_opts,
+        .progress = Verbose && interactive()
+      )
+
+      boot_all[[grp]] <- dplyr::bind_rows(boot_gene_list)
+      if (Verbose) {
+        message(sprintf(
+          "[sample bootstrap %d/%d] done in %.2f min",
+          match(grp, strata_use), length(strata_use),
+          as.numeric(difftime(Sys.time(), boot_start, units = "mins"))
+        ))
+      }
+    }
+    bootstrap_res <- dplyr::bind_rows(boot_all)
+  } else if (!sample_mode && length(genes_boot) > 0) {
     for (grp in strata_use) {
       boot_start <- Sys.time()
 
       idx <- which(meta_fit$stratum == grp)
       meta_g <- meta_fit[idx, , drop = FALSE]
-      Xg <- X[genes_boot, idx, drop = FALSE]
+      eligible_grp <- eligibility_results[[grp]]$gene[eligibility_results[[grp]]$eligible]
+      genes_boot_grp <- genes_boot[genes_boot %in% eligible_grp]
+      if (!length(genes_boot_grp)) next
+      Xg <- X[genes_boot_grp, idx, drop = FALSE]
 
       if (Verbose) {
         message(
           sprintf(
             "[bootstrap %d/%d] %s: %d genes, B = %d",
             match(grp, strata_use), length(strata_use), grp,
-            length(genes_boot), B
+            length(genes_boot_grp), B
           )
         )
       }
@@ -702,14 +1535,14 @@ infer_gene_param <- function(
       logsf0 <- meta_g$log_size_factor
 
       point_g <- stratum_results[[grp]]
-      point_g <- point_g[match(genes_boot, point_g$gene), ]
+      point_g <- point_g[match(genes_boot_grp, point_g$gene), ]
 
-      gene_ids <- seq_along(genes_boot)
+      gene_ids <- seq_along(genes_boot_grp)
 
       boot_gene_list <- furrr::future_map(
         .x = gene_ids,
         .f = function(j) {
-          gene_j <- genes_boot[j]
+          gene_j <- genes_boot_grp[j]
 
           y0 <- as.numeric(Xg[j, ])
           point_mesor <- point_g$Mesor[j]
@@ -744,7 +1577,7 @@ infer_gene_param <- function(
             )
         },
         .options = furrr_opts,
-        .progress = Verbose
+        .progress = Verbose && interactive()
       )
 
       boot_df <- dplyr::bind_rows(boot_gene_list)
@@ -786,8 +1619,20 @@ infer_gene_param <- function(
     colnames(param_long)[colnames(param_long) == "stratum"] <- strata_by
   }
 
+  if ("stratum" %in% colnames(fit_diagnostics)) {
+    colnames(fit_diagnostics)[colnames(fit_diagnostics) == "stratum"] <- strata_by
+  }
+
+  if ("stratum" %in% colnames(gene_eligibility)) {
+    colnames(gene_eligibility)[colnames(gene_eligibility) == "stratum"] <- strata_by
+  }
+
   if ("stratum" %in% colnames(bootstrap_res)) {
     colnames(bootstrap_res)[colnames(bootstrap_res) == "stratum"] <- strata_by
+  }
+
+  if ("stratum" %in% colnames(shrinkage_metadata)) {
+    colnames(shrinkage_metadata)[colnames(shrinkage_metadata) == "stratum"] <- strata_by
   }
 
   if (Verbose) {
@@ -802,8 +1647,39 @@ infer_gene_param <- function(
   out <- list(
     param_long = param_long,
     param_wide = param_wide,
-    bootstrap_res = bootstrap_res
+    fit_diagnostics = fit_diagnostics,
+    bootstrap_res = bootstrap_res,
+    gene_eligibility = gene_eligibility,
+    shrinkage = list(
+      method = "isotropic normal empirical Bayes",
+      by_stratum = shrinkage_metadata
+    ),
+    eligibility = list(
+      ZT_by = ZT_by,
+      threshold = eligibility_threshold,
+      rule = "max_time(sum_gene_UMI / sum_all_gene_UMI) > 1e-5 within each fitting stratum",
+      bh_universe = "eligible genes within each fitting stratum"
+    )
   )
 
+  if (sample_mode) {
+    out$inference <- list(
+      mode = "restricted_null_cluster_multiplier_score",
+      sample_by = sample_by,
+      sample_boot_by = sample_boot_by,
+      P_value = paste0(
+        "restricted-null biological-sample cluster multiplier score test ",
+        "with Rademacher weights"
+      ),
+      LRT = "original cell-independence working-likelihood diagnostic only",
+      CI = "whole-sample pairs bootstrap for top 100 ranked genes only",
+      fixed_inputs = c("theta_pred", "r_cell", "size_factors"),
+      sample_counts = vapply(
+        split(meta_fit$sample_id, meta_fit$stratum),
+        function(x) length(unique(x)), integer(1)
+      ),
+      effect_size = "joint MAP shrinkage may change only the added shrunk coefficient/amplitude columns; sample-aware P_value/FDR remain score-test based"
+    )
+  }
   return(out)
 }

@@ -28,10 +28,17 @@
 #' parameter updating.
 #' @param setseed Integer random seed used for reproducibility.
 #' @param Verbose Logical; if \code{TRUE}, progress messages are printed.
+#' @param min_seed Minimum fraction of supplied cells with nonzero counts for
+#' a matched seed gene. Defaults to 0.01.
+#' @param family Count distribution used for gene fitting and phase likelihood.
+#' One of \code{"NB"} (default) or \code{"Poisson"}.
 #'
 #' @return A tibble with one row per cell. The returned columns include
 #' \code{cell}, \code{ZT_input}, \code{stratum}, \code{theta_pred},
-#' \code{ZT_pred}, \code{Rbar}, and \code{r_cell}.
+#' \code{ZT_pred}, \code{Rbar}, and \code{r_cell}. Attributes seed_genes,
+#' seed_diagnostics (all matched genes before filtering), n_seed_candidate,
+#' n_seed_matched, n_seed_retained, min_seed and family
+#' record the exact seed selection and count distribution.
 #'
 #' @details
 #' The inferred cell phase may depend on the input analysis scope. Running
@@ -73,7 +80,9 @@ infer_cell_phase <- function(
     p_mix = 0.85,
     Min_n = 200,
     setseed = 1,
-    Verbose = TRUE
+    Verbose = TRUE,
+    min_seed = 0.01,
+    family = c("NB", "Poisson")
 ) {
   if (!(is.matrix(count) || inherits(count, "Matrix"))) {
     stop("count must be a matrix or Matrix-derived sparse matrix, with genes in rows and cells in columns.")
@@ -178,7 +187,9 @@ infer_cell_phase <- function(
     p_mix = p_mix,
     Min_n = Min_n,
     setseed = setseed,
-    Verbose = Verbose
+    Verbose = Verbose,
+    min_seed = min_seed,
+    family = match.arg(family)
   )
 }
 
@@ -204,8 +215,13 @@ infer_cell_phase <- function(
     p_mix = 0.85,
     Min_n = 200,
     setseed = 1,
-    Verbose = TRUE
+    Verbose = TRUE,
+    min_seed = 0.01,
+    family = c("NB", "Poisson")
 ) {
+  family <- match.arg(family)
+  stopifnot(is.numeric(min_seed), length(min_seed) == 1L,
+            is.finite(min_seed), min_seed >= 0, min_seed <= 1)
   Species <- match.arg(Species)
   SeedMode <- match.arg(SeedMode)
   Mode <- match.arg(Mode)
@@ -215,17 +231,35 @@ infer_cell_phase <- function(
   stratum <- Stratum
 
   default_mouse <- c(
-    "Cdkn1a", "Mmp14", "Clock", "Per2", "Per1", "Bmal1", "Arntl", "Por",
-    "Wee1", "Slc16a1", "Per3", "Nr1d1", "Dbp", "Npas2", "Tsc22d3",
-    "Tef", "Hlf", "Nfil3", "Usp2", "Nr1d2", "Fmo2", "Tspan4",
-    "Leo1", "Stk35", "Lonrf3", "Gramd4", "Coq10b", "Dtx4"
+    "Acacb", "Acadm", "Acly", "Parp1", "Cyp2d9", "Cyp7b1", "Arntl", "Clock",
+    "Cry2", "Npas2", "Per1", "Per2", "Per3", "Acot1", "Acot2", "Acot4",
+    "Cyp4a10", "Cyp4a14", "Ak3", "Rgs16", "Ccnd1", "Ddc", "H1f2", "Rell1",
+    "Sbk1", "Smarcd1", "Tgfbr1", "Alas1", "Igfbp1", "Raet1c", "Rora", "Sult1e1",
+    "Fas", "Rxra", "Cirbp", "Fus", "Hsp90aa1", "Hsph1", "Noct", "Cpt1a",
+    "Pklr", "Slc2a2", "Slc37a4", "Ucp2", "Aacs", "Acot3", "Apoa1", "Cyp7a1",
+    "Elovl3", "Elovl5", "Elovl6", "Fabp5", "Fads2", "Fasn", "Fgf15", "Insig1",
+    "Insig2", "Ldlr", "Lipg", "Lpl", "Nr0b2", "Nr1h2", "Nr1h3", "Pctp",
+    "Scap", "Srebf1", "Srebf2", "Apoc3", "Avpr1a", "Fkbp4", "Hspd1", "Tubb5",
+    "Dbp", "Hlf", "Nfil3", "Tef", "Bhlhe40", "Por", "Fkbp5", "Usp2",
+    "Amd1", "Gck", "Hmgcr", "Lpin1", "Saa4", "Wee1", "Nampt", "Aco2",
+    "Akr7a5", "Aldh2", "Bhmt", "Cps1", "Eef1d", "Sord", "Bhlhe41", "Nr1d1",
+    "Nr1d2", "Rorc", "G6pc", "Pck1", "Ppara", "Ppard", "Pparg", "Id2"
   )
 
   default_human <- c(
-    "CDKN1A", "MMP14", "CLOCK", "PER2", "PER1", "BMAL1", "ARNTL", "POR",
-    "WEE1", "SLC16A1", "PER3", "NR1D1", "DBP", "NPAS2", "TSC22D3",
-    "TEF", "HLF", "NFIL3", "USP2", "NR1D2", "FMO2", "TSPAN4",
-    "LEO1", "STK35", "LONRF3", "GRAMD4", "COQ10B", "DTX4"
+    "ACACB", "ACADM", "ACLY", "PARP1", "CYP2D6", "CYP7B1", "BMAL1", "CLOCK",
+    "CRY2", "NPAS2", "PER1", "PER2", "PER3", "ACOT1", "ACOT2", "ACOT4",
+    "CYP4A11", "CYP4A22", "AK3", "RGS16", "CCND1", "DDC", "H1-2", "RELL1",
+    "SBK1", "SMARCD1", "TGFBR1", "ALAS1", "IGFBP1", "RAET1E", "RORA", "SULT1E1",
+    "FAS", "RXRA", "CIRBP", "FUS", "HSP90AA1", "HSPH1", "NOCT", "CPT1A",
+    "PKLR", "SLC2A2", "SLC37A4", "UCP2", "AACS", "APOA1", "CYP7A1", "ELOVL3",
+    "ELOVL5", "ELOVL6", "FABP5", "FADS2", "FASN", "FGF19", "INSIG1", "INSIG2",
+    "LDLR", "LIPG", "LPL", "NR0B2", "NR1H2", "NR1H3", "PCTP", "SCAP",
+    "SREBF1", "SREBF2", "APOC3", "AVPR1A", "FKBP4", "HSPD1", "TUBB", "DBP",
+    "HLF", "NFIL3", "TEF", "BHLHE40", "POR", "FKBP5", "USP2", "AMD1",
+    "GCK", "HMGCR", "LPIN1", "SAA4", "WEE1", "NAMPT", "ACO2", "AKR7A2",
+    "ALDH2", "BHMT", "CPS1", "EEF1D", "SORD", "BHLHE41", "NR1D1", "NR1D2",
+    "RORC", "G6PC1", "PCK1", "PPARA", "PPARD", "PPARG", "ID2"
   )
 
   if (!(is.matrix(count) || inherits(count, "Matrix"))) {
@@ -259,9 +293,34 @@ infer_cell_phase <- function(
     stop("Stratum contains NA. Please provide valid stratum labels.")
   }
 
+  # Canonicalize aliases within each species, retaining original matrix row names.
+  seed_aliases_mouse <- c(
+    Hist1h1c = "H1f2", Ccrn4l = "Noct", Bmal1 = "Arntl"
+  )
+  seed_aliases_human <- c(
+    ARNTL = "BMAL1", HIST1H1C = "H1-2", CCRN4L = "NOCT", G6PC = "G6PC1"
+  )
+  canonical_seed <- function(x, species) {
+    aliases <- switch(species, mouse = seed_aliases_mouse, human = seed_aliases_human)
+    x <- tolower(x)
+    idx <- match(x, tolower(names(aliases)))
+    x[!is.na(idx)] <- tolower(unname(aliases[idx[!is.na(idx)]]))
+    x
+  }
+  match_seeds <- function(x, species = Species_use) {
+    x <- unique(canonical_seed(x, species))
+    rn <- rownames(count)
+    rn_can <- canonical_seed(rn, species)
+    idx <- match(x, tolower(rn))
+    missing <- is.na(idx)
+    idx[missing] <- match(x[missing], rn_can)
+    unique(rn[idx[!is.na(idx)]])
+  }
+
+  # Auto remains a match-count heuristic; specify Species for reproducible benchmarks.
   if (Species == "auto") {
-    n_mouse <- sum(default_mouse %in% rownames(count))
-    n_human <- sum(default_human %in% rownames(count))
+    n_mouse <- length(match_seeds(default_mouse, species = "mouse"))
+    n_human <- length(match_seeds(default_human, species = "human"))
     Species_use <- if (n_human > n_mouse) "human" else "mouse"
   } else {
     Species_use <- Species
@@ -282,7 +341,7 @@ infer_cell_phase <- function(
     seeds_use_input <- default_seeds
   } else {
     set.seed(setseed)
-    n_seed_target <- sum(default_seeds %in% rownames(count))
+    n_seed_target <- length(match_seeds(default_seeds))
     if (n_seed_target == 0) {
       stop("No default seed genes found in Count; cannot determine random seed number.")
     }
@@ -326,10 +385,27 @@ infer_cell_phase <- function(
     stop("Cell order mismatch between Count and internal metadata.")
   }
 
-  seed_in <- intersect(seeds_use_input, rownames(X_raw))
+  seed_matched <- match_seeds(seeds_use_input)
+
+  if (length(seed_matched) == 0) {
+    stop("No seed genes found in rownames(Count).")
+  }
+
+  seed_detect <- Matrix::rowMeans(X_raw[seed_matched, , drop = FALSE] > 0)
+  seed_in <- seed_matched[seed_detect >= min_seed]
 
   if (length(seed_in) == 0) {
-    stop("No seed genes found in rownames(Count).")
+    stop("No matched seed genes pass min_seed detectability threshold.")
+  }
+
+  if (Verbose) {
+    message(sprintf(
+      "[SEED] candidate=%d | matched=%d | retained=%d | min_seed=%.3f",
+      length(unique(seeds_use_input)),
+      length(seed_matched),
+      length(seed_in),
+      min_seed
+    ))
   }
 
   Y_seed <- X_raw[seed_in, , drop = FALSE]
@@ -406,6 +482,65 @@ infer_cell_phase <- function(
   names(betac) <- rownames(Yg)
   names(betas) <- rownames(Yg)
 
+  # Refit unstable NB genes at the Poisson limit, keeping fit and likelihood aligned.
+  fit_nb_seed <- function(yj, E_cos, E_sin, X_design, log_s) {
+    nb_warning <- FALSE
+    fit <- tryCatch(
+      withCallingHandlers(
+        MASS::glm.nb(yj ~ E_cos + E_sin + offset(log_s)),
+        warning = function(w) {
+          nb_warning <<- TRUE
+          invokeRestart("muffleWarning")
+        }
+      ),
+      error = function(e) NULL
+    )
+
+    nb_ok <- !is.null(fit) && !nb_warning && isTRUE(fit$converged) &&
+      is.null(fit$th.warn) && length(fit$theta) == 1L &&
+      is.finite(fit$theta) && fit$theta > 0 &&
+      all(is.finite(fit$coefficients))
+
+    if (!nb_ok) {
+      fit <- stats::glm.fit(
+        x = X_design,
+        y = yj,
+        family = stats::poisson(),
+        offset = log_s
+      )
+      fit$theta <- Inf
+      if (!isTRUE(fit$converged) || any(!is.finite(fit$coefficients))) {
+        stop("NB seed fitting and its Poisson-limit fallback could not produce a stable fit.")
+      }
+    }
+
+    fit
+  }
+
+  size_seed <- rep(Inf, J)
+
+  phase_loglik <- switch(
+    family,
+    Poisson = function(V) {
+      term1_nm <- t(as.matrix(Matrix::t(V) %*% Yg))
+      sumexpV <- colSums(exp(V))
+      term2_nm <- outer(exp_s, sumexpV)
+      term1_nm - term2_nm
+    },
+    NB = function(V) {
+      loglik_nm <- matrix(0, nrow = N, ncol = M)
+      for (j in seq_len(J)) {
+        mu_j <- outer(exp_s, exp(V[j, ]))
+        loglik_nm <- loglik_nm + matrix(
+          stats::dnbinom(as.numeric(Yg[j, ]), mu = mu_j,
+                         size = size_seed[j], log = TRUE),
+          nrow = N, ncol = M
+        )
+      }
+      loglik_nm
+    }
+  )
+
   r_cell <- rep(1, N)
 
   for (outer_it in seq_len(n_iter_outer)) {
@@ -427,13 +562,19 @@ infer_cell_phase <- function(
         yj <- as.numeric(Yg[j, ])
 
         fit <- suppressWarnings(
-          stats::glm.fit(
-            x = X_design,
-            y = yj,
-            family = stats::poisson(),
-            offset = log_s
+          switch(
+            family,
+            NB = fit_nb_seed(yj, E_cos, E_sin, X_design, log_s),
+            Poisson = stats::glm.fit(
+              x = X_design,
+              y = yj,
+              family = stats::poisson(),
+              offset = log_s
+            )
           )
         )
+
+        size_seed[j] <- switch(family, NB = fit$theta, Poisson = Inf)
 
         b <- fit$coefficients
         b[is.na(b)] <- 0
@@ -445,10 +586,7 @@ infer_cell_phase <- function(
       }
 
       V <- beta0 + outer(betac, cth) + outer(betas, sth)
-      term1_nm <- t(as.matrix(Matrix::t(V) %*% Yg))
-      sumexpV <- colSums(exp(V))
-      term2_nm <- outer(exp_s, sumexpV)
-      loglik_nm <- term1_nm - term2_nm
+      loglik_nm <- phase_loglik(V)
 
       if (use_prior) {
         cos_prior <- cos(outer(mu_cell, theta_grid, FUN = function(a, b) b - a))
@@ -473,10 +611,7 @@ infer_cell_phase <- function(
     }
 
     V <- beta0 + outer(betac, cth) + outer(betas, sth)
-    term1_nm <- t(as.matrix(Matrix::t(V) %*% Yg))
-    sumexpV <- colSums(exp(V))
-    term2_nm <- outer(exp_s, sumexpV)
-    loglik_nm <- term1_nm - term2_nm
+    loglik_nm <- phase_loglik(V)
 
     if (use_mix && use_prior) {
       cos_mat <- cos(outer(mu_cell, theta_grid, FUN = function(a, b) b - a))
@@ -626,5 +761,17 @@ infer_cell_phase <- function(
     r_cell = r_cell
   )
 
+  attr(out, "seed_genes") <- seed_in
+  attr(out, "seed_diagnostics") <- data.frame(
+    gene = names(seed_detect),
+    detect_fraction = as.numeric(seed_detect),
+    retained = names(seed_detect) %in% seed_in,
+    row.names = NULL
+  )
+  attr(out, "n_seed_candidate") <- length(unique(seeds_use_input))
+  attr(out, "n_seed_matched") <- length(seed_matched)
+  attr(out, "n_seed_retained") <- length(seed_in)
+  attr(out, "min_seed") <- min_seed
+  attr(out, "family") <- family
   return(out)
 }

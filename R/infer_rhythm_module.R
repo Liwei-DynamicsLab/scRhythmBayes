@@ -4,11 +4,13 @@
 #' gene-level rhythmic parameter estimates.
 #'
 #' @param param_wide A wide-format data.frame returned by
-#' \code{infer_gene_param()}.
+#' \code{infer_gene_param()}, with at least two unique genes.
 #' @param compare_by Comparison variable name. Defaults to
 #' \code{"condition"}.
-#' @param group1 The first group used for comparison.
-#' @param group2 The second group used for comparison.
+#' @param group1 Reference group (baseline). This is not a plotting position.
+#' @param group2 Target group. Gain/loss, amplitude enhancement/attenuation and
+#' phase advance/delay describe group2 relative to group1. For CV-to-PV liver
+#' comparisons, use group1 = "Hep.CV", group2 = "Hep.PV".
 #' @param tau_q FDR threshold for significant rhythmicity. Defaults to
 #' \code{0.05}.
 #' @param tau_A Minimum rhythmic amplitude threshold. Defaults to \code{0.25}.
@@ -20,7 +22,11 @@
 #'
 #' @return A list containing rhythm-state module assignment results and module
 #' summaries. The main components are \code{module_result} and
-#' \code{module_summary}.
+#' \code{module_summary}. \code{comparison} records reference/target identities
+#' and effect conventions. \code{input_diagnostics} flags incomplete original
+#' two-group parameter sets before any non-rhythmic-side display masking.
+#' Incomplete inputs trigger a warning but retain the existing classification
+#' algorithm; a posterior assignment does not establish unestimated rhythm states.
 #'
 #' @examples
 #' \dontrun{
@@ -44,6 +50,7 @@
 #'   theta_pred = res_phase$theta_pred[cell_use],
 #'   r_cell = res_phase$r_cell[cell_use],
 #'   strata_by = "condition",
+#'   ZT_by = "ZT",
 #'   B = 5,
 #'   n_worker = 1,
 #'   setseed = 1,
@@ -91,16 +98,26 @@ infer_rhythm_module <- function(
   if (!"gene" %in% colnames(param_wide)) {
     stop("param_wide must contain a 'gene' column.")
   }
+  if (nrow(param_wide) < 2) {
+    stop("param_wide must contain at least two genes to estimate module covariance.")
+  }
+  if (nrow(param_wide) == 0 || anyNA(param_wide$gene) ||
+      any(!nzchar(as.character(param_wide$gene))) || anyDuplicated(param_wide$gene)) {
+    stop("param_wide must contain nonempty, unique, non-missing gene identifiers.")
+  }
 
-  if (!is.character(compare_by) || length(compare_by) != 1) {
+  if (!is.character(compare_by) || length(compare_by) != 1 ||
+      is.na(compare_by) || !nzchar(trimws(compare_by))) {
     stop("compare_by must be a single character string.")
   }
 
-  if (!is.character(group1) || length(group1) != 1) {
+  if (!is.character(group1) || length(group1) != 1 ||
+      is.na(group1) || !nzchar(trimws(group1))) {
     stop("group1 must be a single character string.")
   }
 
-  if (!is.character(group2) || length(group2) != 1) {
+  if (!is.character(group2) || length(group2) != 1 ||
+      is.na(group2) || !nzchar(trimws(group2))) {
     stop("group2 must be a single character string.")
   }
 
@@ -152,9 +169,32 @@ infer_rhythm_module <- function(
     )
   }
 
+  rhythm_cols <- c(fdr1_col, fdr2_col, amp1_col, amp2_col, phase1_col, phase2_col)
+  if (!all(vapply(param_wide[rhythm_cols], function(x) {
+    is.numeric(x) || (is.logical(x) && all(is.na(x)))
+  }, logical(1)))) {
+    stop("Group-specific FDR, Amplitude and Phase columns must be numeric.")
+  }
+  missing1 <- !is.finite(param_wide[[fdr1_col]]) |
+    !is.finite(param_wide[[amp1_col]]) | !is.finite(param_wide[[phase1_col]])
+  missing2 <- !is.finite(param_wide[[fdr2_col]]) |
+    !is.finite(param_wide[[amp2_col]]) | !is.finite(param_wide[[phase2_col]])
+  input_diagnostics <- data.frame(
+    gene = as.character(param_wide$gene),
+    missing_group1_parameters = missing1,
+    missing_group2_parameters = missing2,
+    complete_parameters = !missing1 & !missing2,
+    stringsAsFactors = FALSE
+  )
+  if (any(missing1 | missing2)) {
+    warning(sum(missing1 | missing2),
+            " genes have incomplete original rhythm parameters. Existing classification is retained; inspect input_diagnostics before interpreting unestimated states.",
+            call. = FALSE)
+  }
+
   if (Verbose) {
     message(sprintf(
-      "[infer_rhythm_module] %s comparison: %s vs %s",
+      "[infer_rhythm_module] %s comparison: reference %s -> target %s",
       compare_by, grp1, grp2
     ))
   }
@@ -497,6 +537,11 @@ infer_rhythm_module <- function(
         "module_assignment_summary.tsv"
       )
     )
+    readr::write_tsv(input_diagnostics,
+                     file.path(out_dir, "module_assignment", "input_diagnostics.tsv"))
+    readr::write_tsv(tibble::tibble(compare_by = compare_by,
+                                   reference_group = group1, target_group = group2),
+                     file.path(out_dir, "module_assignment", "comparison_direction.tsv"))
   }
 
   if (Verbose) {
@@ -510,6 +555,13 @@ infer_rhythm_module <- function(
 
   list(
     module_result = module_result,
-    module_summary = module_summary
+    module_summary = module_summary,
+    comparison = list(
+      compare_by = compare_by, reference_group = group1, target_group = group2,
+      amplitude_ratio = "log2(target/reference)",
+      phase_shift = "wrap(target_phase - reference_phase) in [-pi, pi)",
+      effect_subject = "target relative to reference"
+    ),
+    input_diagnostics = input_diagnostics
   )
 }

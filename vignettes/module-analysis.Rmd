@@ -68,6 +68,7 @@ The required inputs are:
 | `ZT` | Sampling Zeitgeber time column used for phase inference |
 | `celltype` | Cell-type label used as the phase-inference stratum |
 | `condition` | Two-group comparison variable for module analysis |
+| `sample` | Independent biological sample for sample-aware testing |
 
 # Step 1: infer cell-level circadian phase
 
@@ -131,6 +132,8 @@ The gene-level model requires the selected count matrix, selected metadata, infe
 | `theta_pred` | Inferred cell phase from `res_phase` |
 | `r_cell` | Cell-level phase reliability weight |
 | `strata_by` | Grouping variable for gene-level parameter estimation, here `condition` |
+| `sample_by` | Independent biological-sample column |
+| `sample_boot_by` | Sample-bootstrap stratum, here ZT |
 
 ## Run gene-level parameter inference
 
@@ -141,11 +144,16 @@ res_param <- infer_gene_param(
   theta_pred = res_phase_use$theta_pred,
   r_cell = res_phase_use$r_cell,
   strata_by = "condition",
-  B = 10,
+  ZT_by = "ZT",
+  sample_by = "sample",
+  sample_boot_by = "ZT",
+  B = 3,
   n_worker = 1,
   setseed = 1,
   Verbose = FALSE
 )
+
+res_param$inference
 ```
 
 ## Inspect output tables
@@ -174,11 +182,11 @@ Common columns include:
 | `Mesor` | Baseline rhythmic expression level |
 | `Mean` | Mean expression level |
 | `Amplitude` | Circadian oscillation amplitude |
+| `Amplitude_shrunk` | Empirical-Bayes stabilized amplitude |
 | `Phase` | Rhythmic phase in radians |
 | `Alpha` | Dispersion-related parameter |
 | `Dropout_rate` | Estimated dropout rate |
-| `LRT_stat` | Likelihood-ratio test statistic |
-| `P_value` | Nominal rhythmicity test P value |
+| `P_value` | Rhythmicity P value from the active inference mode |
 | `FDR` | Adjusted rhythmicity significance |
 
 # Step 4: infer differential rhythm-state modules
@@ -321,7 +329,10 @@ res_param <- infer_gene_param(
   theta_pred = res_phase_use$theta_pred,
   r_cell = res_phase_use$r_cell,
   strata_by = "condition",
-  B = 10,
+  ZT_by = "ZT",
+  sample_by = "sample",
+  sample_boot_by = "ZT",
+  B = 3,
   n_worker = 1,
   setseed = 1,
   Verbose = FALSE
