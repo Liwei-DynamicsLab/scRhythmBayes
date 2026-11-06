@@ -5,9 +5,9 @@ library(dplyr)
 library(readr)
 library(reCAT)
 
-RUN_DIR <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1"
+RUN_DIR <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1"
 R_INPUT_DIR <- file.path(RUN_DIR, "R_input")
-OUT_DIR <- "/path/to/scRhythmBayes/reproducibility/07_runtime/runs/reCAT"
+OUT_DIR <- "07_runtime/runs/reCAT"
 dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
 counts <- as(Matrix::readMM(file.path(R_INPUT_DIR, "count_gene_by_cell.mtx")), "dgCMatrix")

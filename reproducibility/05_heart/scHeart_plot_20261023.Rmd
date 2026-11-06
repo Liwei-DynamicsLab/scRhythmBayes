@@ -24,11 +24,11 @@ knitr::opts_chunk$set(eval = FALSE, echo = TRUE, fig.retina = 2)
 # 1. Saved input and display settings
 
 ```{r aligned_input}
-heart_root <- "/path/to/analysis_home/scRhythmBayes/data/scHeart_ACR_NCR_new_20261022"
+heart_root <- "outputs/heart"
 heart_saved_dir <- file.path(heart_root, "figures_complete_noif_20261023")
 heart_aligned_dir <- file.path(heart_root, "figures_fly_style_separate_20261023")
-heart_reference_rmd <- "/path/to/analysis_home/scRhythmBayes/GSE157504_validation/GSE157504_LD_scRhythmBayes_validation.Rmd"
-heart_code_dir <- "/path/to/scRhythmBayes/reproducibility/05_heart"
+heart_reference_rmd <- "outputs/drosophila/GSE157504_LD_scRhythmBayes_validation.Rmd"
+heart_code_dir <- "05_heart"
 heart_reference_md5 <- unname(tools::md5sum(heart_reference_rmd))
 
 heart_packages <- c("dplyr", "readr", "ggplot2", "patchwork", "ComplexHeatmap",
@@ -38,7 +38,7 @@ grDevices::pdfFonts(Arial = grDevices::pdfFonts("ArialMT")[[1]])
 dir.create(heart_aligned_dir, recursive = TRUE, showWarnings = FALSE)
 source(file.path(heart_code_dir, "measure_aligned_heart_panels_20261023.R"))
 source(file.path(heart_code_dir, "measure_heart_panels_20261023.R"))
-source("/path/to/scRhythmBayes/R/plot_dtw_heatmap.R")
+source("../R/plot_dtw_heatmap.R")
 
 heart_saved <- readRDS(file.path(heart_saved_dir, "completed_plot_objects.rds"))
 heart_rho <- readRDS(file.path(heart_saved_dir, "heart_run_phase_rho.rds"))

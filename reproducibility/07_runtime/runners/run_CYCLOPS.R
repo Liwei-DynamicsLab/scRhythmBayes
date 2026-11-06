@@ -9,8 +9,8 @@ library(matrixStats)
 library(torch)
 library(ggplot2)
 
-input_dir <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input"
-output_dir <- "/path/to/scRhythmBayes/reproducibility/07_runtime/runs/CYCLOPS"
+input_dir <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input"
+output_dir <- "07_runtime/runs/CYCLOPS"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
 SEED <- 1L

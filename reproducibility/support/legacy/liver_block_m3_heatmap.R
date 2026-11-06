@@ -4,7 +4,7 @@ build_scRhythm_OVR_fullmatrix_heatmap <- function(
     expr_mat,
     cell_meta,
     ovr_df,
-    out_dir = "/path/to/analysis_home/scRhythmBayes/data/scLiver_global_phase 2/",
+    out_dir = "data/scLiver_global_phase 2/",
     celltype_col = "celltype",
     theta_col = "theta_pred",
     gene_col = "gene",

@@ -58,8 +58,8 @@ if (packageVersion("Seurat") >= "5.0.0") {
   stop("Run Sections 1-6 in the Seurat v4 environment, then restart R for Section 7.")
 }
 
-project_dir <- "/path/to/analysis_home/scRhythmBayes"
-package_dir <- "/path/to/scRhythmBayes"
+project_dir <- "data/study"
+package_dir <- ".."
 data_dir <- file.path(project_dir, "data/GSE157504_RAW")
 validation_dir <- file.path(project_dir, "GSE157504_validation")
 out_dir <- file.path(validation_dir, "result_LD_DD")
@@ -595,7 +595,7 @@ library(Matrix)
 library(Seurat)
 library(dplyr)
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/GSE157504_validation/result_LD_DD"
+out_dir <- "outputs/drosophila/result_LD_DD"
 count_qc <- readRDS(file.path(out_dir, "GSE157504_LD_DD_count_qc_with_technical_features.rds"))
 seu_integrated <- readRDS(file.path(out_dir, "GSE157504_LD_DD_Seurat_author17_UMAP.rds"))
 meta_qc_all <- readr::read_csv(
@@ -684,7 +684,7 @@ library(SCP)
 
 stopifnot(packageVersion("Seurat") >= "5.0.0")
 
-validation_dir <- "/path/to/analysis_home/scRhythmBayes/GSE157504_validation"
+validation_dir <- "outputs/drosophila"
 out_dir <- file.path(validation_dir, "result_LD_DD")
 fig_dir <- file.path(out_dir, "figures")
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
@@ -1024,8 +1024,8 @@ The marker heatmap tests whether each published label forms a coherent expressio
 # 8. LD first-run contract
 
 ```{r ld-contract}
-package_dir <- "/path/to/scRhythmBayes"
-out_dir <- "/path/to/analysis_home/scRhythmBayes/GSE157504_validation/result_LD_DD"
+package_dir <- ".."
+out_dir <- "outputs/drosophila/result_LD_DD"
 n_worker <- min(10L, max(1L, future::availableCores() - 2L))
 
 LD_object <- readRDS(
@@ -1231,19 +1231,15 @@ seed_sanity_LD
 # 12. LD + DD author-17 phase input
 
 ```{r ld-dd-phase, eval=TRUE, message=TRUE}
-.libPaths(c(
-  .libPaths(),
-  "/path/to/analysis_home/proj_seurat_v4/renv/library/macos/R-4.5/aarch64-apple-darwin20"
-))
-
+# Use the R environment prepared for this analysis.
 library(Matrix)
 library(dplyr)
 library(tidyr)
 library(readr)
 library(ggplot2)
 
-package_dir <- "/path/to/scRhythmBayes"
-validation_dir <- "/path/to/analysis_home/scRhythmBayes/GSE157504_validation"
+package_dir <- ".."
+validation_dir <- "outputs/drosophila"
 out_dir <- file.path(validation_dir, "result_LD_DD")
 panel_dir <- file.path(out_dir, "panels_EI")
 qa_dir <- file.path(panel_dir, "qa")
@@ -1797,10 +1793,7 @@ Panel F uses raw-count-derived log-normalized expression, not the integrated ass
 The default refresh below redraws the saved CellAlign results with display IDs and never recomputes the alignments. Set the analysis chunk above to `eval=TRUE` only for an explicitly authorized full CellAlign rerun.
 
 ```{r panel-f-display-refresh, eval=TRUE, message=FALSE}
-.libPaths(c(
-  .libPaths(),
-  "/path/to/analysis_home/proj_seurat_v4/renv/library/macos/R-4.5/aarch64-apple-darwin20"
-))
+# Use the R environment prepared for this analysis.
 library(ComplexHeatmap)
 library(grid)
 library(gridExtra)
@@ -2401,7 +2394,7 @@ library(readr)
 library(ggplot2)
 library(patchwork)
 
-validation_dir <- "/path/to/analysis_home/scRhythmBayes/GSE157504_validation"
+validation_dir <- "outputs/drosophila"
 out_dir <- file.path(validation_dir, "result_LD_DD")
 panel_dir <- file.path(out_dir, "panels_EI")
 validation_plot_dir <- file.path(out_dir, "biological_validation")
@@ -3467,13 +3460,12 @@ dir.create(cellstyle_dir, recursive = TRUE, showWarnings = FALSE)
 cellstyle_qa_dir <- file.path(cellstyle_dir, "qa")
 dir.create(cellstyle_qa_dir, recursive = TRUE, showWarnings = FALSE)
 
-source(path.expand("/path/to/external_plot_helpers/panel_alignment.R"))
+source(path.expand("external/plot_helpers/panel_alignment.R"))
 alignment_audit_script <- path.expand(
-  "/path/to/external_plot_helpers/audit_panel_alignment.py"
+  "external/plot_helpers/audit_panel_alignment.py"
 )
 alignment_python_candidates <- unique(c(
-  unname(Sys.which(c("python3", "python"))),
-  "/usr/bin/python3"
+  unname(Sys.which(c("python3", "python")))
 ))
 alignment_python <- alignment_python_candidates[
   nzchar(alignment_python_candidates) & file.exists(alignment_python_candidates)
@@ -4134,7 +4126,7 @@ library(readr)
 library(readxl)
 library(ggplot2)
 
-validation_dir <- "/path/to/analysis_home/scRhythmBayes/GSE157504_validation"
+validation_dir <- "outputs/drosophila"
 out_dir <- file.path(validation_dir, "result_LD_DD")
 panel_dir <- file.path(out_dir, "panels_EI")
 priority_dir <- file.path(out_dir, "prioritization_validation")
@@ -5927,14 +5919,13 @@ cluster15_figure <- patchwork::wrap_plots(
   )
 
 if (!exists("require_patchwork_panel_alignment", mode = "function")) {
-  source(path.expand("/path/to/external_plot_helpers/panel_alignment.R"))
+  source(path.expand("external/plot_helpers/panel_alignment.R"))
 }
 if (exists("write_patchwork_panel_layout_viewport", mode = "function")) {
   write_patchwork_panel_layout <- write_patchwork_panel_layout_viewport
 }
 cluster15_alignment_python <- unique(c(
-  unname(Sys.which(c("python3", "python"))),
-  "/usr/bin/python3"
+  unname(Sys.which(c("python3", "python")))
 ))
 cluster15_alignment_python <- cluster15_alignment_python[
   nzchar(cluster15_alignment_python) & file.exists(cluster15_alignment_python)
@@ -5966,7 +5957,7 @@ require_patchwork_panel_alignment(
     cluster15_plot_genes[c(2, 4)]
   ),
   audit_script = path.expand(
-    "/path/to/external_plot_helpers/audit_panel_alignment.py"
+    "external/plot_helpers/audit_panel_alignment.py"
   ),
   python = cluster15_alignment_python,
   tolerance_pt = 1.5,
@@ -6179,7 +6170,7 @@ library(readr)
 library(ggplot2)
 library(patchwork)
 
-comparison_validation_dir <- "/path/to/analysis_home/scRhythmBayes/GSE157504_validation"
+comparison_validation_dir <- "outputs/drosophila"
 comparison_out_dir <- file.path(comparison_validation_dir, "result_LD_DD")
 comparison_priority_dir <- file.path(
   comparison_out_dir,
@@ -6887,12 +6878,11 @@ cluster15_compact_figure <- patchwork::wrap_plots(
 
 if (!exists("require_patchwork_panel_alignment", mode = "function")) {
   source(path.expand(
-    "/path/to/external_plot_helpers/panel_alignment.R"
+    "external/plot_helpers/panel_alignment.R"
   ))
 }
 comparison_alignment_python <- unique(c(
-  unname(Sys.which(c("python3", "python"))),
-  "/usr/bin/python3"
+  unname(Sys.which(c("python3", "python")))
 ))
 comparison_alignment_python <- comparison_alignment_python[
   nzchar(comparison_alignment_python) &
@@ -6930,7 +6920,7 @@ require_patchwork_panel_alignment(
   row_groups = comparison_row_groups,
   column_groups = comparison_column_groups,
   audit_script = path.expand(
-    "/path/to/external_plot_helpers/audit_panel_alignment.py"
+    "external/plot_helpers/audit_panel_alignment.py"
   ),
   python = comparison_alignment_python,
   tolerance_pt = 1.5,
@@ -6964,7 +6954,7 @@ require_patchwork_panel_alignment(
     comparison_genes[c(2, 4)]
   ),
   audit_script = path.expand(
-    "/path/to/external_plot_helpers/audit_panel_alignment.py"
+    "external/plot_helpers/audit_panel_alignment.py"
   ),
   python = comparison_alignment_python,
   tolerance_pt = 1.5,
@@ -7096,7 +7086,7 @@ library(tidyr)
 library(readr)
 library(ggplot2)
 
-figure6_validation_dir <- "/path/to/analysis_home/scRhythmBayes/GSE157504_validation"
+figure6_validation_dir <- "outputs/drosophila"
 figure6_out_dir <- file.path(figure6_validation_dir, "result_LD_DD")
 figure6_panel_dir <- file.path(figure6_out_dir, "panels_EI")
 figure6_srb_dir <- file.path(
@@ -7107,7 +7097,7 @@ figure6_srb_qa_dir <- file.path(figure6_srb_dir, "qa")
 dir.create(figure6_srb_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(figure6_srb_qa_dir, recursive = TRUE, showWarnings = FALSE)
 
-figure6_package_dir <- "/path/to/scRhythmBayes"
+figure6_package_dir <- ".."
 figure6_infer_file <- file.path(figure6_package_dir, "R/infer_gene_param.R")
 stopifnot(file.exists(figure6_infer_file))
 source(figure6_infer_file)
@@ -8164,12 +8154,12 @@ the saved `sig_result` and do not enter the ranking.
 
 ```{r figure6-saved-result-review-20261024, eval=FALSE, message=TRUE, warning=TRUE}
 source(
-  "/path/to/analysis_home/scRhythmBayes/GSE157504_validation/GSE157504_existing_results_figures_20261024.R"
+  "outputs/drosophila/GSE157504_existing_results_figures_20261024.R"
 )
 ```
 
 All generated files are written under
-`/path/to/source_archive/new figures /figure6/existing_results_review_20261024`.
+`outputs/figure6/existing_results_review_20261024`.
 
 # 52. Existing-panel Figure 6 assembly preview
 
@@ -8182,12 +8172,12 @@ layout previews; use the independent vector files for final production.
 
 ```{r figure6-existing-panel-assembly-20261024, eval=FALSE}
 source(
-  "/path/to/analysis_home/scRhythmBayes/GSE157504_validation/Figure6_assemble_existing_preview_20261024.R"
+  "outputs/drosophila/Figure6_assemble_existing_preview_20261024.R"
 )
 ```
 
 Preview files and panel-source manifests are saved in
-`/path/to/source_archive/new figures /figure6/existing_results_review_20261024/assembled_preview`.
+`outputs/figure6/existing_results_review_20261024/assembled_preview`.
 
 # 53. Observed-expression styling from the user reference
 
@@ -8202,11 +8192,11 @@ An additional four-gene preview reproduces a four-gene panel layout.
 
 ```{r figure6-observed-reference-style-20261024, eval=FALSE}
 source(
-  "/path/to/analysis_home/scRhythmBayes/GSE157504_validation/GSE157504_observed_reference_style_20261024.R"
+  "outputs/drosophila/GSE157504_observed_reference_style_20261024.R"
 )
 Sys.setenv(FIGURE6_OBSERVED_STYLE = "reference")
 source(
-  "/path/to/analysis_home/scRhythmBayes/GSE157504_validation/Figure6_assemble_existing_preview_20261024.R"
+  "outputs/drosophila/Figure6_assemble_existing_preview_20261024.R"
 )
 Sys.unsetenv("FIGURE6_OBSERVED_STYLE")
 ```
@@ -8232,14 +8222,14 @@ The cell-level status of the author-15 SRB curves remains explicit.
 
 ```{r figure6-editable-b5-lower-block-20261024, eval=FALSE}
 source(
-  "/path/to/analysis_home/scRhythmBayes/GSE157504_validation/Figure6_lower_B5_editable_20261024.R"
+  "outputs/drosophila/Figure6_lower_B5_editable_20261024.R"
 )
 ```
 
 Transfer-ready files are written directly to
-`/path/to/source_archive/new figures /figure6/Figure6_lower_B5_editable.svg`
+`outputs/figure6/Figure6_lower_B5_editable.svg`
 and
-`/path/to/source_archive/new figures /figure6/Figure6_lower_content_editable.svg`.
+`outputs/figure6/Figure6_lower_content_editable.svg`.
 
 # 55. Large-title SVG revision with complete axis labels
 
@@ -8258,12 +8248,12 @@ editable SVG component at the same native font size.
 
 ```{r figure6-large-text-svg-v2-20261024, eval=FALSE}
 source(
-  "/path/to/analysis_home/scRhythmBayes/GSE157504_validation/Figure6_lower_large_text_v2_20261024.R"
+  "outputs/drosophila/Figure6_lower_large_text_v2_20261024.R"
 )
 ```
 
 The new master is
-`/path/to/source_archive/new figures /figure6/Figure6_lower_large_text_v2.svg`.
+`outputs/figure6/Figure6_lower_large_text_v2.svg`.
 
 # 56. Lower panels fitted to an A4 portrait artboard
 
@@ -8285,14 +8275,14 @@ Previous versions are preserved.
 
 ```{r figure6-native-a4-lower-fit-20261024, eval=FALSE}
 source(
-  "/path/to/analysis_home/scRhythmBayes/GSE157504_validation/Figure6_lower_A4_fit_20261024.R"
+  "outputs/drosophila/Figure6_lower_A4_fit_20261024.R"
 )
 ```
 
 The full A4 master is
-`/path/to/source_archive/new figures /figure6/Figure6_lower_A4_210x297.svg`.
+`outputs/figure6/Figure6_lower_A4_210x297.svg`.
 The cropped transfer version is
-`/path/to/source_archive/new figures /figure6/Figure6_lower_A4_content_210x140.svg`.
+`outputs/figure6/Figure6_lower_A4_content_210x140.svg`.
 Use 100% import scale. The cropped artboard top maps to A4 y = 157 mm.
 Rendered plot alignment and text/line collision checks are recorded in
 `existing_results_review_20261024/lower_A4_fit`.

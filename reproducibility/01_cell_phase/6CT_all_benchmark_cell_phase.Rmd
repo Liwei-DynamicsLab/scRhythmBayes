@@ -11,7 +11,7 @@ library(Matrix)
 library(scRhythmBayes)
 library(ggplot2)
 
-input_dir <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input"
+input_dir <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input"
 output_dir <- file.path(input_dir, "cell_phase_benchmark_SRB_ZT")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 wrap_hour <- function(x) (x+12)%%24-12
@@ -19,7 +19,7 @@ wrap_hour <- function(x) (x+12)%%24-12
 
 ##seed gene
 ```{r}
-load("/path/to/data_volume/scRhythmBayes/data/merge_27seedgenes_bmal1.Rdata")
+load("data/merge_27seedgenes_bmal1.Rdata")
 
 library(babelgene)
 library(dplyr)
@@ -145,19 +145,19 @@ library(Matrix)
 library(data.table)
 library(dplyr)
 
-source("/path/to/analysis_workspace/outputs/infer_cell_phase.R")
+source("external/inference_original/infer_cell_phase.R")
 
 files <- c(
-  "/path/to/analysis_home/scRhythmBayes/data/GSE145197_RAW/GSM4308343_UMI_tab_ZT00A.txt.gz",
-  "/path/to/analysis_home/scRhythmBayes/data/GSE145197_RAW/GSM4308344_UMI_tab_ZT00B.txt.gz",
-  "/path/to/analysis_home/scRhythmBayes/data/GSE145197_RAW/GSM4308345_UMI_tab_ZT00C.txt.gz",
-  "/path/to/analysis_home/scRhythmBayes/data/GSE145197_RAW/GSM4308346_UMI_tab_ZT06A.txt.gz",
-  "/path/to/analysis_home/scRhythmBayes/data/GSE145197_RAW/GSM4308347_UMI_tab_ZT06B.txt.gz",
-  "/path/to/analysis_home/scRhythmBayes/data/GSE145197_RAW/GSM4308348_UMI_tab_ZT12A.txt.gz",
-  "/path/to/analysis_home/scRhythmBayes/data/GSE145197_RAW/GSM4308349_UMI_tab_ZT12B.txt.gz",
-  "/path/to/analysis_home/scRhythmBayes/data/GSE145197_RAW/GSM4308350_UMI_tab_ZT12C.txt.gz",
-  "/path/to/analysis_home/scRhythmBayes/data/GSE145197_RAW/GSM4308351_UMI_tab_ZT18A.txt.gz",
-  "/path/to/analysis_home/scRhythmBayes/data/GSE145197_RAW/GSM4308352_UMI_tab_ZT18B.txt.gz"
+  "data/GSE145197_RAW/GSM4308343_UMI_tab_ZT00A.txt.gz",
+  "data/GSE145197_RAW/GSM4308344_UMI_tab_ZT00B.txt.gz",
+  "data/GSE145197_RAW/GSM4308345_UMI_tab_ZT00C.txt.gz",
+  "data/GSE145197_RAW/GSM4308346_UMI_tab_ZT06A.txt.gz",
+  "data/GSE145197_RAW/GSM4308347_UMI_tab_ZT06B.txt.gz",
+  "data/GSE145197_RAW/GSM4308348_UMI_tab_ZT12A.txt.gz",
+  "data/GSE145197_RAW/GSM4308349_UMI_tab_ZT12B.txt.gz",
+  "data/GSE145197_RAW/GSM4308350_UMI_tab_ZT12C.txt.gz",
+  "data/GSE145197_RAW/GSM4308351_UMI_tab_ZT18A.txt.gz",
+  "data/GSE145197_RAW/GSM4308352_UMI_tab_ZT18B.txt.gz"
 )
 
 stopifnot(all(file.exists(files)))
@@ -301,10 +301,10 @@ length(seed_keep)
 
 ##true data
 ```{r true-counts}
-sccir <- qs::qread('/path/to/data_volume/scRhythmBayes/data/circadian scLiver(Felix Naef).qs')
-scliver <- qs::qread('/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs')
+sccir <- qs::qread('data/circadian scLiver(Felix Naef).qs')
+scliver <- qs::qread('data/scCircadianLiver-RNAonly.qs')
 library(dplyr)
-source("/path/to/analysis_workspace/outputs/seed_revision/infer_cell_phase.R")
+source("external/seed_revision/infer_cell_phase.R")
 
 count_sccir <- sccir[["RNA"]]@counts
 meta_sccir <- sccir@meta.data[, c("ZT", "celltype"), drop = FALSE]
@@ -548,7 +548,7 @@ write.csv(true_mismatch_summary, "true_data_seed_mismatch_stability.csv", row.na
 ```{r}
 library(plotthis)
 
-seed_plot_dir <- "/path/to/scRhythmBayes/R/seed_revision_figures"
+seed_plot_dir <- "outputs/cell_phase/seed_revision_figures"
 dir.create(seed_plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 seed_colors <- c(
@@ -790,7 +790,7 @@ table(metadata$celltype)
 
 ## 2. scRhythmBayes cell phase
 ```{r infer-cell-phase,message=TRUE}
-source("/path/to/scRhythmBayes/reproducibility/support/legacy/infer_cell_phase.R")
+source("support/legacy/infer_cell_phase.R")
 res_phase <- infer_cell_phase(
   count = count,
   metadata = metadata,
@@ -958,7 +958,7 @@ ggsave(file.path(output_dir, "FigureC_ZT_only.pdf"),p_zt,width = 4,height = 4,de
 
 ## 7. Read scRITMO cell phase
 ```{r}
-scRITMO_file <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_scRITMO/scRITMO_cell_phase.csv"
+scRITMO_file <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_scRITMO/scRITMO_cell_phase.csv"
 
 scRITMO_cell_phase <- read.csv(scRITMO_file, check.names = FALSE, stringsAsFactors = FALSE)
 
@@ -1017,7 +1017,7 @@ ggsave(file.path(output_dir, "FigureC_ZT_scRITMO.pdf"), p_scritmo, width = 4, he
 
 ## 9. Read Tempo cell phase
 ```{r}
-tempo_file <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_Tempo/Tempo_cell_phase.csv"
+tempo_file <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_Tempo/Tempo_cell_phase.csv"
 
 Tempo_cell_phase <- read.csv(tempo_file, check.names = FALSE, stringsAsFactors = FALSE)
 
@@ -1073,7 +1073,7 @@ ggsave(file.path(output_dir, "FigureC_Tempo.pdf"), p_tempo, width = 4, height = 
 
 ## 11. Read Tempo posterior circular mean
 ```{r}
-tempo_mean_file <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_Tempo/Tempo_cell_phase_circular_mean.csv"
+tempo_mean_file <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_Tempo/Tempo_cell_phase_circular_mean.csv"
 
 Tempo_mean_cell_phase <- read.csv(tempo_mean_file, check.names = FALSE, stringsAsFactors = FALSE)
 
@@ -1122,7 +1122,7 @@ ggsave(file.path(output_dir, "FigureC_Tempo_circular_mean.pdf"), p_tempo_mean, w
 
 ## 13. Read CoPhaser cell phase
 ```{r}
-CoPhaser_file <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_CoPhaser/CoPhaser_cell_phase.csv"
+CoPhaser_file <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_CoPhaser/CoPhaser_cell_phase.csv"
 
 CoPhaser_cell_phase <- read.csv(CoPhaser_file, check.names = FALSE, stringsAsFactors = FALSE)
 
@@ -1191,7 +1191,7 @@ data.frame(
 
 ## 15. Read CYCLOPS cell phase
 ```{r}
-CYCLOPS_file <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_CYCLOPS/CYCLOPS_cell_phase.csv"
+CYCLOPS_file <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_CYCLOPS/CYCLOPS_cell_phase.csv"
 
 CYCLOPS_cell_phase <- read.csv(CYCLOPS_file, check.names = FALSE, stringsAsFactors = FALSE)
 
@@ -1250,7 +1250,7 @@ ggsave(file.path(output_dir, "FigureC_CYCLOPS.pdf"), p_cyclops, width = 4, heigh
 
 ## 17. Read reCAT cell phase
 ```{r}
-reCAT_file <- path.expand("/path/to/scRhythmBayes/R/reCAT_6CT/reCAT_6CT_cell_phase.csv")
+reCAT_file <- path.expand("outputs/cell_phase/reCAT_6CT/reCAT_6CT_cell_phase.csv")
 reCAT_cell_phase <- read.csv(reCAT_file, check.names = FALSE, stringsAsFactors = FALSE)
 stopifnot(all(c("cell", "sample_name", "ZT", "celltype", "sigma_bio_hour", "T_true", "Theta_true", "reCAT_phase_hour", "reCAT_phase_rad", "reCAT_eligible") %in% names(reCAT_cell_phase)))
 stopifnot(!anyDuplicated(reCAT_cell_phase$cell))
@@ -1276,7 +1276,7 @@ ggsave(file.path(output_dir, "FigureC_reCAT.pdf"), p_recat, width = 4, height = 
 
 ## 19. Read Cyclum cell phase
 ```{r}
-Cyclum_file <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_Cyclum_by_CT/Cyclum_cell_phase.csv"
+Cyclum_file <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_Cyclum_by_CT/Cyclum_cell_phase.csv"
 Cyclum_cell_phase <- read.csv(Cyclum_file, check.names = FALSE, stringsAsFactors = FALSE)
 required_cols_cyclum <- c("cell", "sample_name", "ZT", "celltype", "sigma_bio_hour", "T_true", "Theta_true", "pred_hour", "pred_rad", "wrapped_error_hour", "abs_error_hour")
 stopifnot(all(required_cols_cyclum %in% names(Cyclum_cell_phase)))
@@ -1302,7 +1302,7 @@ ggsave(file.path(output_dir, "FigureC_Cyclum.pdf"), p_cyclum, width = 4, height 
 
 ## 21. Read scPrisma cell phase
 ```{r}
-scPrisma_file <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_scPrisma_by_CT/scPrisma_cell_phase.csv"
+scPrisma_file <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input/cell_phase_benchmark_scPrisma_by_CT/scPrisma_cell_phase.csv"
 scPrisma_cell_phase <- read.csv(scPrisma_file, check.names = FALSE, stringsAsFactors = FALSE)
 required_cols_scprisma <- c("cell", "sample_name", "ZT", "celltype", "sigma_bio_hour", "T_true", "Theta_true", "pred_hour", "pred_rad", "wrapped_error_hour", "abs_error_hour")
 stopifnot(all(required_cols_scprisma %in% names(scPrisma_cell_phase)))
@@ -1388,7 +1388,7 @@ benchmark_summary
 ```{r}
 suppressPackageStartupMessages({library(Matrix); library(dplyr); library(tidyr); library(ggplot2); library(plotthis)})
 
-input_dir <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input"
+input_dir <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input"
 output_dir <- file.path(input_dir,"cell_phase_benchmark_SRB_ZT")
 dir.create(output_dir,recursive=TRUE,showWarnings=FALSE)
 
@@ -1408,7 +1408,7 @@ scRITMO_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_scRIT
 Tempo_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_Tempo","Tempo_cell_phase.csv"))
 CoPhaser_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_CoPhaser","CoPhaser_cell_phase.csv"))
 CYCLOPS_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_CYCLOPS","CYCLOPS_cell_phase.csv"))
-reCAT_cell_phase <- read_phase(path.expand("/path/to/scRhythmBayes/R/reCAT_6CT/reCAT_6CT_cell_phase.csv"),"reCAT_phase_hour")
+reCAT_cell_phase <- read_phase(path.expand("outputs/cell_phase/reCAT_6CT/reCAT_6CT_cell_phase.csv"),"reCAT_phase_hour")
 Cyclum_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_Cyclum_by_CT","Cyclum_cell_phase.csv"))
 scPrisma_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_scPrisma_by_CT","scPrisma_cell_phase.csv"))
 
@@ -3280,7 +3280,7 @@ ggsave(
 ```{r}
 suppressPackageStartupMessages({library(Matrix); library(dplyr); library(tidyr); library(ggplot2); library(plotthis)})
 
-input_dir <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input"
+input_dir <- "outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input"
 output_dir <- file.path(input_dir,"cell_phase_benchmark_SRB_ZT")
 dir.create(output_dir,recursive=TRUE,showWarnings=FALSE)
 
@@ -3300,7 +3300,7 @@ scRITMO_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_scRIT
 Tempo_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_Tempo","Tempo_cell_phase.csv"))
 CoPhaser_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_CoPhaser","CoPhaser_cell_phase.csv"))
 CYCLOPS_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_CYCLOPS","CYCLOPS_cell_phase.csv"))
-reCAT_cell_phase <- read_phase(path.expand("/path/to/scRhythmBayes/R/reCAT_6CT/reCAT_6CT_cell_phase.csv"),"reCAT_phase_hour")
+reCAT_cell_phase <- read_phase(path.expand("outputs/cell_phase/reCAT_6CT/reCAT_6CT_cell_phase.csv"),"reCAT_phase_hour")
 Cyclum_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_Cyclum_by_CT","Cyclum_cell_phase.csv"))
 scPrisma_cell_phase <- read_phase(file.path(input_dir,"cell_phase_benchmark_scPrisma_by_CT","scPrisma_cell_phase.csv"))
 
@@ -5083,8 +5083,8 @@ sensitivity_simulation_dir <- dirname(input_dir)
 sensitivity_output_dir <- file.path(input_dir, "cell_to_gene_phase_sensitivity")
 dir.create(sensitivity_output_dir, recursive = TRUE, showWarnings = FALSE)
 
-source("/path/to/scRhythmBayes/R/infer_cell_phase.R")
-source("/path/to/scRhythmBayes/R/infer_gene_param.R")
+source("../R/infer_cell_phase.R")
+source("../R/infer_gene_param.R")
 
 sensitivity_count <- as(readMM(file.path(input_dir, "count_gene_by_cell.mtx")), "CsparseMatrix")
 sensitivity_genes <- read.csv(file.path(input_dir, "genes.csv"), stringsAsFactors = FALSE)
@@ -5581,12 +5581,12 @@ sensitivity_settings <- data.frame(
 
 sensitivity_function_files <- data.frame(
   file = c(
-    "/path/to/scRhythmBayes/R/infer_cell_phase.R",
-    "/path/to/scRhythmBayes/R/infer_gene_param.R"
+    "../R/infer_cell_phase.R",
+    "../R/infer_gene_param.R"
   ),
   md5 = unname(tools::md5sum(c(
-    "/path/to/scRhythmBayes/R/infer_cell_phase.R",
-    "/path/to/scRhythmBayes/R/infer_gene_param.R"
+    "../R/infer_cell_phase.R",
+    "../R/infer_gene_param.R"
   )))
 )
 
@@ -5663,7 +5663,7 @@ library(ggplot2)
 out_dir <- file.path(input_dir, "phase_uncertainty")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
-source("/path/to/scRhythmBayes/R/infer_gene_param.R")
+source("../R/infer_gene_param.R")
 
 count <- as(readMM(file.path(input_dir, "count_gene_by_cell.mtx")), "CsparseMatrix")
 genes <- read.csv(file.path(input_dir, "genes.csv"))
@@ -5688,7 +5688,7 @@ q_file <- file.path(out_dir, "phase_Q.rds")
 if (file.exists(q_file)) {
   phase_result <- readRDS(q_file)
 } else {
-  code <- readLines("/path/to/scRhythmBayes/R/infer_cell_phase.R")
+  code <- readLines("../R/infer_cell_phase.R")
   i <- which(trimws(code) == "return(out)")
   stopifnot(length(i) == 1)
 

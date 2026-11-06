@@ -44,17 +44,15 @@ knitr::opts_chunk$set(
 # 1. Paths and packages
 
 ```{r heart_paths_packages}
-heart_algo_dir <- "/path/to/scRhythmBayes/R"
-heart_data_file <- "/path/to/data_volume/scRhythmBayes/data/cricadian scHeart(ACR and NCR).qs"
-heart_root <- "/path/to/analysis_home/scRhythmBayes/data/scHeart_ACR_NCR_new_20261022"
-heart_legacy_library <- "/path/to/analysis_home/proj_seurat_v4/renv/library/macos/R-4.5/aarch64-apple-darwin20"
-heart_plotalign_file <- "/path/to/scRhythmBayes/reproducibility/05_heart/plotAlignCustom_heart_20261023.R"
-heart_seed_file <- "/path/to/data_volume/scRhythmBayes/data/merge_27seedgenes_bmal1.Rdata"
-heart_phase_fix_file <- "/path/to/scRhythmBayes/reproducibility/05_heart/infer_cell_phase_heart_fix_20261022.R"
-heart_panel_alignment_file <- "/path/to/external_plot_helpers/panel_alignment.R"
-heart_panel_audit_file <- "/path/to/external_plot_helpers/audit_panel_alignment.py"
+heart_algo_dir <- "../R"
+heart_data_file <- "data/cricadian scHeart(ACR and NCR).qs"
+heart_root <- "outputs/heart"
+heart_plotalign_file <- "05_heart/plotAlignCustom_heart_20261023.R"
+heart_seed_file <- "data/merge_27seedgenes_bmal1.Rdata"
+heart_phase_fix_file <- "05_heart/infer_cell_phase_heart_fix_20261022.R"
+heart_panel_alignment_file <- "external/plot_helpers/panel_alignment.R"
+heart_panel_audit_file <- "external/plot_helpers/audit_panel_alignment.py"
 
-.libPaths(c(.libPaths(), heart_legacy_library))
 
 heart_figure_dir <- file.path(heart_root, "figures_complete_noif_20261023")
 heart_phase_file <- file.path(heart_root, "heart_infer_cell_phase.rds")
@@ -93,7 +91,7 @@ stopifnot(file.exists(heart_panel_audit_file))
 source(file.path(heart_algo_dir, "run_phase_rho.R"))
 source(file.path(heart_algo_dir, "run_dtw_similarity.R"))
 source(heart_panel_alignment_file)
-source("/path/to/scRhythmBayes/reproducibility/05_heart/measure_heart_panels_20261023.R")
+source("05_heart/measure_heart_panels_20261023.R")
 
 dir.create(heart_root, recursive = TRUE, showWarnings = FALSE)
 dir.create(heart_param_dir, recursive = TRUE, showWarnings = FALSE)
@@ -1231,9 +1229,9 @@ the ranking, and unavailable tests remain NA rather than being labelled `ns`.
 
 ```{r heart-saved-result-ranking-20261024, eval=FALSE, message=TRUE, warning=TRUE}
 source(
-  "/path/to/scRhythmBayes/reproducibility/05_heart/scHeart_existing_results_ranking_20261024.R"
+  "05_heart/scHeart_existing_results_ranking_20261024.R"
 )
 ```
 
 The ranking CSV and independent PNG/PDF scatter are written under
-`/path/to/source_archive/new figures /figure6/existing_results_review_20261024`.
+`outputs/figure6/existing_results_review_20261024`.

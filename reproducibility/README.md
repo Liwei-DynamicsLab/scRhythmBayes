@@ -20,10 +20,10 @@ source and dependency declarations are in `../R/` and `../DESCRIPTION`.
 ## Running an analysis
 
 1. Read `DATA_AND_ENVIRONMENT.md` for input data and environment requirements.
-2. Configure file paths in the selected notebook. `/path/to/...` strings are
-   explicit placeholders: replace them with your data, repository and output
-   locations. They are not directories supplied by this repository. Home-relative
-   paths (`~/...`) also need review. Use a separate output directory for a new run.
+2. Start R or Python with `reproducibility/` as the working directory. All
+   analysis paths are relative to this directory. See `PATHS.md` for the shared
+   directory layout and R Markdown/Jupyter instructions. Place inputs in the
+   expected locations or edit the path variables at the start of the analysis.
 3. Install the packages imported by that notebook. Python comparators and Seurat
    v4/v5 routes require their respective environments.
 4. Run the relevant setup, inference and plotting chunks in order. Several
@@ -42,6 +42,8 @@ final panel numbering. Enrichment sections use Reactome.
 Large data objects, fitted-result caches and historical environments are not
 included. Some plotting routes and historical inference variants require
 additional external files identified in `DATA_AND_ENVIRONMENT.md`.
-R and Python sources have been checked for syntax after path anonymization;
+R and Python sources have been checked for syntax after conversion to relative paths;
 full analyses and clean installation have not been rerun for this collection.
-`source_manifest.tsv` lists distributed files and SHA-256 checksums.
+`01_cell_phase/6CT_CYCLOPS_cell_phase_prediction.Rmd` points to the executable
++CYCLOPS runner; it is not a separate analysis notebook.
++`source_manifest.tsv` lists distributed files and SHA-256 checksums.

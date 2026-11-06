@@ -27,9 +27,9 @@ suppressPackageStartupMessages({
 })
 
 set.seed(1)
-source("/path/to/scRhythmBayes/R/infer_gene_param.R")
+source("../R/infer_gene_param.R")
 
-out_dir <- "/path/to/analysis_home/Desktop/Figure3_output"
+out_dir <- "outputs/gene_benchmark"
 result_dir <- file.path(out_dir, "algorithm_results")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(result_dir, recursive = TRUE, showWarnings = FALSE)
@@ -373,7 +373,7 @@ suppressPackageStartupMessages({
 
 ## 1. Output
 
-out_dir <- "/path/to/analysis_home/Desktop/Figure3_output/ROC_TOTAL/"
+out_dir <- "outputs/gene_benchmark/ROC_TOTAL/"
 
 dir.create(
   out_dir,
@@ -1250,7 +1250,7 @@ mesor_metrics <- mesor_metric_total %>%
     )
   )
 
-mesor_dir <- "/path/to/analysis_home/Desktop/Figure3_output/MESOR/"
+mesor_dir <- "outputs/gene_benchmark/MESOR/"
 dir.create(mesor_dir, recursive = TRUE, showWarnings = FALSE)
 
 metric_theme <- theme_figure3() +
@@ -2414,7 +2414,7 @@ amplitude_metrics <- amplitude_metric_total %>%
     )
   )
 
-amplitude_dir <- "/path/to/analysis_home/Desktop/Figure3_output/AMPLITUDE/"
+amplitude_dir <- "outputs/gene_benchmark/AMPLITUDE/"
 dir.create(
   amplitude_dir,
   recursive = TRUE,
@@ -3293,7 +3293,7 @@ library(dplyr)
 ## 1. Output directory
 
 
-phase_dir <- "/path/to/analysis_home/Desktop/Figure3_output/PHASE/"
+phase_dir <- "outputs/gene_benchmark/PHASE/"
 
 dir.create(
   phase_dir,
@@ -3754,7 +3754,7 @@ colSums(rhythmic.df)
 
 qs::qsave(
   rhythmic.df,
-  file = "/path/to/analysis_home/Desktop/Figure3_output/algorithm_results/rhythmic_df.qs"
+  file = "outputs/gene_benchmark/algorithm_results/rhythmic_df.qs"
 )
 ```
 ##cm plot
@@ -3769,7 +3769,7 @@ library(readr)
 ## 1. Output directory
 ############################################################
 
-out_dir <- "/path/to/analysis_home/Desktop/Figure3_output/confusion_matrix/"
+out_dir <- "outputs/gene_benchmark/confusion_matrix/"
 
 dir.create(
   out_dir,
@@ -4070,7 +4070,7 @@ write_tsv(
 ```
 ##venn
 ```{r}
-venn_dir <- "/path/to/analysis_home/Desktop/Figure3_output/VENN/"
+venn_dir <- "outputs/gene_benchmark/VENN/"
 dir.create(
   venn_dir,
   recursive = TRUE,
@@ -4084,7 +4084,7 @@ library(scales)
 ## 1. Output directory
 ############################################################
 
-venn_dir <- "/path/to/analysis_home/Desktop/Figure3_output/VENN/"
+venn_dir <- "outputs/gene_benchmark/VENN/"
 
 dir.create(
   venn_dir,
@@ -4274,7 +4274,7 @@ library(scales)
 ## 1. Output
 ############################################################
 
-save_dir <- "/path/to/analysis_home/Desktop/Figure3_output/RHYTHMIC_PROPORTION/"
+save_dir <- "outputs/gene_benchmark/RHYTHMIC_PROPORTION/"
 
 dir.create(
   save_dir,
@@ -4592,7 +4592,7 @@ stopifnot(
   exists("phase_metric_total")
 )
 
-figure3_dir <- "/path/to/analysis_home/Desktop/Figure3_output"
+figure3_dir <- "outputs/gene_benchmark"
 
 figure3F_dir <- file.path(
   figure3_dir,
@@ -5510,7 +5510,7 @@ suppressPackageStartupMessages({
 })
 
 reference_sim <- qread(
-  "/path/to/scRhythmBayes/R/simulation_data_replicates.qs"
+  "data/gene_benchmark/simulation_data_replicates.qs"
 )
 
 fixed_gene_truth <- as.data.frame(
@@ -6024,7 +6024,7 @@ simulate_sc_circadian_fixed_truth <- function(
   )
 }
 
-simulation_dir <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/data/FDR_calibration"
+simulation_dir <- "outputs/simulation/data/FDR_calibration"
 
 dir.create(
   simulation_dir,
@@ -6402,9 +6402,9 @@ suppressPackageStartupMessages({
   library(purrr)
 })
 
-simulation_dir <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/data/FDR_calibration"
+simulation_dir <- "outputs/simulation/data/FDR_calibration"
 
-calibration_dir <- "/path/to/analysis_home/Desktop/Figure3_output/FDR_calibration"
+calibration_dir <- "outputs/gene_benchmark/FDR_calibration"
 
 result_dir <- file.path(
   calibration_dir,
@@ -6671,7 +6671,7 @@ suppressPackageStartupMessages({
   library(patchwork)
 })
 
-calibration_dir <- "/path/to/analysis_home/Desktop/Figure3_output/FDR_calibration"
+calibration_dir <- "outputs/gene_benchmark/FDR_calibration"
 result_dir <- file.path(calibration_dir,"per_simulation_results")
 
 result_files <- list.files(result_dir,pattern="^SRB_calibration_seed[0-9]+\\.qs$",full.names=TRUE)
@@ -6880,8 +6880,8 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-native_result_dir <- "/path/to/analysis_home/Desktop/Figure3_output/algorithm_results"
-native_output_dir <- "/path/to/analysis_home/Desktop/Figure3_output/PARAMETER_RISK_COVERAGE"
+native_result_dir <- "outputs/gene_benchmark/algorithm_results"
+native_output_dir <- "outputs/gene_benchmark/PARAMETER_RISK_COVERAGE"
 dir.create(native_output_dir, recursive = TRUE, showWarnings = FALSE)
 
 native_required_files <- file.path(
@@ -8338,7 +8338,7 @@ suppressPackageStartupMessages({
 
 ## 1. ROC output directory
 
-roc_output_dir <- "/path/to/analysis_home/Desktop/Figure3_output/ROC_TOTAL"
+roc_output_dir <- "outputs/gene_benchmark/ROC_TOTAL"
 
 dir.create(
   roc_output_dir,
@@ -8792,7 +8792,7 @@ suppressPackageStartupMessages({
   library(patchwork)
 })
 
-gene_matrix_root <- "/path/to/analysis_home/Desktop/Figure3_output"
+gene_matrix_root <- "outputs/gene_benchmark"
 
 gene_matrix_output_dir <- file.path(
   gene_matrix_root,
@@ -9740,7 +9740,7 @@ suppressPackageStartupMessages({
 })
 
 srb_heatmap_dir <- file.path(
-  "/path/to/analysis_home/Desktop/Figure3_output",
+  "outputs/gene_benchmark",
   "SRB_SPECIFIC_HEATMAP"
 )
 
@@ -10293,12 +10293,7 @@ srb_surface_pdf <- file.path(
 # Pandoc is available, saveWidget falls back to a standard HTML dependency
 # directory rather than changing the figure or blocking the static export.
 if (!nzchar(Sys.getenv("RSTUDIO_PANDOC"))) {
-  srb_surface_pandoc_candidates <- c(
-    "/Applications/RStudio.app/Contents/Resources/app/quarto/bin/tools/aarch64",
-    "/Applications/RStudio.app/Contents/Resources/app/quarto/bin/tools/x86_64",
-    "/Applications/Positron.app/Contents/Resources/app/quarto/bin/tools/aarch64",
-    "/Applications/Positron.app/Contents/Resources/app/quarto/bin/tools/x86_64"
-  )
+  srb_surface_pandoc_candidates <- dirname(unname(Sys.which("pandoc")))
   srb_surface_pandoc_candidates <- srb_surface_pandoc_candidates[
     file.exists(file.path(srb_surface_pandoc_candidates, "pandoc"))
   ]
@@ -10739,7 +10734,7 @@ suppressPackageStartupMessages({
   library(ragg)
 })
 
-result_dir <- "/path/to/analysis_home/Desktop/Figure3_output/algorithm_results"
+result_dir <- "outputs/gene_benchmark/algorithm_results"
 srb_final_file <- file.path(result_dir, "scRhythmBayes_full_final_v2.qs")
 
 benchmark_input <- qs::qread(file.path(result_dir, "benchmark_input.qs"))
@@ -10752,10 +10747,10 @@ stopifnot(
   setequal(rownames(benchmark_input$counts), rownames(dry_res$results))
 )
 
-module_out_dir <- "/path/to/analysis_home/Desktop/Figure3_output/module_FGHI_simple"
+module_out_dir <- "outputs/gene_benchmark/module_FGHI_simple"
 dir.create(module_out_dir, recursive = TRUE, showWarnings = FALSE)
 
-source("/path/to/scRhythmBayes/R/infer_rhythm_module.R")
+source("../R/infer_rhythm_module.R")
 
 module_fit <- infer_rhythm_module(
   param_wide = res_srb$param_wide,
@@ -10952,7 +10947,7 @@ stopifnot(all(module_checks$Pass))
 
 ## 10.3 Figure F heatmaps
 ```{r module-figure-f}
-source("/path/to/scRhythmBayes/reproducibility/support/legacy/simHeatmap5.R")
+source("support/legacy/simHeatmap5.R")
 
 expr.matrix <- benchmark_input$counts
 meta.module <- benchmark_input$metadata

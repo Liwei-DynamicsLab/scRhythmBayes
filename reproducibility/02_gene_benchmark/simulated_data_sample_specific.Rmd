@@ -298,7 +298,7 @@ sim.dat <- simulate_sc_circadian_replicates(
   show_progress = TRUE
 )
 
-qsave(sim.dat, "~/Qian/simulated data/simulation_data_replicates.qs")
+qsave(sim.dat, "data/gene_benchmark/simulation_data_replicates.qs")
 
 dim(sim.dat$counts)
 table(sim.dat$cell_meta$group, sim.dat$cell_meta$replicate, sim.dat$cell_meta$ZT_bin)
@@ -332,8 +332,8 @@ metadata <- metadata[colnames(count.mat), , drop = FALSE]
 
 stopifnot(identical(colnames(count.mat), rownames(metadata)))
 
-qsave(count.mat, "~/Qian/simulated data/pseudobulk_count_36samples.qs")
-qsave(metadata,"~/Qian/simulated data/pseudobulk_metadata_36samples.qs")
+qsave(count.mat, "data/gene_benchmark/pseudobulk_count_36samples.qs")
+qsave(metadata,"data/gene_benchmark/pseudobulk_metadata_36samples.qs")
 
 dim(count.mat)
 metadata

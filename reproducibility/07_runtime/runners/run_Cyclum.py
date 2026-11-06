@@ -15,11 +15,11 @@ from sklearn.preprocessing import scale
 import sklearn
 import matplotlib.pyplot as plt
 
-INPUT_DIR = Path("/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input")
+INPUT_DIR = Path("outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input")
 COUNT_PATH = INPUT_DIR / "count_gene_by_cell.mtx"
 GENE_PATH = INPUT_DIR / "genes.csv"
 METADATA_PATH = INPUT_DIR / "metadata.csv"
-OUT_DIR = Path("/path/to/scRhythmBayes/reproducibility/07_runtime/runs/Cyclum")
+OUT_DIR = Path("07_runtime/runs/Cyclum")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 SEED = 1
 np.random.seed(SEED)
@@ -51,7 +51,7 @@ CT_ORDER = [f"CT{i}" for i in range(1, 7)]
 # ---- notebook code cell 1 ----
 import tensorflow as tf
 import keras
-sys.path.insert(0, "/path/to/analysis_home/Projects/Cyclum")
+sys.path.insert(0, "external/Cyclum")
 import cyclum
 from cyclum.tuning import CyclumAutoTune
 

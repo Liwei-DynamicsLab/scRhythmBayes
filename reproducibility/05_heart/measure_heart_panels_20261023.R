@@ -31,7 +31,7 @@ measure_heart_panels <- function(grob, prefix, width, height, body_pattern,
   )
   jsonlite::write_json(manifest, paste0(prefix, ".alignment-layout.json"), auto_unbox = TRUE, pretty = TRUE)
   result <- system2(Sys.which("python3"), c(
-    shQuote("/path/to/external_plot_helpers/audit_panel_alignment.py"),
+    shQuote("external/plot_helpers/audit_panel_alignment.py"),
     shQuote(paste0(prefix, ".alignment-layout.json")),
     "--json-out", shQuote(paste0(prefix, ".alignment.json")),
     "--overlay-svg", shQuote(paste0(prefix, ".alignment.svg")),

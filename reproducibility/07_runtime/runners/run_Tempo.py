@@ -22,13 +22,13 @@ print("Tempo:", tempo.__file__)
 
 # ---- notebook code cell 1 ----
 # 02 · Paths
-RUN_DIR = Path("/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1")
+RUN_DIR = Path("outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1")
 H5AD_PATH = RUN_DIR / "scRITMO_extended_simulation.h5ad"
 METADATA_PATH = RUN_DIR / "R_input/metadata.csv"
 GENE_PARAMETERS_PATH = RUN_DIR / "baseline_gene_parameters.csv"
-GENE_PRIOR_PATH = Path("/path/to/analysis_home/scRhythmBayes/data/gene_acrophase_prior.csv")
-CORE_CLOCK_PATH = Path("/path/to/analysis_home/scRhythmBayes/data/Tempo_core_clock_genes.txt")
-OUT_DIR = Path("/path/to/scRhythmBayes/reproducibility/07_runtime/runs/Tempo")
+GENE_PRIOR_PATH = Path("data/gene_acrophase_prior.csv")
+CORE_CLOCK_PATH = Path("data/Tempo_core_clock_genes.txt")
+OUT_DIR = Path("07_runtime/runs/Tempo")
 reference_gene = "Bmal1"
 SEED = 1
 

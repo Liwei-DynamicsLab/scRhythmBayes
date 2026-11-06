@@ -14,12 +14,12 @@ library(dplyr)
 library(readr)
 library(furrr)
 
-source("/path/to/scRhythmBayes/reproducibility/support/legacy/infer_cell_phase.R")
-source("/path/to/scRhythmBayes/R/infer_gene_param.R")
-source("/path/to/scRhythmBayes/reproducibility/support/legacy/infer_ovr_rhythm_clean.R")
+source("support/legacy/infer_cell_phase.R")
+source("../R/infer_gene_param.R")
+source("support/legacy/infer_ovr_rhythm_clean.R")
 
-scliver_file <- "/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs"
-out_dir <- "/path/to/data_volume/scRhythmBayes/data/revised_liver_full"
+scliver_file <- "data/scCircadianLiver-RNAonly.qs"
+out_dir <- "data/revised_liver_full"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 input_cache_file <- file.path(out_dir, "liver_count_meta_cache.qs")
 input_cache <- if (file.exists(input_cache_file)) tryCatch(qread(input_cache_file), error = function(e) NULL) else NULL
@@ -243,7 +243,7 @@ ovr_export_cairo <- FALSE
 ovr_export_tiff_600 <- FALSE
 options(future.globals.maxSize = 2 * 1024^3)
 
-ovr_data_dir <- "/path/to/scRhythmBayes/data"
+ovr_data_dir <- "data"
 baseline_dir <- file.path(ovr_data_dir, "ovr_baseline")
 loco_file <- file.path(ovr_data_dir, "liver_ovr_loco_all.rds")
 loco_summary_file <- file.path(ovr_data_dir, "liver_ovr_loco_summary.csv")
@@ -337,12 +337,12 @@ suppressPackageStartupMessages({
   library(ragg)
 })
 
-source("/path/to/scRhythmBayes/reproducibility/support/legacy/liver_block_m3_heatmap.R")
+source("support/legacy/liver_block_m3_heatmap.R")
 
 future::plan(future::sequential)
 options(future.globals.maxSize = 2 * 1024^3)
 
-ovr_data_dir <- "/path/to/scRhythmBayes/data"
+ovr_data_dir <- "data"
 baseline_dir <- file.path(ovr_data_dir, "ovr_baseline")
 figure_dir <- file.path(ovr_data_dir, "figure3_revision")
 phase_file <- file.path(out_dir, "liver_phase.rds")
@@ -928,12 +928,12 @@ suppressPackageStartupMessages({
   library(ragg)
 })
 
-source("/path/to/scRhythmBayes/reproducibility/support/legacy/liver_block_m3_heatmap.R")
+source("support/legacy/liver_block_m3_heatmap.R")
 
 future::plan(future::sequential)
 options(future.globals.maxSize = 2 * 1024^3)
 
-ovr_data_dir <- "/path/to/scRhythmBayes/data"
+ovr_data_dir <- "data"
 baseline_dir <- file.path(ovr_data_dir, "ovr_baseline")
 figure_dir <- file.path(ovr_data_dir, "figure3_revision")
 phase_file <- file.path(out_dir, "liver_phase.rds")

@@ -23,7 +23,7 @@ These links are accession entry points, not verified direct-download manifests. 
 ## Environment boundaries
 
 - Package source and dependencies: see the parent repository (`../R/`, `../DESCRIPTION`). Historical cached results may have been produced with different revisions.
-- R analyses: install the libraries imported in the selected notebook. Configure `.libPaths()` and environment activation statements for your own installation.
+- R analyses: install the libraries imported in the selected notebook into the environment used to run it.
 - Fly preprocessing and downstream sections require separate Seurat versions as documented in the notebook. Do not mix their assumptions in one session.
 - Python comparators use method-specific environments. Jupyter source is preserved, while execution outputs were removed to avoid bundling stale logs or embedded data.
 - The original notebook seeds and thresholds are retained. Historical full-session package versions were not reconstructed or fabricated.
@@ -31,33 +31,24 @@ These links are accession entry points, not verified direct-download manifests. 
 
 ## Path configuration and additional files
 
-Paths have been anonymized without changing model parameters, seeds or
-statistical thresholds. Replace these roots consistently within the selected
-analysis and its helper scripts:
+See `PATHS.md` for the relative directory layout. Use the R/Python environment
+appropriate for the selected analysis; scripts no longer activate a personal
+renv project, append a machine-specific R library, or require a fixed Python
+executable. The Seurat version requirements in the analysis remain applicable.
 
-| Placeholder | Required location |
-|---|---|
-| `/path/to/scRhythmBayes` | This repository checkout |
-| `/path/to/analysis_home` | Your analysis workspace containing processed data, simulation exports, comparator checkouts and environments; preserve or edit the suffix for each input |
-| `/path/to/data_volume` | Data directory containing the study input objects |
-| `/path/to/source_archive` | Historical analysis inputs/source archive, if that route is used |
-| `/path/to/analysis_workspace` | Additional historical analysis files referenced by a selected route |
-| `/path/to/legacy_study` | Inputs for legacy Windows analysis sections |
-| `/path/to/external_plot_helpers` | External `panel_alignment.R` / `audit_panel_alignment.py` layout utilities, not bundled |
+The `support/legacy` functions are distinct historical implementations. The
+files under `external/inference_original` and `external/seed_revision` are
+additional source versions that are not bundled; a same-named function in the
+package is not necessarily interchangeable.
 
-The included `support/legacy` functions are distinct historical implementations;
-do not replace them with current package functions without checking the calling
-interface. Historical `infer_cell_phase.R` files under `outputs/seed_revision`
-or `outputs/` are not supplied merely because another function with the same
-name is included. Those routes require the matching source version.
+Some plotting sections require external layout utilities (`panel_alignment.R`,
+`audit_panel_alignment.py`), `sc_gene_curve.R`, figure-assembly scripts, layout
+images or cached plot inputs. These are not bundled. The heart setup currently
+requires the layout utilities. Review file-existence checks and `source()` calls
+before choosing a route. Missing dependencies are not removed or silently
+replaced by unrelated functions.
 
-Some figure sections additionally reference `sc_gene_curve.R`, an existing fly
-figure-assembly script, layout images, and precomputed plot inputs. These are
-not bundled. Review `source()`, input-loading calls and file-existence checks
-before selecting those sections. The heart notebook currently requires the
-external panel-layout utilities even for its setup chunk. This source collection
-therefore does not provide complete raw-data-to-figure execution for every route.
-
-The simulator and benchmark may use different cache filenames/directories;
-point the benchmark to the simulator output explicitly. Runtime summary scripts
-also require measured metrics and provenance files; see `07_runtime/README.md`.
+This source collection does not supply complete raw-data-to-figure execution
+for every historical route. Point benchmark input paths to the corresponding
+simulator outputs. Runtime summaries additionally require measured metrics and
+provenance files described in `07_runtime/README.md`.

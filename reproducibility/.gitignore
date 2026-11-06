@@ -10,3 +10,5 @@ __pycache__/
 07_runtime/results/
 07_runtime/data/
 07_runtime/figures/
+data/
+external/

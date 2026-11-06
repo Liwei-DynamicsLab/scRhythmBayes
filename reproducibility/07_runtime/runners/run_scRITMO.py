@@ -11,12 +11,11 @@ import anndata as ad
 from scipy import sparse
 from IPython.display import display
 
-PYTHON = Path('/path/to/analysis_home/miniforge3_x86/envs/scritmo-env/bin/python')
-assert Path(sys.executable).resolve() == PYTHON.resolve(), f'Choose scritmo-env kernel: {sys.executable}'
-LOCAL_REPO = Path('/path/to/analysis_home/Projects/scRhythmBayes_simulation/scRITMO')
-RUN_DIR = Path('/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1')
+# Run with an environment containing the scRITMO dependencies.
+LOCAL_REPO = Path('external/scRITMO')
+RUN_DIR = Path('outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1')
 H5AD = RUN_DIR / 'scRITMO_extended_simulation.h5ad'
-OUTPUT_DIR = Path('/path/to/scRhythmBayes/reproducibility/07_runtime/runs/scRITMO')
+OUTPUT_DIR = Path('07_runtime/runs/scRITMO')
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SEED = 1
 N_EPOCHS = 300

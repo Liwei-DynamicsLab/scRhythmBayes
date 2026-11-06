@@ -28,13 +28,13 @@ print("PyTorch:", torch.__version__)
 print("MPS:", torch.backends.mps.is_available())
 
 # ---- notebook code cell 2 ----
-RUN_DIR = Path("/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1")
+RUN_DIR = Path("outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1")
 
 H5AD_PATH = RUN_DIR / "scRITMO_extended_simulation.h5ad"
 
 METADATA_PATH = RUN_DIR / "R_input" / "metadata.csv"
 
-OUT_DIR = Path("/path/to/scRhythmBayes/reproducibility/07_runtime/runs/CoPhaser")
+OUT_DIR = Path("07_runtime/runs/CoPhaser")
 
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 

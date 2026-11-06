@@ -1,13 +1,13 @@
-.libPaths(c(.libPaths(), "/path/to/analysis_home/proj_seurat_v4/renv/library/macos/R-4.5/aarch64-apple-darwin20"))
+# Use the R environment prepared for this analysis.
 stopifnot(utils::packageVersion("SeuratObject") >= "5.0.0")
-root <- "/path/to/analysis_home/scRhythmBayes/data/scHeart_ACR_NCR_new_20261022"
-objects_dir <- "/path/to/analysis_home/scRhythmBayes/data/scHeart_by_celltype/objects"
+root <- "outputs/heart"
+objects_dir <- "data/scHeart_by_celltype/objects"
 out <- file.path(root, "figures_complete_noif_20261023")
 dir.create(out, recursive = TRUE, showWarnings = FALSE)
 phase <- readRDS(file.path(root, "heart_infer_cell_phase.rds"))
 rho <- readRDS(file.path(root, "heart_run_phase_rho.rds"))
 seed_env <- new.env(parent = emptyenv())
-load("/path/to/data_volume/scRhythmBayes/data/merge_27seedgenes_bmal1.Rdata", envir = seed_env)
+load("data/merge_27seedgenes_bmal1.Rdata", envir = seed_env)
 seeds <- unique(toupper(as.character(unlist(as.list(seed_env), use.names = FALSE))))
 seeds[seeds == "BMAL1"] <- "ARNTL"
 celltypes <- c("Cardiomyocytes", "Endothelial", "Lymphocytes", "Myeloid", "Adipocytes",

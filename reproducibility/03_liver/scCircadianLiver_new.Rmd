@@ -5,8 +5,8 @@ output: html_notebook
 
 # system setting
 ```{r,R enviroment activiation,include=FALSE}
-renv::activate(project = "~/my_SCP_env")
-new_output_root <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015"
+# Use the R environment prepared for this analysis.
+new_output_root <- "outputs/liver"
 dir.create(new_output_root, recursive = TRUE, showWarnings = FALSE)
 ```
 
@@ -324,15 +324,15 @@ qsave(sc, file = file.path(new_output_root, "scCircadianLiver-MultiOmics.qs"))
 library(qs)
 library(Seurat)
 library(furrr)
-source("/path/to/scRhythmBayes/R/infer_cell_phase.R")
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+source("../R/infer_cell_phase.R")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 
 str(scliver)
 library(qs)
 library(Seurat)
 
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 # 直接看 assay 名字，不走 Assays()
 names(scliver@assays)
 # 删掉 ATAC
@@ -343,8 +343,8 @@ DefaultAssay(scliver) <- "RNA"
 # 再检查
 names(scliver@assays)
 # 保存成只含 RNA 的新对象
-dir.create("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015", recursive = TRUE, showWarnings = FALSE)
-qsave(scliver, "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianLiver-RNAonly.qs")
+dir.create("outputs/liver", recursive = TRUE, showWarnings = FALSE)
+qsave(scliver, "outputs/liver/scCircadianLiver-RNAonly.qs")
 
 
 # 1. 只保留 RNA assay
@@ -366,7 +366,7 @@ cells_use <- colnames(scliver)[as.character(scliver$celltype) %in% c("Hep.PV", "
 obj_use <- subset(scliver, cells = cells_use)
 
 
-save(obj_use,file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
+save(obj_use,file = "outputs/liver/scCircadianliver_object_celltype_use.Rdata")
 
 rm(cells_use,scliver);gc()
 
@@ -377,7 +377,7 @@ celltype <- obj_use$celltype
 meta_phase <- obj_use@meta.data
 meta_phase$ZT_num <- ZT_time
 
-save(count_mat,file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+save(count_mat,file = "outputs/liver/scCircadianliver_countmat.Rdata")
 
 res_phase_liver <- infer_cell_phase(
   count = count_mat,
@@ -387,7 +387,7 @@ res_phase_liver <- infer_cell_phase(
   Species = "mouse"
 )
 
-save(res_phase_liver,file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
+save(res_phase_liver,file = "outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
 ```
 
 #test function
@@ -396,8 +396,8 @@ library(qs)
 library(Seurat)
 library(furrr)
 
-source("/path/to/scRhythmBayes/R/infer_cell_phase.R")
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+source("../R/infer_cell_phase.R")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 scliver@assays <- scliver@assays["RNA"]
 DefaultAssay(scliver) <- "RNA"
 cells_use <- colnames(scliver)[as.character(scliver$celltype) %in% c("Hep.PV", "Hep.CV")]
@@ -422,11 +422,11 @@ res_phase_test <- infer_cell_phase(
 
 #level3 parameters
 ```{r}
-source("/path/to/scRhythmBayes/R/infer_gene_param.R")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
+source("../R/infer_gene_param.R")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
 #count_mat <- GetAssayData(obj_use, assay = "RNA", layer= "counts")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
 dim(obj_use)#16337 16402
 dim(count_mat) #16337 16402
 dim(res_phase_liver) #16402
@@ -448,7 +448,7 @@ res_param_liver2 <- infer_gene_param(
 )
 #23:40-3:23
 #10:05-14:00
-save(res_param_liver2,file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_result_param_scRhythm_phase2.Rdata")
+save(res_param_liver2,file = "outputs/liver/scCircadianliver_result_param_scRhythm_phase2.Rdata")
 ```
 
 
@@ -459,9 +459,9 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(readr)
 })
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_result_param_scRhythm_phase2.Rdata")
-source("/path/to/scRhythmBayes/R/infer_rhythm_module.R")
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018"
+load("outputs/liver/scCircadianliver_result_param_scRhythm_phase2.Rdata")
+source("../R/infer_rhythm_module.R")
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018"
 
 param_wide <- res_param_liver2$param_wide
 
@@ -489,12 +489,12 @@ res2_module$comparison
 #heatmap function
 ```{r}
 library(Seurat)
-source("/path/to/analysis_home/scRhythmBayes/scRhythmBayes/R/module_heatmap_new.R")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_result_param_scRhythm_phase2.Rdata")
+source("external/analysis_helpers/module_heatmap_new.R")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_result_param_scRhythm_phase2.Rdata")
 DefaultAssay(obj_use) <- "RNA"
 
 cell_meta <- obj_use@meta.data
@@ -503,7 +503,7 @@ cell_meta$theta_pred <- res_phase_liver$theta_pred[match(rownames(cell_meta), re
 cell_meta <- cell_meta[colnames(count_mat), , drop = FALSE]
 stopifnot(identical(rownames(cell_meta), colnames(count_mat)), all(is.finite(cell_meta$theta_pred)))
 
-heatmap_out_dir <- file.path("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018",
+heatmap_out_dir <- file.path("outputs/liver/result_module_phase2_CV_to_PV_20261018",
                              paste0("heatmap_corrected_", format(Sys.time(), "%Y%m%d_%H%M%S")))
 stopifnot(dir.create(heatmap_out_dir, showWarnings = FALSE))
 message("Heatmap output: ", heatmap_out_dir)
@@ -604,8 +604,8 @@ suppressPackageStartupMessages({
 
 # Step 0. IO
 
-infile <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata"
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/final_module_upset"
+infile <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/final_module_upset"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 load(infile)
@@ -734,10 +734,10 @@ suppressPackageStartupMessages({
 
 # Step 0. IO
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/module_summary"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/module_summary"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 # Step 1. Prepare module table
 
@@ -806,10 +806,10 @@ suppressPackageStartupMessages({
   library(ReactomePA)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/GO_BP_module"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/GO_BP_module"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 #background
@@ -1238,10 +1238,10 @@ suppressPackageStartupMessages({
   library(ReactomePA)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/Reactome_module"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/Reactome_module"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. 当前 module 结果
@@ -1514,8 +1514,8 @@ reactome_all_df %>%
 ```{r}
 rm(list = ls()); gc()
 #BiocManager::install("org.Mm.eg.db")
-#install.packages("/path/to/analysis_home/Downloads/org.Mm.eg.db-main", repos = NULL, type = "source")
-#install.packages("/path/to/analysis_home/Downloads/ReactomePA-devel", repos = NULL, type = "source")
+#install.packages("external/org.Mm.eg.db-main", repos = NULL, type = "source")
+#install.packages("external/ReactomePA-devel", repos = NULL, type = "source")
 suppressPackageStartupMessages({
   library(clusterProfiler)
   library(org.Mm.eg.db)
@@ -1529,10 +1529,10 @@ suppressPackageStartupMessages({
   library(ReactomePA)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/Reactome_module"
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/Reactome_module"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. 当前 module 结果
@@ -1702,8 +1702,8 @@ for (i in seq_len(nrow(module_info))) {
 }
 
 reactome_all_df <- bind_rows(reactome_list)
-save(reactome_list,file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_reactomelist_result_phase2.Rdata")
-saveRDS(reactome_list,file ="/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_reactomelist_result_phase2.rds") 
+save(reactome_list,file = "outputs/liver/scCircadianliver_reactomelist_result_phase2.Rdata")
+saveRDS(reactome_list,file ="outputs/liver/scCircadianliver_reactomelist_result_phase2.rds")
 reactome_all_df %>%
   dplyr::count(module_id, module_label)
 
@@ -1940,7 +1940,7 @@ suppressPackageStartupMessages({
   library(Matrix)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
 DefaultAssay(obj_use) <- "RNA"
 
 expr_mat <- GetAssayData(obj_use, assay = "RNA", layer = "data")
@@ -2061,9 +2061,9 @@ suppressPackageStartupMessages({
 })
 
 # 0. load data
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result
@@ -2408,7 +2408,7 @@ ht_cv
 ht_pv
 
 # 9. save
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/module2_gpcr_heatmap"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/module2_gpcr_heatmap"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 pdf(file.path(out_dir, "module2_gpcr_HepCV_heatmap.pdf"), width = 7, height = 9)
@@ -2446,10 +2446,10 @@ suppressPackageStartupMessages({
   library(stringr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 
-plot_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/module2_gpcr_heatmap/PHASE_DENSITY"
+plot_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/module2_gpcr_heatmap/PHASE_DENSITY"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 group_colors <- c(
@@ -2568,9 +2568,9 @@ suppressPackageStartupMessages({
   library(org.Mm.eg.db)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result
@@ -2910,7 +2910,7 @@ ht_pv <- Heatmap(
 ht_cv
 ht_pv
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/module2_gpcr_heatmap"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/module2_gpcr_heatmap"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 pdf(file.path(out_dir, "module2_gpcr_HepCV_heatmap.pdf"), width = 7.5, height = 12.5)
@@ -2959,7 +2959,7 @@ dev.off()
 #gpcr gene cos
 ```{r}
 # GPCR module2 genes: batch MAGIC + module_result equation curve
-#install.packages("/path/to/analysis_home/Downloads/Rmagic-master", repos = NULL, type = "source")
+#install.packages("external/Rmagic-master", repos = NULL, type = "source")
 # GPCR genes MAGIC cos
 rm(list = ls()); gc()
 
@@ -2976,9 +2976,9 @@ suppressPackageStartupMessages({
 })
 
 # 0. load data
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result
@@ -3081,7 +3081,7 @@ celltype_pal <- c(
 
 theta_grid <- seq(0, 2*pi, length.out = 300)
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/MAGIC_RESULT_phase2/gpcr_gene_curves"
+out_dir <- "outputs/liver/MAGIC_RESULT_phase2/gpcr_gene_curves"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 4. loop over genes
@@ -3269,9 +3269,9 @@ suppressPackageStartupMessages({
 })
 
 # 0. load data
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result
@@ -3374,7 +3374,7 @@ celltype_pal <- c(
 
 theta_grid <- seq(0, 2*pi, length.out = 300)
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/MAGIC_RESULT_phase2/gpcr_gene_curves_singleSide"
+out_dir <- "outputs/liver/MAGIC_RESULT_phase2/gpcr_gene_curves_singleSide"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 4. loop over genes
@@ -3565,9 +3565,9 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 
@@ -3840,7 +3840,7 @@ print(p_circ_facet)
 
 # Step 8. save
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/circular_phase_plot"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/circular_phase_plot"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 ggsave(
@@ -3874,9 +3874,9 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 
@@ -4093,7 +4093,7 @@ p_hep_pv
 p_hep_cv
 
 # Step 9. save
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/circular_phase_plot"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/circular_phase_plot"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 ggsave(
@@ -4141,9 +4141,9 @@ suppressPackageStartupMessages({
   library(scales)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 
@@ -4251,7 +4251,7 @@ p_phase_density <- ggplot(density_df, aes(x = theta, y = density, color = cellty
 
 p_phase_density
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/cell_phase_density"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/cell_phase_density"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -4281,10 +4281,10 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/cell_phase_polar"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/cell_phase_polar"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 phase_df <- obj_use@meta.data %>%
@@ -4562,8 +4562,8 @@ suppressPackageStartupMessages({
 
 # 1. load results
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_result_param_scRhythm_phase2.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_result_param_scRhythm_phase2.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 param_wide <- res_param_liver2$param_wide
 module_result <- res2_module$module_result
@@ -4882,7 +4882,7 @@ suppressPackageStartupMessages({
 })
 
 # 1. load updated results
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 module_result <- res2_module$module_result
 
@@ -5238,7 +5238,7 @@ plot_module_polar <- function(module_use,
 }
 
 # 13. output one by one with for loop
-out_dir_plot <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/module_polar_single"
+out_dir_plot <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/module_polar_single"
 dir.create(out_dir_plot, showWarnings = FALSE, recursive = TRUE)
 
 module_ids_use <- sort(unique(top_gene_df$module_id))
@@ -5286,8 +5286,8 @@ suppressPackageStartupMessages({
 })
 
 # 1. load results
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_result_param_scRhythm_phase2.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_result_param_scRhythm_phase2.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 param_wide <- res_param_liver2$param_wide
 module_result <- res2_module$module_result
@@ -5653,7 +5653,7 @@ plot_module_polar <- function(module_use,
     annotate("text", x = 1.18, y = 0.27, label = amp_legend_vals[min(3, length(amp_legend_vals))], hjust = 0, size = 3.0)
 }
 # 16. output one by one with for loop
-out_dir_plot <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/module_polar_single"
+out_dir_plot <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/module_polar_single"
 dir.create(out_dir_plot, showWarnings = FALSE, recursive = TRUE)
 
 module_ids_use <- sort(unique(top_gene_df$module_id))
@@ -5697,7 +5697,7 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 module_result <- res2_module$module_result
 
@@ -5882,7 +5882,7 @@ p_final <- p_core_clock / p_legend + plot_layout(heights = c(12, 1.2))
 p_final
 
 # 11. 保存
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/core_clock_polar"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/core_clock_polar"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -5911,8 +5911,8 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
 
 cell_phase_df2 <- obj_use@meta.data %>%
   tibble::rownames_to_column("cell") %>%
@@ -6052,7 +6052,7 @@ annotate(
 
 
 p_zt
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/cell_phase_circle"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/cell_phase_circle"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -6082,8 +6082,8 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
 
 cell_phase_df2 <- obj_use@meta.data %>%
   tibble::rownames_to_column("cell") %>%
@@ -6196,7 +6196,7 @@ annotate(
 
 p_zt
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/cell_phase_circle"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/cell_phase_circle"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -6229,9 +6229,9 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 
@@ -6331,7 +6331,7 @@ p_core_curve <- ggplot(plot_df, aes(x = theta_pred, y = core_clock_score, color 
 p_core_curve
 
 # 8. save
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/gene_set_curve"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/gene_set_curve"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -6361,9 +6361,9 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 
@@ -6463,7 +6463,7 @@ p_per2 <- plot_gene_dual_curve("Per2")
 p_per2
 p_arntl <- plot_gene_dual_curve("Arntl")
 p_arntl
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/gene_dual_curve"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/gene_dual_curve"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 p_per2 <- plot_gene_dual_curve("Per2")
@@ -6494,9 +6494,9 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 
@@ -6678,7 +6678,7 @@ p_arntl <- plot_gene_dual_curve_smooth("Arntl")
 p_arntl
 
 # 7. save
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/gene_dual_curve"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/gene_dual_curve"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -6699,7 +6699,7 @@ ggsave(
 
 #gene curve function
 ```{r}
-source("~/scRhythmBayes/scRhythmBayes/R/sc_gene_curve.R")
+source("external/analysis_helpers/sc_gene_curve.R")
 
 res_gc <- build_sc_gene_curve(
   obj_use = obj_use,
@@ -6710,18 +6710,18 @@ res_gc <- build_sc_gene_curve(
 
 plot(res_gc, gene = "Per2")
 
-pdf("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/gene_dual_curve/Per2_curve.pdf", width = 4.2, height = 4.8)
+pdf("outputs/liver/result_module_phase2_CV_to_PV_20261018/gene_dual_curve/Per2_curve.pdf", width = 4.2, height = 4.8)
 plot(res_gc, gene = "Per2")
 dev.off()
-pdf("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/gene_dual_curve/Arntl_curve.pdf", width = 4.2, height = 4.8)
+pdf("outputs/liver/result_module_phase2_CV_to_PV_20261018/gene_dual_curve/Arntl_curve.pdf", width = 4.2, height = 4.8)
 plot(res_gc, gene = "Arntl")
 dev.off()
 
-png("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/gene_dual_curve/Per2_curve.png",  width = 1000, height = 1200, res = 220)
+png("outputs/liver/result_module_phase2_CV_to_PV_20261018/gene_dual_curve/Per2_curve.png",  width = 1000, height = 1200, res = 220)
 plot(res_gc, gene = "Per2")
 dev.off()
 
-png("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/gene_dual_curve/Arntl_curve.png",  width = 1000, height = 1200, res = 220)
+png("outputs/liver/result_module_phase2_CV_to_PV_20261018/gene_dual_curve/Arntl_curve.png",  width = 1000, height = 1200, res = 220)
 plot(res_gc, gene = "Arntl")
 dev.off()
 ```
@@ -6739,9 +6739,9 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 
@@ -6876,7 +6876,7 @@ p_per2
 p_arntl
 
 # 6. save example
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/gene_dual_curve_cosfit"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/gene_dual_curve_cosfit"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -6908,8 +6908,8 @@ suppressPackageStartupMessages({
   library(Seurat)
   library(Matrix)
 })
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_result_param_scRhythm_phase2.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_result_param_scRhythm_phase2.Rdata")
 # 1.drug metabolism gene list
 drug_genes_raw <- c(
   "Tnfaip3","Tnfaip3","Abcg3","Dlst","Aldh6a1","Elovl3","Elovl3","Hells","Got1","Got1",
@@ -7151,7 +7151,7 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 
 drug_genes_raw <- c(
@@ -7213,7 +7213,7 @@ drug_module_map %>%
 
 
 # build expression summary
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
 DefaultAssay(obj_use) <- "RNA"
 
 expr_mat <- GetAssayData(obj_use, assay = "RNA", layer = "data")
@@ -7352,9 +7352,9 @@ suppressPackageStartupMessages({
 
 
 # 0. load data
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result
@@ -7435,7 +7435,7 @@ celltype_pal <- c(
 
 theta_grid <- seq(0, 2*pi, length.out = 300)
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/MAGIC_RESULT_phase2/drug_focus_gene_curves"
+out_dir <- "outputs/liver/MAGIC_RESULT_phase2/drug_focus_gene_curves"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 
@@ -7630,7 +7630,7 @@ for (gene_use in focus_genes_final) {
 
 #focus module gene curve
 ```{r}
-source("~/scRhythmBayes/scRhythmBayes/R/sc_gene_curve.R")
+source("external/analysis_helpers/sc_gene_curve.R")
 focus_genes <- drug_full_df %>%
   dplyr::pull(gene) %>%
   unique() %>%
@@ -7647,7 +7647,7 @@ print(res_gc_focus)
 res_gc_focus$genes_ok
 res_gc_focus$genes_failed
 res_gc_focus$genes_missing
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/gene_dual_curve_focus"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/gene_dual_curve_focus"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 for (g in res_gc_focus$genes_found) {
@@ -7678,11 +7678,11 @@ suppressPackageStartupMessages({
 })
 
 # 0. load current liver results
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 module_result <- res2_module$module_result
 
-plot_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/AMP_DENSITY_BY_MODULE"
+plot_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/AMP_DENSITY_BY_MODULE"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. maps
@@ -7858,13 +7858,13 @@ suppressPackageStartupMessages({
 })
 
 # 0. load current liver results
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_result_param_scRhythm_phase2.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_result_param_scRhythm_phase2.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 param_wide <- res_param_liver2$param_wide
 module_result <- res2_module$module_result
 
-plot_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/PHASE_DENSITY_BY_MODULE"
+plot_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/PHASE_DENSITY_BY_MODULE"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. maps
@@ -8062,11 +8062,11 @@ suppressPackageStartupMessages({
 })
 
 # 0. load current liver results
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 module_result <- res2_module$module_result
 
-plot_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/PHASE_CUMULATIVE_BY_MODULE"
+plot_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/PHASE_CUMULATIVE_BY_MODULE"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. module labels
@@ -8271,11 +8271,11 @@ suppressPackageStartupMessages({
 })
 
 # 0. load current liver results
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 module_result <- res2_module$module_result
 
-plot_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/AMP_CUMULATIVE_BY_MODULE"
+plot_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/AMP_CUMULATIVE_BY_MODULE"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. maps
@@ -8486,7 +8486,7 @@ for (m in module_ids) {
 # rebuild matrix for MAGIC input
 rm(list = ls()); gc()
 
-#install.packages("/path/to/analysis_home/Downloads/Rmagic-master", repos = NULL, type = "source")
+#install.packages("external/Rmagic-master", repos = NULL, type = "source")
 suppressPackageStartupMessages({
   library(Seurat)
   library(dplyr)
@@ -8496,8 +8496,8 @@ suppressPackageStartupMessages({
   library(Rmagic)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 
@@ -8664,7 +8664,7 @@ p_magic_dual <- ggplot() +
 
 p_magic_dual
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/MAGIC_RESULT_phase2"
+out_dir <- "outputs/liver/MAGIC_RESULT_phase2"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 ggsave(
   file.path(out_dir, paste0(gene_use, "_MAGIC_dual_curve.pdf")),
@@ -8707,8 +8707,8 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 
@@ -8854,7 +8854,7 @@ p_magic_dual <- ggplot() +
   )
 
 p_magic_dual
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/MAGIC_RESULT_phase2"
+out_dir <- "outputs/liver/MAGIC_RESULT_phase2"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 ggsave(
@@ -8893,9 +8893,9 @@ suppressPackageStartupMessages({
 
 # 0. load data
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result
@@ -8959,7 +8959,7 @@ celltype_pal <- c(
 
 theta_grid <- seq(0, 2*pi, length.out = 300)
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/MAGIC_RESULT_phase2/moduleResult_curve_batch"
+out_dir <- "outputs/liver/MAGIC_RESULT_phase2/moduleResult_curve_batch"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 
@@ -9174,9 +9174,9 @@ suppressPackageStartupMessages({
 
 # 0. load data
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result
@@ -9231,7 +9231,7 @@ focus_genes_final <- drug_genes_raw %>%
   intersect(rownames(expr_data)) %>%
   sort()
 drug_first_all_genes <- focus_genes_final
-save(drug_first_all_genes,file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_drug_all_module_gene_phase2.Rdata")
+save(drug_first_all_genes,file = "outputs/liver/scCircadianliver_drug_all_module_gene_phase2.Rdata")
 
 focus_genes_final <- c(
   genes_small_modules,
@@ -9269,7 +9269,7 @@ celltype_pal <- c(
 
 theta_grid <- seq(0, 2*pi, length.out = 300)
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/MAGIC_RESULT_phase2/moduleResult_curve_batch"
+out_dir <- "outputs/liver/MAGIC_RESULT_phase2/moduleResult_curve_batch"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 
@@ -9482,7 +9482,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 module_result <- res2_module$module_result
 
@@ -9530,7 +9530,7 @@ plot_df_module <- module_result %>%
 print(plot_df_module)
 
 # 3. save table
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/module_barplot"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/module_barplot"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 readr::write_tsv(
@@ -9598,9 +9598,9 @@ suppressPackageStartupMessages({
   library(grid)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result
@@ -9873,7 +9873,7 @@ ht_pv <- Heatmap(
 
 # 7. draw and save
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/module_4_heatmap"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/module_4_heatmap"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 pdf(file.path(out_dir, "module1267_HepCV_heatmap.pdf"), width = 8, height = 10)
@@ -9913,9 +9913,9 @@ suppressPackageStartupMessages({
   library(furrr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result
@@ -10341,7 +10341,7 @@ ht_pv <- Heatmap(
 ht_cv
 ht_pv
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/drug_all_module_heatmap"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/drug_all_module_heatmap"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 pdf(file.path(out_dir, "drug_all_module_HepCV_heatmap.pdf"), width = 7, height = 9)
@@ -10378,10 +10378,10 @@ suppressPackageStartupMessages({
   library(stringr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 
-plot_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/drug_all_module_heatmap/PHASE_DENSITY_BY_MODULE"
+plot_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/drug_all_module_heatmap/PHASE_DENSITY_BY_MODULE"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 module_label_map <- c(
@@ -10552,9 +10552,9 @@ suppressPackageStartupMessages({
 
 # 0. load data
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result
@@ -10996,7 +10996,7 @@ ht_pv
 
 # 8. draw and save
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/module1267_focus_heatmap"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/module1267_focus_heatmap"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 pdf(file.path(out_dir, "module1267_focus_HepCV_heatmap.pdf"), width = 8, height = 11)
@@ -11030,7 +11030,7 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 
 drug_genes_raw <- c(
@@ -11103,7 +11103,7 @@ suppressPackageStartupMessages({
   library(scales)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 
 drug_genes_raw <- c(
@@ -11172,7 +11172,7 @@ plot_df_module <- module_result %>%
 
 print(plot_df_module)
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/drug_module1267_barplot"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/drug_module1267_barplot"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 readr::write_tsv(
@@ -11210,7 +11210,7 @@ suppressPackageStartupMessages({
   library(scales)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 
 drug_genes_raw <- c(
@@ -11279,7 +11279,7 @@ plot_df_module <- module_result %>%
 
 print(plot_df_module)
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/drug_module1267_barplot"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/drug_module1267_barplot"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 readr::write_tsv(
@@ -11337,7 +11337,7 @@ ggsave(
 # module -> gene sigmoid plot using CCPlotR::cc_sigmoid
 #devtools::install_github("Sarah145/CCPlotR")
 #BiocManager::install("CCPlotR")
-#install.packages("/path/to/analysis_home/Downloads/CCPlotR-main", repos = NULL, type = "source")
+#install.packages("external/CCPlotR-main", repos = NULL, type = "source")
 
 
 rm(list = ls()); gc()
@@ -11353,7 +11353,7 @@ suppressPackageStartupMessages({
 
 # 0. load data
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 
 # 这里沿用你已经筛好的基因
@@ -11470,7 +11470,7 @@ p_sigmoid
 
 # 6. save
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/module_gene_sigmoid"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/module_gene_sigmoid"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -11511,7 +11511,7 @@ suppressPackageStartupMessages({
 
 # 0. load data
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 
 focus_genes_final <- c(
@@ -11649,7 +11649,7 @@ p_sankey
 
 # 6. save
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/module_gene_sankey"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/module_gene_sankey"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -11689,7 +11689,7 @@ suppressPackageStartupMessages({
   library(tidyr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 
 drug_genes_raw <- c(
@@ -11746,7 +11746,7 @@ drug_module_count <- drug_module_map %>%
 drug_module_map
 drug_module_count
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 
 # 1. define drug genes
@@ -11779,8 +11779,8 @@ right_df <- module_df %>%
     right_node = gene,
     weight = 1
   )
-save(drug_first_module,file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_drug_first_modulegene_phase2.Rdata")
-save(drug_core_genes,file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_drug_all_nona_gene_phase2.Rdata")
+save(drug_first_module,file = "outputs/liver/scCircadianliver_drug_first_modulegene_phase2.Rdata")
+save(drug_core_genes,file = "outputs/liver/scCircadianliver_drug_all_nona_gene_phase2.Rdata")
 # 4. build sankey long table
 sankey_df <- right_df %>%
   mutate(edge_id = row_number()) %>%
@@ -11865,7 +11865,7 @@ p_sankey <- ggplot(
 p_sankey
 
 # 8. save
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/sankey_plot"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/sankey_plot"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -11913,8 +11913,8 @@ right_df <- module_df %>%
     weight = 1
   )
 drug_first_module<- right_df$right_node
-save(drug_first_module,file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_drug_first_modulegene_phase2.Rdata")
-save(drug_core_genes,file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_drug_all_nona_gene_phase2.Rdata")
+save(drug_first_module,file = "outputs/liver/scCircadianliver_drug_first_modulegene_phase2.Rdata")
+save(drug_core_genes,file = "outputs/liver/scCircadianliver_drug_all_nona_gene_phase2.Rdata")
 # 4. build sankey long table
 sankey_df <- right_df %>%
   mutate(edge_id = row_number()) %>%
@@ -12010,7 +12010,7 @@ geom_text(
 p_sankey
 
 # 8. save
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/sankey_plot"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/sankey_plot"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -12040,7 +12040,7 @@ suppressPackageStartupMessages({
   library(RColorBrewer)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 
 # 1. define story genes
@@ -12189,7 +12189,7 @@ p_sankey <- ggplot(
   )
 
 p_sankey
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/sankey_plot"
+out_dir <- "outputs/liver/result_module_phase2_CV_to_PV_20261018/sankey_plot"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -12222,10 +12222,10 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-source("/path/to/scRhythmBayes/R/infer_cell_phase.R")
+source("../R/infer_cell_phase.R")
 
 # 1. load RNA-only liver object
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 DefaultAssay(scliver) <- "RNA"
 
 # 2. keep all annotated celltypes
@@ -12263,9 +12263,9 @@ res_phase_liver_global <- infer_cell_phase(
   Species = "mouse"
 )
 
-save(obj_use, file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_fullcelltype_object.Rdata")
-save(count_mat, file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_fullcelltype_countmat.Rdata")
-save(res_phase_liver_global, file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_fullcelltype_phase.Rdata")
+save(obj_use, file = "outputs/liver/scCircadianliver_fullcelltype_object.Rdata")
+save(count_mat, file = "outputs/liver/scCircadianliver_fullcelltype_countmat.Rdata")
+save(res_phase_liver_global, file = "outputs/liver/scCircadianliver_fullcelltype_phase.Rdata")
 ```
 
 #cell phase flower
@@ -12283,7 +12283,7 @@ suppressPackageStartupMessages({
 })
 
 # 0. paths
-base_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015"
+base_dir <- "outputs/liver"
 phase_file <- file.path(base_dir, "scCircadianliver_fullcelltype_phase.Rdata")
 obj_file   <- file.path(base_dir, "scCircadianliver_fullcelltype_object.Rdata")
 
@@ -12637,12 +12637,12 @@ suppressPackageStartupMessages({
   library(qs)
 })
 
-source("/path/to/scRhythmBayes/R/infer_cell_phase.R")
+source("../R/infer_cell_phase.R")
 
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 DefaultAssay(scliver) <- "RNA"
 
-out_dir_phase <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase"
+out_dir_phase <- "outputs/liver/scLiver_global_phase"
 dir.create(out_dir_phase, showWarnings = FALSE, recursive = TRUE)
 
 meta_df <- scliver@meta.data %>%
@@ -12723,10 +12723,10 @@ suppressPackageStartupMessages({
   library(qs)
 })
 
-source("/path/to/scRhythmBayes/R/infer_gene_param.R")
+source("../R/infer_gene_param.R")
 
-out_dir_phase <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase"
-out_dir_param <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/per_celltype_param"
+out_dir_phase <- "outputs/liver/scLiver_global_phase"
+out_dir_param <- "outputs/liver/scLiver_global_phase/per_celltype_param"
 dir.create(out_dir_param, showWarnings = FALSE, recursive = TRUE)
 
 load(file.path(out_dir_phase, "scLiver_full_object.Rdata"))               # scliver
@@ -12855,7 +12855,7 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-out_dir_param <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/per_celltype_param"
+out_dir_param <- "outputs/liver/scLiver_global_phase/per_celltype_param"
 
 celltype_df <- readr::read_tsv(
   file.path(out_dir_param, "celltype_cellnumber.tsv"),
@@ -12907,11 +12907,11 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-source("/path/to/scRhythmBayes/R/infer_ovr_rhythm.R")
+source("../R/infer_ovr_rhythm.R")
 
-root_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase"
-out_dir_param <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/per_celltype_param"
-out_dir_m2 <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_M2_marker"
+root_dir <- "outputs/liver/scLiver_global_phase"
+out_dir_param <- "outputs/liver/scLiver_global_phase/per_celltype_param"
+out_dir_m2 <- "outputs/liver/scLiver_global_phase/OVR_M2_marker"
 out_dir_ovr <- file.path(root_dir, "OVR_group1_group2")
 dir.create(out_dir_m2, showWarnings = FALSE, recursive = TRUE)
 dir.create(out_dir_ovr, showWarnings = FALSE, recursive = TRUE)
@@ -13054,8 +13054,8 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-in_dir  <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_M2_marker"
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_target_vs_rest_reformatted"
+in_dir  <- "outputs/liver/scLiver_global_phase/OVR_M2_marker"
+out_dir <- "outputs/liver/scLiver_global_phase/OVR_target_vs_rest_reformatted"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 ovr_old <- readr::read_tsv(
@@ -13128,8 +13128,8 @@ readr::write_tsv(
 #correlation
 ```{r}
 # load
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_fullcelltype_object.Rdata")   # obj_use
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_fullcelltype_phase.Rdata")    # res_phase_liver_global
+load("outputs/liver/scCircadianliver_fullcelltype_object.Rdata")   # obj_use
+load("outputs/liver/scCircadianliver_fullcelltype_phase.Rdata")    # res_phase_liver_global
 
 # 1. merge metadata + phase
 phase_df <- res_phase_liver_global %>%
@@ -13171,7 +13171,7 @@ lab_rcell <- paste0(
 )
 
 # 4. output dir
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_fullcelltype_phase_correlation"
+out_dir <- "outputs/liver/scCircadianliver_fullcelltype_phase_correlation"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 5. plot: nCount_RNA vs Rbar
@@ -13293,13 +13293,13 @@ suppressPackageStartupMessages({
   library(purrr)
 })
 
-source("/path/to/scRhythmBayes/R/infer_gene_param.R")
-source("/path/to/scRhythmBayes/R/infer_rhythm_module.R")
+source("../R/infer_gene_param.R")
+source("../R/infer_rhythm_module.R")
 
 
 # 0. paths
 
-root_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase"
+root_dir <- "outputs/liver/scLiver_global_phase"
 out_dir_pair <- file.path(root_dir, "pairwise_module_all_pairs")
 dir.create(out_dir_pair, recursive = TRUE, showWarnings = FALSE)
 
@@ -13572,8 +13572,8 @@ suppressPackageStartupMessages({
 })
 
 # 0. input/output
-infile <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/M3_summary_plot"
+infile <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+out_dir <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/M3_summary_plot"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. read data
@@ -13701,8 +13701,8 @@ suppressPackageStartupMessages({
 })
 
 # 0. input/output
-infile <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/M3_summary_plot"
+infile <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+out_dir <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/M3_summary_plot"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. read data
@@ -13782,8 +13782,8 @@ suppressPackageStartupMessages({
 })
 
 # 0. input/output
-infile <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/M3_summary_plot"
+infile <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+out_dir <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/M3_summary_plot"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. read data
@@ -13900,8 +13900,8 @@ suppressPackageStartupMessages({
 })
 
 # 0. input/output
-infile <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/M3_summary_plot"
+infile <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+out_dir <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/M3_summary_plot"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. read data
@@ -13967,7 +13967,7 @@ upset_dir <- file.path(out_dir, "UPSET_ALL7")
 dir.create(upset_dir, recursive = TRUE, showWarnings = FALSE)
 
 png(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/M3_summary_plot/UPSET_ALL7/UpSet_all7_celltypes_M3.png",
+  "outputs/liver/scLiver_global_phase/OVR_group1_group2/M3_summary_plot/UPSET_ALL7/UpSet_all7_celltypes_M3.png",
   width = 3200,
   height = 1900,
   res = 300
@@ -14004,8 +14004,8 @@ suppressPackageStartupMessages({
 })
 
 # 0. input/output
-infile <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/M3_summary_plot/UPSET_ALL7"
+infile <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+out_dir <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/M3_summary_plot/UPSET_ALL7"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. read data
@@ -14160,13 +14160,13 @@ suppressPackageStartupMessages({
 })
 
 # 1. source function
-source("/path/to/scRhythmBayes/reproducibility/support/legacy/liver_block_m3_heatmap.R")
+source("support/legacy/liver_block_m3_heatmap.R")
 
 # 2. load object + phase result
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 DefaultAssay(scliver) <- "RNA"
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
 
 # 3. expression matrix
 count_mat <- GetAssayData(
@@ -14183,11 +14183,11 @@ rownames(cell_meta) <- colnames(scliver)
 
 # 5. OVR result
 ovr_df <- readr::read_tsv(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv",
+  "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv",
   show_col_types = FALSE
 )
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase"
+out_dir <- "outputs/liver/scLiver_global_phase"
 
 res_full_ht <- build_scRhythm_OVR_fullmatrix_heatmap(
   expr_mat = count_mat,
@@ -14238,12 +14238,12 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-source("~/scRhythmBayes/R/liver_block_m3_heatmap2.R")
+source("external/analysis_helpers/liver_block_m3_heatmap2.R")
 
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 DefaultAssay(scliver) <- "RNA"
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
 
 count_mat <- GetAssayData(
   scliver,
@@ -14257,7 +14257,7 @@ cell_meta$theta_pred <- as.numeric(res_phase_global$theta_pred)
 rownames(cell_meta) <- colnames(scliver)
 
 ovr_df <- readr::read_tsv(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv",
+  "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv",
   show_col_types = FALSE
 )
 
@@ -14278,11 +14278,11 @@ plot(res_block_ht)
 
 saveRDS(
   res_block_ht,
-  file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/res_block_ht_M3.rds"
+  file = "outputs/liver/scLiver_global_phase/OVR_group1_group2/res_block_ht_M3.rds"
 )
 
 pdf(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/M3_block_heatmap.pdf",
+  "outputs/liver/scLiver_global_phase/OVR_group1_group2/M3_block_heatmap.pdf",
   width = 16,
   height = 12
 )
@@ -14290,7 +14290,7 @@ plot(res_block_ht)
 dev.off()
 
 png(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/M3_block_heatmap.png",
+  "outputs/liver/scLiver_global_phase/OVR_group1_group2/M3_block_heatmap.png",
   width = 2800,
   height = 2200,
   res = 220
@@ -14318,8 +14318,8 @@ suppressPackageStartupMessages({
 })
 
 # 0. input/output
-infile <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Reactome_M3_by_celltype"
+infile <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+out_dir <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Reactome_M3_by_celltype"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 1. read data
@@ -14712,10 +14712,10 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/M3_gene_selection"
+out_dir <- "outputs/liver/scLiver_global_phase/M3_gene_selection"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
-ovr_all <- readr::read_tsv("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv",
+ovr_all <- readr::read_tsv("outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv",
   show_col_types = FALSE
 ) %>%
   dplyr::mutate(
@@ -14793,10 +14793,10 @@ suppressPackageStartupMessages({
 
 # 0. current correct data
 
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 DefaultAssay(scliver) <- "RNA"
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
 
 count_mat <- GetAssayData(
   scliver,
@@ -14810,11 +14810,11 @@ cell_meta$theta_pred <- as.numeric(res_phase_global$theta_pred)
 rownames(cell_meta) <- colnames(scliver)
 
 ovr_df <- readr::read_tsv(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv",
+  "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv",
   show_col_types = FALSE
 )
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/M3_curve_batch_75genes"
+out_dir <- "outputs/liver/scLiver_global_phase/M3_curve_batch_75genes"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 
@@ -15114,10 +15114,10 @@ suppressPackageStartupMessages({
 })
 
 # 0. load current correct data
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 DefaultAssay(scliver) <- "RNA"
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
 
 # 1. helper
 wrap_phase <- function(x) {
@@ -15161,7 +15161,7 @@ meta_plot <- scliver@meta.data %>%
     celltype = factor(celltype, levels = celltype_levels)
   )
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/cell_phase_density_split"
+out_dir <- "outputs/liver/scLiver_global_phase/cell_phase_density_split"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 # 4. save cell counts
@@ -15302,10 +15302,10 @@ suppressPackageStartupMessages({
 })
 
 # 1. load object
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 DefaultAssay(scliver) <- "RNA"
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/FindAllMarkers_celltype"
+out_dir <- "outputs/liver/scLiver_global_phase/FindAllMarkers_celltype"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 2. celltype order by cell number
@@ -15450,10 +15450,10 @@ ggsave(
 #marker venn
 ```{r}
 
-findall_path <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/FindAllMarkers_celltype/FindAllMarkers_all.tsv"
-ovr_path <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+findall_path <- "outputs/liver/scLiver_global_phase/FindAllMarkers_celltype/FindAllMarkers_all.tsv"
+ovr_path <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_vs_FindAllMarkers_VENN"
+out_dir <- "outputs/liver/scLiver_global_phase/OVR_vs_FindAllMarkers_VENN"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 
@@ -15779,10 +15779,10 @@ suppressPackageStartupMessages({
 })
 
 # 0. current correct data
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 DefaultAssay(scliver) <- "RNA"
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
 
 # 1. helper
 wrap_phase <- function(x) {
@@ -15857,7 +15857,7 @@ axis_df <- tibble::tibble(
 )
 
 # 5. save dir
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/cell_phase_circle_by_celltype_ZT"
+out_dir <- "outputs/liver/scLiver_global_phase/cell_phase_circle_by_celltype_ZT"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 readr::write_tsv(
@@ -15997,12 +15997,12 @@ suppressPackageStartupMessages({
 })
 
 # 0. current correct data
-scliver <- qread("/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs")
+scliver <- qread("data/scCircadianLiver-RNAonly.qs")
 DefaultAssay(scliver) <- "RNA"
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
 
-param_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/per_celltype_param"
+param_dir <- "outputs/liver/scLiver_global_phase/per_celltype_param"
 
 param_files <- list.files(
   path = param_dir,
@@ -16236,7 +16236,7 @@ p_final <- p_core_clock / p_legend + patchwork::plot_layout(heights = c(12, 1.8)
 print(p_final)
 
 # 11. save
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/core_clock_polar_7celltypes"
+out_dir <- "outputs/liver/scLiver_global_phase/core_clock_polar_7celltypes"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 readr::write_tsv(
@@ -16277,9 +16277,9 @@ suppressPackageStartupMessages({
 # =========================================================
 # 0. current paths
 # =========================================================
-ovr_file  <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
-param_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/per_celltype_param"
-plot_dir  <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/PHASE_CUMULATIVE_OVR_M3"
+ovr_file  <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+param_dir <- "outputs/liver/scLiver_global_phase/per_celltype_param"
+plot_dir  <- "outputs/liver/scLiver_global_phase/PHASE_CUMULATIVE_OVR_M3"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================================================
@@ -16521,9 +16521,9 @@ suppressPackageStartupMessages({
 # =========================================================
 # 0. current paths
 # =========================================================
-ovr_file  <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
-param_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/per_celltype_param"
-plot_dir  <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/PHASE_CUMULATIVE_OVR_M3"
+ovr_file  <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+param_dir <- "outputs/liver/scLiver_global_phase/per_celltype_param"
+plot_dir  <- "outputs/liver/scLiver_global_phase/PHASE_CUMULATIVE_OVR_M3"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================================================
@@ -16776,9 +16776,9 @@ suppressPackageStartupMessages({
 # =========================================================
 # 0. current paths
 # =========================================================
-ovr_file  <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
-param_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/per_celltype_param"
-plot_dir  <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/AMP_CUMULATIVE_OVR_M3"
+ovr_file  <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+param_dir <- "outputs/liver/scLiver_global_phase/per_celltype_param"
+plot_dir  <- "outputs/liver/scLiver_global_phase/AMP_CUMULATIVE_OVR_M3"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================================================
@@ -17027,9 +17027,9 @@ suppressPackageStartupMessages({
 # =========================================================
 # 0. current paths
 # =========================================================
-ovr_file  <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
-param_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/per_celltype_param"
-plot_dir  <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/AMP_CUMULATIVE_OVR_M3"
+ovr_file  <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+param_dir <- "outputs/liver/scLiver_global_phase/per_celltype_param"
+plot_dir  <- "outputs/liver/scLiver_global_phase/AMP_CUMULATIVE_OVR_M3"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================================================
@@ -17294,9 +17294,9 @@ suppressPackageStartupMessages({
 # =========================================================
 # 0. paths
 # =========================================================
-ovr_file  <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
-param_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/per_celltype_param"
-plot_dir  <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/PHASE_AMP_CUMULATIVE_SRB_OVR_MARKERS"
+ovr_file  <- "outputs/liver/scLiver_global_phase/OVR_group1_group2/Liver_group1_vs_group2_all.tsv"
+param_dir <- "outputs/liver/scLiver_global_phase/per_celltype_param"
+plot_dir  <- "outputs/liver/scLiver_global_phase/PHASE_AMP_CUMULATIVE_SRB_OVR_MARKERS"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =========================================================
@@ -17671,7 +17671,7 @@ suppressPackageStartupMessages({
 set.seed(1)
 
 ## 0. load simulated Seurat object
-obj_sim <- readRDS("/path/to/analysis_home/scRhythmBayes/data/simulate_data_new2.rds")
+obj_sim <- readRDS("data/simulate_data_new2.rds")
 DefaultAssay(obj_sim) <- "RNA"
 
 count0 <- Seurat::GetAssayData(
@@ -17936,7 +17936,7 @@ table(module_id)
 ## 8. save
 saveRDS(
   srb_example_data,
-  file = "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/srb_example_data.rds"
+  file = "outputs/liver/srb_example_data.rds"
 )
 ```
 
@@ -17946,8 +17946,8 @@ library(dplyr)
 library(tibble)
 library(ggplot2)
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/scLiver_full_object.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scLiver_global_phase/scLiver_full_object.Rdata")
+load("outputs/liver/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
 
 table(scliver$group, scliver$ZT)
 
@@ -17983,15 +17983,15 @@ p_rho <- ggplot(phase_sample_ct_use, aes(x = celltype, y = rho)) + geom_boxplot(
 
 p_rho
 
-write.csv(cell_number, "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/cell_number_by_sample_celltype.csv", row.names = FALSE)
+write.csv(cell_number, "outputs/liver/scLiver_global_phase/cell_number_by_sample_celltype.csv", row.names = FALSE)
 
-write.csv(phase_sample_ct, "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/phase_dispersion_by_sample_celltype.csv", row.names = FALSE)
+write.csv(phase_sample_ct, "outputs/liver/scLiver_global_phase/phase_dispersion_by_sample_celltype.csv", row.names = FALSE)
 
-write.csv(phase_ct_summary, "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/phase_dispersion_celltype_summary.csv", row.names = FALSE)
+write.csv(phase_ct_summary, "outputs/liver/scLiver_global_phase/phase_dispersion_celltype_summary.csv", row.names = FALSE)
 
-ggsave("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/phase_dispersion_by_celltype.png", p_csd, width = 7, height = 5, dpi = 300)
+ggsave("outputs/liver/scLiver_global_phase/phase_dispersion_by_celltype.png", p_csd, width = 7, height = 5, dpi = 300)
 
-ggsave("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/phase_rho_by_celltype.png", p_rho, width = 7, height = 5, dpi = 300)
+ggsave("outputs/liver/scLiver_global_phase/phase_rho_by_celltype.png", p_rho, width = 7, height = 5, dpi = 300)
 ```
 
 ```{r}
@@ -17999,8 +17999,8 @@ library(dplyr)
 library(tibble)
 library(ggplot2)
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/scLiver_full_object.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scLiver_global_phase/scLiver_full_object.Rdata")
+load("outputs/liver/scLiver_global_phase/scLiver_full_infer_scRhythm_phase.Rdata")
 
 theta_pred <- setNames(as.numeric(res_phase_global$theta_pred), res_phase_global$cell)
 
@@ -18025,7 +18025,7 @@ phase_shift_summary
 
 本节直接衔接新版 CV→PV module 结果；不重新运行上游推断或富集。H 为 M6 胆固醇合成，I 为 M7 黏附连接/细胞外基质；热图仍按 CV、PV 分别绘制。旧章节保留供对照。
 
-本节结果另存至 `/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4`，不覆盖旧图。图型、颜色、字号和平滑沿用旧代码；H/I 热图已修正为全 RNA 总 counts 归一化，单独另存至 GHI_heatmap_fullRNA_20261019.UnxFTP，不覆盖旧热图；PDF 显式使用 Cairo + sans，避免继承当前会话的 PDF CID 字体设置。
+本节结果另存至 `outputs/liver/GHI_inline_20261019.yOb6m4`，不覆盖旧图。图型、颜色、字号和平滑沿用旧代码；H/I 热图已修正为全 RNA 总 counts 归一化，单独另存至 GHI_heatmap_fullRNA_20261019.UnxFTP，不覆盖旧热图；PDF 显式使用 Cairo + sans，避免继承当前会话的 PDF CID 字体设置。
 
 G 仅使用 Reactome 结果：功能条目来自原始 FDR 显著结果，横轴仍为原始 P 值；完整 Reactome Top 5 复原版为可选块。相位密度的统计单位为基因；热图逐组 z-score 不表示绝对振幅差异。当前 sample_by=NULL 的结果不等于独立动物重复验证。
 
@@ -18035,14 +18035,14 @@ G 仅使用 Reactome 结果：功能条目来自原始 FDR 显著结果，横轴
 ```{r GHI_inline_G_Research_focus}
 rm(list = ls()); gc()
 suppressPackageStartupMessages({ library(dplyr); library(tibble); library(readr); library(ggplot2); library(grid) })
-reactome_all_df <- readr::read_tsv("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/G_Reactome_all_terms.tsv", show_col_types = FALSE)
+reactome_all_df <- readr::read_tsv("outputs/liver/GHI_inline_20261019.yOb6m4/G_Reactome_all_terms.tsv", show_col_types = FALSE)
 reactome_all_df <- reactome_all_df %>%
   dplyr::inner_join(
-    readr::read_tsv("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/G_research_focus_selection.tsv", show_col_types = FALSE) %>% dplyr::select(module_id, ID),
+    readr::read_tsv("outputs/liver/GHI_inline_20261019.yOb6m4/G_research_focus_selection.tsv", show_col_types = FALSE) %>% dplyr::select(module_id, ID),
     by = c("module_id", "ID")
   )
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/G_Research_focus"
+out_dir <- "outputs/liver/GHI_inline_20261019.yOb6m4/G_Research_focus"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 module_label_map <- c(
   "1" = "M1 Stable Rhythm",
@@ -18257,8 +18257,8 @@ ggsave(file.path(out_dir, "G_Research_focus_top5.pdf"), p_module_all, width = 16
 ```{r GHI_inline_G_Reactome_top5_reproduction, eval=FALSE}
 rm(list = ls()); gc()
 suppressPackageStartupMessages({ library(dplyr); library(tibble); library(readr); library(ggplot2); library(grid) })
-reactome_all_df <- readr::read_tsv("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/G_Reactome_all_terms.tsv", show_col_types = FALSE)
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/G_Reactome"
+reactome_all_df <- readr::read_tsv("outputs/liver/GHI_inline_20261019.yOb6m4/G_Reactome_all_terms.tsv", show_col_types = FALSE)
+out_dir <- "outputs/liver/GHI_inline_20261019.yOb6m4/G_Reactome"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 module_label_map <- c(
   "1" = "M1 Stable Rhythm",
@@ -18489,9 +18489,9 @@ suppressPackageStartupMessages({
 })
 
 # 0. load data
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result %>%
@@ -18503,7 +18503,7 @@ expr_mat <- GetAssayData(obj_use, assay = "RNA", layer = "counts")
 
 # 1. Cholesterol biosynthesis genes
 focus_genes_final <- readr::read_tsv(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/H_functional_heatmap_genes.tsv", show_col_types = FALSE
+  "outputs/liver/GHI_inline_20261019.yOb6m4/H_functional_heatmap_genes.tsv", show_col_types = FALSE
 )$gene
 
 # 2. metadata
@@ -18831,7 +18831,7 @@ ht_cv
 ht_pv
 
 # 9. save
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_heatmap_fullRNA_20261019.UnxFTP/H_Cholesterol_heatmap"
+out_dir <- "outputs/liver/GHI_heatmap_fullRNA_20261019.UnxFTP/H_Cholesterol_heatmap"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 grDevices::cairo_pdf(file.path(out_dir, "H_cholesterol_HepCV_heatmap.pdf"), width = 7, height = 9, family = "sans")
@@ -18868,13 +18868,13 @@ suppressPackageStartupMessages({
   library(stringr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result %>%
   dplyr::rename(q_Hep.CV = FDR_Hep.CV, q_Hep.PV = FDR_Hep.PV,
                 A_Hep.CV = Amplitude_Hep.CV, A_Hep.PV = Amplitude_Hep.PV,
                 phi_Hep.CV = Phase_Hep.CV, phi_Hep.PV = Phase_Hep.PV)
 
-plot_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/H_Cholesterol_heatmap/PHASE_DENSITY"
+plot_dir <- "outputs/liver/GHI_inline_20261019.yOb6m4/H_Cholesterol_heatmap/PHASE_DENSITY"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 group_colors <- c(
@@ -18887,7 +18887,7 @@ wrap24_from_rad <- function(x) {
 }
 
 focus_genes_final <- readr::read_tsv(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/H_functional_heatmap_genes.tsv", show_col_types = FALSE
+  "outputs/liver/GHI_inline_20261019.yOb6m4/H_functional_heatmap_genes.tsv", show_col_types = FALSE
 )$gene
 
 scrhythm_df <- module_result %>%
@@ -18983,9 +18983,9 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result %>%
@@ -18996,7 +18996,7 @@ module_result <- res2_module$module_result %>%
 expr_mat <- GetAssayData(obj_use, assay = "RNA", layer = "counts")
 
 functional_genes <- readr::read_tsv(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/I_functional_heatmap_genes.tsv", show_col_types = FALSE
+  "outputs/liver/GHI_inline_20261019.yOb6m4/I_functional_heatmap_genes.tsv", show_col_types = FALSE
 )$gene
 
 wrap_phase <- function(x) {
@@ -19396,7 +19396,7 @@ ht_pv <- Heatmap(
 ht_cv
 ht_pv
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_heatmap_fullRNA_20261019.UnxFTP/I_ECM_adhesion_heatmap"
+out_dir <- "outputs/liver/GHI_heatmap_fullRNA_20261019.UnxFTP/I_ECM_adhesion_heatmap"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 grDevices::cairo_pdf(file.path(out_dir, "I_ECM_adhesion_HepCV_heatmap.pdf"), width = 7, height = 9, family = "sans")
@@ -19431,13 +19431,13 @@ suppressPackageStartupMessages({
   library(stringr)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result %>%
   dplyr::rename(q_Hep.CV = FDR_Hep.CV, q_Hep.PV = FDR_Hep.PV,
                 A_Hep.CV = Amplitude_Hep.CV, A_Hep.PV = Amplitude_Hep.PV,
                 phi_Hep.CV = Phase_Hep.CV, phi_Hep.PV = Phase_Hep.PV)
 
-plot_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/I_ECM_adhesion_heatmap/PHASE_DENSITY_BY_MODULE"
+plot_dir <- "outputs/liver/GHI_inline_20261019.yOb6m4/I_ECM_adhesion_heatmap/PHASE_DENSITY_BY_MODULE"
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 module_label_map <- c(
@@ -19457,7 +19457,7 @@ wrap24_from_rad <- function(x) {
 }
 
 functional_genes <- readr::read_tsv(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/I_functional_heatmap_genes.tsv", show_col_types = FALSE
+  "outputs/liver/GHI_inline_20261019.yOb6m4/I_functional_heatmap_genes.tsv", show_col_types = FALSE
 )$gene
 
 scrhythm_df <- module_result %>%
@@ -19564,7 +19564,7 @@ for (m in c(7)) {
 # H_Cholesterol_curves
 ```{r GHI_inline_H_Cholesterol_curves, eval=FALSE}
 # Cholesterol genes: batch MAGIC + cosinor visualization
-#install.packages("/path/to/analysis_home/Downloads/Rmagic-master", repos = NULL, type = "source")
+#install.packages("external/Rmagic-master", repos = NULL, type = "source")
 # Cholesterol genes MAGIC cos
 rm(list = ls()); gc()
 
@@ -19583,9 +19583,9 @@ suppressPackageStartupMessages({
 stopifnot(reticulate::py_module_available("magic"))
 
 # 0. load data
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result %>%
@@ -19618,7 +19618,7 @@ cell_meta <- obj_use@meta.data %>%
   )
 
 focus_genes_final <- readr::read_tsv(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/H_functional_curve_genes.tsv", show_col_types = FALSE
+  "outputs/liver/GHI_inline_20261019.yOb6m4/H_functional_curve_genes.tsv", show_col_types = FALSE
 )$gene
 
 # 2. module map
@@ -19663,7 +19663,7 @@ celltype_pal <- c(
 
 theta_grid <- seq(0, 2*pi, length.out = 300)
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/H_Cholesterol_curves"
+out_dir <- "outputs/liver/GHI_inline_20261019.yOb6m4/H_Cholesterol_curves"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 # 4. loop over genes
@@ -19851,9 +19851,9 @@ suppressPackageStartupMessages({
 stopifnot(reticulate::py_module_available("magic"))
 
 # 0. load data
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 module_result <- res2_module$module_result %>%
@@ -19889,7 +19889,7 @@ cell_meta <- obj_use@meta.data %>%
 # 1. use your real focus gene list here
 
 focus_genes_final <- readr::read_tsv(
-  "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/I_functional_curve_genes.tsv", show_col_types = FALSE
+  "outputs/liver/GHI_inline_20261019.yOb6m4/I_functional_curve_genes.tsv", show_col_types = FALSE
 )$gene
 
 # 2. module map
@@ -19937,7 +19937,7 @@ celltype_pal <- c(
 
 theta_grid <- seq(0, 2*pi, length.out = 300)
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/GHI_inline_20261019.yOb6m4/I_ECM_adhesion_curves"
+out_dir <- "outputs/liver/GHI_inline_20261019.yOb6m4/I_ECM_adhesion_curves"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 
@@ -20138,7 +20138,7 @@ D 保留全部八个模块及原排序/平滑，仅把归一化分母修正为�
 
 F 保留原图显著性/振幅展示筛选、每模块最多 50 个基因及原排序分数，依次输出 M2/M4/M6、M3/M5/M7；不是模块全集，也不重新分类。点大小与手工图例使用一致的全局振幅尺度。
 
-本节全部新图与来源表保存至 `/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/BCDF_restore_20261019.yfTH34`，不覆盖已有结果。先运行 B/C/F，D 八模块平滑单独运行；此前 G/H/I 代码不变。
+本节全部新图与来源表保存至 `outputs/liver/BCDF_restore_20261019.yfTH34`，不覆盖已有结果。先运行 B/C/F，D 八模块平滑单独运行；此前 G/H/I 代码不变。
 
 # B_cell_phase_by_ZT
 ```{r BCDF_restore_B}
@@ -20154,9 +20154,9 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 
@@ -20432,7 +20432,7 @@ print(p_circ_facet)
 
 # Step 8. save
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/BCDF_restore_20261019.yfTH34/B_cell_phase_ZT"
+out_dir <- "outputs/liver/BCDF_restore_20261019.yfTH34/B_cell_phase_ZT"
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 ggsave(
@@ -20467,9 +20467,9 @@ suppressPackageStartupMessages({
   library(scales)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
 
 DefaultAssay(obj_use) <- "RNA"
 
@@ -20579,7 +20579,7 @@ p_phase_density <- ggplot(density_df, aes(x = theta, y = density, color = cellty
 
 p_phase_density
 
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/BCDF_restore_20261019.yfTH34/C_cell_phase_density"
+out_dir <- "outputs/liver/BCDF_restore_20261019.yfTH34/C_cell_phase_density"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ggsave(
@@ -20617,7 +20617,7 @@ suppressPackageStartupMessages({
 })
 
 # 1. load updated results
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 
 module_result <- res2_module$module_result %>%
   dplyr::rename(q_Hep.CV = FDR_Hep.CV, q_Hep.PV = FDR_Hep.PV,
@@ -20977,7 +20977,7 @@ plot_module_polar <- function(module_use,
 }
 
 # 13. output one by one with for loop
-out_dir_plot <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/BCDF_restore_20261019.yfTH34/F_module_polar"
+out_dir_plot <- "outputs/liver/BCDF_restore_20261019.yfTH34/F_module_polar"
 dir.create(out_dir_plot, showWarnings = FALSE, recursive = TRUE)
 
 module_ids_use <- c("2", "4", "6", "3", "5", "7")
@@ -21016,18 +21016,18 @@ saveRDS(lapply(module_ids_use, plot_module_polar), file.path(out_dir_plot, "F_pl
 ```{r BCDF_restore_D}
 rm(list = ls()); gc()
 suppressPackageStartupMessages({ library(Seurat); library(dplyr); library(readr); library(future) })
-source("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/BCDF_restore_20261019.yfTH34/module_heatmap_fullRNA.R")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_object_celltype_use.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_countmat.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/scCircadianliver_infer_scRhythm_phase.Rdata")
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+source("outputs/liver/BCDF_restore_20261019.yfTH34/module_heatmap_fullRNA.R")
+load("outputs/liver/scCircadianliver_object_celltype_use.Rdata")
+load("outputs/liver/scCircadianliver_countmat.Rdata")
+load("outputs/liver/scCircadianliver_infer_scRhythm_phase.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 DefaultAssay(obj_use) <- "RNA"
 cell_meta <- obj_use@meta.data
 cell_meta$celltype <- as.character(cell_meta$celltype)
 cell_meta$theta_pred <- res_phase_liver$theta_pred[match(rownames(cell_meta), res_phase_liver$cell)]
 cell_meta <- cell_meta[colnames(count_mat), , drop = FALSE]
 stopifnot(!anyDuplicated(res_phase_liver$cell), identical(rownames(cell_meta), colnames(count_mat)), all(is.finite(cell_meta$theta_pred)))
-heatmap_out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/BCDF_restore_20261019.yfTH34/D_module_heatmaps"
+heatmap_out_dir <- "outputs/liver/BCDF_restore_20261019.yfTH34/D_module_heatmaps"
 dir.create(heatmap_out_dir, recursive = TRUE, showWarnings = FALSE)
 gene_meta <- res2_module$module_result
 future::plan(future::multisession, workers = 3)
@@ -21075,7 +21075,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-load("/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
+load("outputs/liver/result_module_phase2_CV_to_PV_20261018/scCircadianliver_result_module_phase2_CV_to_PV.Rdata")
 module_result <- res2_module$module_result
 stopifnot(!anyDuplicated(module_result$gene), !anyNA(module_result$gene),
           !anyNA(module_result$module_map), all(module_result$module_map %in% 0:7),
@@ -21120,7 +21120,7 @@ stopifnot(sum(plot_df_module$Count) == nrow(module_result))
 print(plot_df_module)
 
 # 3. save table
-out_dir <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/BCDF_restore_20261019.yfTH34/E_module_count_20261019.yVkwFn"
+out_dir <- "outputs/liver/BCDF_restore_20261019.yfTH34/E_module_count_20261019.yVkwFn"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 readr::write_tsv(plot_df_module, file.path(out_dir, "E_module_gene_count.tsv"))
 
@@ -21349,9 +21349,9 @@ ggplot2::ggsave(file.path(gse288579_panel_root, "F_module_density_cumulative.png
 ## Load data
 
 ```{r GSE145197_load_data}
-gse145197_algo_dir <- "/path/to/scRhythmBayes/R"
-gse145197_data_file <- "/path/to/data_volume/scRhythmBayes/data/circadian scLiver(Felix Naef).qs"
-gse145197_root <- "/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_GSE145197_new_20261022"
+gse145197_algo_dir <- "../R"
+gse145197_data_file <- "data/circadian scLiver(Felix Naef).qs"
+gse145197_root <- "outputs/liver_GSE145197"
 gse145197_phase_file <- file.path(gse145197_root, "GSE145197_infer_cell_phase.rds")
 gse145197_param_file <- file.path(gse145197_root, "GSE145197_infer_gene_param.rds")
 gse145197_module_file <- file.path(gse145197_root, "GSE145197_infer_rhythm_module_CV_to_PV.rds")
@@ -21880,15 +21880,14 @@ ggplot2::ggsave(file.path(gse145197_panel_root, "I_module_polar.png"), p_gse1451
 保留原函数的 LogNormalize、ScaleData、cyclic GAM（k=8、REML、60 点）、两组配对 z-score 和行排序。M0 中 Slc13a3、Tbx3os1 未被两组平滑共同保留，已输出排除清单；M1 有 3 个参考相位缺失的基因，按原函数保留在末端，不填补相位。已有逐模块检查点时直接读取，不重复表达平滑。
 
 ```{r GSE145197_original_G_heatmap_verified_20261024}
-work<-"/path/to/analysis_workspace/outputs/figure5_OVR_A4_20261024"
-.libPaths(c(file.path(work,"Rlib"),.libPaths()))
+work<-"outputs/additional_analyses/figure5_OVR_A4_20261024"
 suppressPackageStartupMessages({library(Seurat);library(dplyr);library(readr);library(future)})
-helper<-"/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_new_20261015/BCDF_restore_20261019.yfTH34/module_heatmap_fullRNA.R"
+helper<-"outputs/liver/BCDF_restore_20261019.yfTH34/module_heatmap_fullRNA.R"
 source(helper)
-root<-"/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_GSE145197_new_20261022"
+root<-"outputs/liver_GSE145197"
 out<-file.path(root,"panels_ABCDEFHI_original_Rmd_20261024","G_original_module_heatmaps")
 dir.create(out,recursive=TRUE,showWarnings=FALSE)
-obj<-qs::qread("/path/to/data_volume/scRhythmBayes/data/circadian scLiver(Felix Naef).qs")
+obj<-qs::qread("data/circadian scLiver(Felix Naef).qs")
 obj<-base::subset(obj,cells=colnames(obj)[as.character(obj$celltype)%in%c("Hep.CV","Hep.PV")])
 DefaultAssay(obj)<-"RNA"
 count_mat<-SeuratObject::GetAssayData(obj,assay="RNA",layer="counts")
@@ -21905,7 +21904,7 @@ for(m in 0:7){
  cat(format(Sys.time()),"Starting original heatmap module",m,"genes",sum(gene_meta$module_map==m),"\n")
  res_one<-build_scRhythm_module_heatmap(expr_mat=count_mat,gene_meta=gene_meta,cell_meta=cell_meta,group_by="celltype",theta_col="theta_pred",module_col="module_map",gene_col="gene",group_levels=c("Hep.CV","Hep.PV"),compare_groups=c("Hep.CV","Hep.PV"),module_ids=m,k=8,n_grid=60)
  res_one$input$expr_mat<-NULL
- res_one$input$count_source<-"/path/to/data_volume/scRhythmBayes/data/circadian scLiver(Felix Naef).qs"
+ res_one$input$count_source<-"data/circadian scLiver(Felix Naef).qs"
  saveRDS(res_one,checkpoint)
  readr::write_tsv(res_one$summary,file.path(out,paste0("G_module",m,"_heatmap_summary.tsv")))
  cat(format(Sys.time()),"Completed heatmap module",m,"\n")
@@ -21937,10 +21936,9 @@ writeLines(c("Executed the original build_scRhythm_module_heatmap and original p
 背景按原 Rmd 定义为 M1–M7 节律模块基因的并集，不包含 M0；映射至 Entrez 后为 5,514 个，Reactome 实际注释背景见各结果表 BgRatio。小鼠官方 SYMBOL 按大小写无关的唯一对应映射，歧义与未映射项均保留在映射清单。每个模块内对全部已检验通路进行 BH 校正；仅展示 p≤0.05、BH FDR≤0.05、q≤0.2 的前 5 条。此定义下 M1–M6 无显著通路，M7 有 127 条，图中只显示 M7 的前 5 条；不以未校正结果补满模块。完整检验表、富集对象和绘图数据均保存。
 
 ```{r GSE145197_Reactome_H_verified_20261024}
-gse145197_work<-"/path/to/analysis_workspace/outputs/figure5_OVR_A4_20261024"
-.libPaths(c(file.path(gse145197_work,"Rlib"),.libPaths()))
+gse145197_work<-"outputs/additional_analyses/figure5_OVR_A4_20261024"
 suppressPackageStartupMessages({library(dplyr);library(ggplot2);library(svglite)})
-gse145197_root<-"/path/to/analysis_home/scRhythmBayes/data/scCircadianLiver_GSE145197_new_20261022"
+gse145197_root<-"outputs/liver_GSE145197"
 gse145197_panel_root<-file.path(gse145197_root,"panels_ABCDEFHI_original_Rmd_20261024")
 reactome_dir<-file.path(gse145197_panel_root,"H_Reactome_verified_20261024")
 dir.create(reactome_dir,recursive=TRUE,showWarnings=FALSE)
@@ -22030,7 +22028,7 @@ H_pdf_browser$close()
 D 保留原数据与曲线，标题仅显示 M0–M7。H 使用既存完整 Reactome 表，按原始 p ≤ 0.05 筛选并在每个模块取前 5 条；M5 实际仅有 4 条，共 34 条。H 不按 BH FDR 或 q-value 筛选，属于未校正 p 值的探索性展示；完整 FDR 仍保留在导出的表中。背景、基因映射和全部既存检验结果不变，不重新运行任何模型或富集分析。
 
 ```{r GSE145197_DH_raw_p_display_20261025, eval=FALSE}
-source("/path/to/source_archive/new figures /figure5/GSE145197_DH_rawP_20261025/revise_DH_rawp_20261025.R")
+source("external/figure5/GSE145197_DH_rawP_20261025/revise_DH_rawp_20261025.R")
 ```
 
 ### D 标题更正：保留指标名称
@@ -22038,7 +22036,7 @@ source("/path/to/source_archive/new figures /figure5/GSE145197_DH_rawP_20261025/
 D 标题保留模块编号及 Amplitude Density、Phase Density、Amplitude Cumulative Distribution、Phase Cumulative Distribution，仅删除 Non-rhythmic、Stable Rhythm 等节律类型描述。标题换行显示，H 和其他面板不变。
 
 ```{r GSE145197_D_restore_metric_titles_20261025, eval=FALSE}
-source("/path/to/source_archive/new figures /figure5/GSE145197_D_metric_titles_20261025/restore_D_metric_titles_20261025.R")
+source("external/figure5/GSE145197_D_metric_titles_20261025/restore_D_metric_titles_20261025.R")
 ```
 
 ## OVR 主图 F：恢复原逐细胞类型表达曲线（2026-10-25）
@@ -22046,7 +22044,7 @@ source("/path/to/source_archive/new figures /figure5/GSE145197_D_metric_titles_2
 主图 F 的基因顺序和 35 个图位保持不变，恢复本文件原 p_gene_7line 绘图段的逐细胞类型曲线口径，不再使用 Target / Rest 两组汇总图。直接读取已有每细胞类型的 theta_pred、expr_fit（每条曲线 300 个坐标），不重新运行拟合、相位、参数或模块推断。35 个图位包含 32 个不同基因；Dqx1 的原保存结果缺少 Cholangiocytes 曲线，保留其余 6 条，不补零，其余基因为 7 条。原单基因 PDF、曲线数值与来源核对表单独保存。
 
 ```{r OVR_F_original_celltype_curves_20261025, eval=FALSE}
-source("/path/to/source_archive/new figures /figure5/F_original_gene_curves_20261025/replot_single_genes_original.R")
+source("external/figure5/F_original_gene_curves_20261025/replot_single_genes_original.R")
 ```
 
 ## OVR 主图 F：采用已保存 Target-vs-Rest 模型曲线（当前版，2026-10-25）
@@ -22054,7 +22052,7 @@ source("/path/to/source_archive/new figures /figure5/F_original_gene_curves_2026
 根据确认，当前 F 使用已保存的 SRB 模型拟合版，不使用上一节的逐细胞类型表达平滑版。Target 为对应细胞类型彩色实线，其余细胞合并后的 Rest 为灰色虚线。35 个图位的基因顺序和原 SVG 位置不变；直接读取此前保存的模型曲线坐标，每张 Target、Rest 各 400 个坐标，不重新拟合、平滑或推断参数。横轴为 Predicted phase (h)，纵轴为 Model-fitted relative expression。原模型 PDF/PNG、数值、来源记录与当前 F 区矢量图均已保存。
 
 ```{r OVR_F_saved_model_Target_Rest_20261025, eval=FALSE}
-source("/path/to/source_archive/new figures /figure5/F_model_Target_Rest_20261025/replot_model_curves.R")
+source("external/figure5/F_model_Target_Rest_20261025/replot_model_curves.R")
 ```
 
 

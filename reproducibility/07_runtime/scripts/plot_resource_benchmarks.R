@@ -7,9 +7,9 @@ suppressPackageStartupMessages({
   library(tidyr)
 })
 
-source("/path/to/scRhythmBayes/reproducibility/07_runtime/scripts/panel_alignment_compat.R")
+source("07_runtime/scripts/panel_alignment_compat.R")
 
-root <- "/path/to/scRhythmBayes/reproducibility/07_runtime"
+root <- "07_runtime"
 data_dir <- file.path(root, "data")
 metric_dir <- file.path(root, "metrics")
 figure_dir <- file.path(root, "figures")
@@ -159,7 +159,7 @@ require_patchwork_panel_alignment(
   height_in = 18.6,
   panel_ids = c("A", "B", "C"),
   column_groups = list(c("A", "B", "C")),
-  audit_script = "/path/to/external_plot_helpers/audit_panel_alignment.py",
+  audit_script = "external/plot_helpers/audit_panel_alignment.py",
   overlay_svg = file.path(root, "qa", "CellPhase_resource_benchmark_3panel.panel-alignment.svg")
 )
 save_plot_set(p_cell_runtime, "CellPhase_runtime_barplot", 10.5, 6.2)
@@ -244,7 +244,7 @@ require_patchwork_panel_alignment(
   height_in = 7.2,
   panel_ids = c("A", "B", "C"),
   row_groups = list(c("A", "B", "C")),
-  audit_script = "/path/to/external_plot_helpers/audit_panel_alignment.py",
+  audit_script = "external/plot_helpers/audit_panel_alignment.py",
   overlay_svg = file.path(root, "qa", "GeneLevel_resource_benchmark_3panel.panel-alignment.svg")
 )
 save_plot_set(p_gene_runtime, "GeneLevel_runtime_barplot", 6.8, 6.4)

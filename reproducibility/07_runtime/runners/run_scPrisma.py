@@ -5,8 +5,8 @@ os.environ.setdefault('MPLBACKEND', 'Agg')
 # ---- notebook code cell 0 ----
 from pathlib import Path
 import os, sys, json, random, hashlib, inspect, datetime, platform, gc, time, contextlib
-INPUT_DIR = Path("/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input")
-OUT_DIR = Path("/path/to/scRhythmBayes/reproducibility/07_runtime/runs/scPrisma")
+INPUT_DIR = Path("outputs/simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input")
+OUT_DIR = Path("07_runtime/runs/scPrisma")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 COUNT_PATH, GENE_PATH, METADATA_PATH = [INPUT_DIR / n for n in ("count_gene_by_cell.mtx", "genes.csv", "metadata.csv")]
 SEED = 1
@@ -69,7 +69,7 @@ try:
     print("scPrisma:", scPrisma.__file__)
     print("API:", run_info["api_signatures"]["reorder_indicator"])
 
-    run_info["tutorial_sources_at_authoring"] = [{'path': '/path/to/analysis_home/Projects/scPrisma/tests/cpu/test_cpu.py', 'sha256': '9e78ffeef7e066454a1a80cb1031c8c53fb68537d6becdf2a5af020b220c47bb'}, {'path': '/path/to/analysis_home/Projects/scPrisma/tutorials/cpu/hematopoietic_progenitors_reconstruction_with_partial_prior_knowledge.ipynb', 'sha256': '53644323903bc46bc27c02bdcb8fba237fb615e762a510ba6d452ef1dc65a52f'}, {'path': '/path/to/analysis_home/Projects/scPrisma/tutorials/cpu/tutorial_de_novo_reconstruction.ipynb', 'sha256': '5b145efa9ba7382b078cb85a6d3b7aaa7e416bdf06b8c0976b3a2c22015c5ed1'}, {'path': '/path/to/analysis_home/Projects/scPrisma/tutorials/cpu/tutorial_prior_knowledge_linear_and_cyclic_cpu.ipynb', 'sha256': '5a99eb822494a3fc1f3379dd2df964510e4037adfdbd5644c91a952d34b62c48'}]
+    run_info["tutorial_sources_at_authoring"] = [{'path': 'external/scPrisma/tests/cpu/test_cpu.py', 'sha256': '9e78ffeef7e066454a1a80cb1031c8c53fb68537d6becdf2a5af020b220c47bb'}, {'path': 'external/scPrisma/tutorials/cpu/hematopoietic_progenitors_reconstruction_with_partial_prior_knowledge.ipynb', 'sha256': '53644323903bc46bc27c02bdcb8fba237fb615e762a510ba6d452ef1dc65a52f'}, {'path': 'external/scPrisma/tutorials/cpu/tutorial_de_novo_reconstruction.ipynb', 'sha256': '5b145efa9ba7382b078cb85a6d3b7aaa7e416bdf06b8c0976b3a2c22015c5ed1'}, {'path': 'external/scPrisma/tutorials/cpu/tutorial_prior_knowledge_linear_and_cyclic_cpu.ipynb', 'sha256': '5a99eb822494a3fc1f3379dd2df964510e4037adfdbd5644c91a952d34b62c48'}]
     run_info["tutorial_upload_identity_verified"] = False
     save_json("run_manifest.json", run_info)
 except BaseException as exc:

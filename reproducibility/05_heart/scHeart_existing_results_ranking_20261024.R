@@ -1,4 +1,4 @@
-heart_root <- "/path/to/analysis_home/scRhythmBayes/data/scHeart_ACR_NCR_new_20261022"
+heart_root <- "outputs/heart"
 `%>%` <- dplyr::`%>%`
 heart_figure_dir <- file.path(
   heart_root,
@@ -12,7 +12,7 @@ heart_dtw_path <- file.path(
   heart_figure_dir,
   "heart_run_dtw_similarity.rds"
 )
-figure6_root <- "/path/to/source_archive/new figures /figure6"
+figure6_root <- "outputs/figure6"
 review_dir <- file.path(
   figure6_root,
   "existing_results_review_20261024"

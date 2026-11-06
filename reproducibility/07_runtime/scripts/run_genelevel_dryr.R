@@ -11,8 +11,8 @@ Sys.setenv(
 )
 set.seed(1)
 
-input_file <- "/path/to/analysis_home/Desktop/Figure3_output/algorithm_results/benchmark_input.qs"
-output_file <- "/path/to/scRhythmBayes/reproducibility/07_runtime/results/dryR_profile_result.qs"
+input_file <- "outputs/gene_benchmark/algorithm_results/benchmark_input.qs"
+output_file <- "07_runtime/results/dryR_profile_result.qs"
 dir.create(dirname(output_file), recursive = TRUE, showWarnings = FALSE)
 
 stopifnot(file.exists(input_file))
