@@ -9,7 +9,7 @@ source and dependency declarations are in `../R/` and `../DESCRIPTION`.
 | Directory | Main entry points | Analysis |
 |---|---|---|
 | `01_cell_phase` | `scRITMO_simulation_6CT.ipynb`, method notebooks, `6CT_all_benchmark_cell_phase.Rmd` | Cell-phase simulation and method comparison |
-| `02_gene_benchmark` | `simulated_data_sample_specific.Rmd`, `all_gene_level_benchmark.Rmd`; `c2g.Rmd`, `unc.Rmd` | Sample-aware gene benchmark and phase-input sensitivity |
+| `02_gene_benchmark` | `simulated_data_sample_specific.Rmd`, `all_gene_level_benchmark.Rmd` | Sample-aware gene benchmark |
 | `03_liver` | `scCircadianLiver_new.Rmd` | Main liver analysis and appended GSE145197 analysis |
 | `04_ovr` | `scliver_ovr_run_example_updated.Rmd` | One-versus-rest, leave-one-cell-type-out and pairwise comparisons |
 | `05_heart` | `scHeart_complete_reanalysis_20261022.Rmd`, `scHeart_plot_20261023.Rmd` | Cardiac phase organization and plots |
