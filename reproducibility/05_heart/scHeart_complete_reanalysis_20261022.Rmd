@@ -1,0 +1,1239 @@
+---
+title: "scRhythmBayes heart reanalysis and figure reproduction"
+author: "scRhythmBayes"
+date: "2026-10-23"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+This notebook analyzes cardiac phase organization from saved cell phases.
+Whole-transcriptome gene fitting, modules, OVR, and phase refitting are optional
+Appendix A steps. Panel labels below follow the analysis notebook; consult the
+manuscript legends for the final layout.
+
+Global `eval = FALSE` is retained. Configure the paths, then run the required
+chunks manually in order. Optional model-fitting chunks have explicit switches.
+
+| Panel | Required input | Requires infer_gene_param? |
+|---|---|---|
+| E | Saved cell phases + celltype/Group metadata | No |
+| F | Saved cell phases + normalized RNA + legacy clock-gene set + CellAlign | No |
+| G | Saved phases + metadata, followed by phase-profile DTW | No |
+| H | Saved phases + celltype/Group/Sample metadata, followed by rho | No |
+| I (deferred) | Gene parameters + modules for the old curve design | Yes, only if this design is retained |
+
+There are only two observed sampling times (ZT08/ZT16). The figure describes
+model-inferred phase organization; it is not independent validation of a
+24-hour rhythm or recovery of missing sampling times. GEO GSE270258 defines
+AM (06:00--10:00) and PM (14:00--18:00) windows in 16 different patients;
+ZT08/ZT16 are representative window labels, not precise observed times. Statistics and significance annotations must be calculated from the selected analysis results.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  eval = FALSE,
+  echo = TRUE,
+  message = TRUE,
+  warning = TRUE,
+  fig.retina = 2
+)
+```
+
+# 1. Paths and packages
+
+```{r heart_paths_packages}
+heart_algo_dir <- "/path/to/scRhythmBayes/R"
+heart_data_file <- "/path/to/data_volume/scRhythmBayes/data/cricadian scHeart(ACR and NCR).qs"
+heart_root <- "/path/to/analysis_home/scRhythmBayes/data/scHeart_ACR_NCR_new_20261022"
+heart_legacy_library <- "/path/to/analysis_home/proj_seurat_v4/renv/library/macos/R-4.5/aarch64-apple-darwin20"
+heart_plotalign_file <- "/path/to/scRhythmBayes/reproducibility/05_heart/plotAlignCustom_heart_20261023.R"
+heart_seed_file <- "/path/to/data_volume/scRhythmBayes/data/merge_27seedgenes_bmal1.Rdata"
+heart_phase_fix_file <- "/path/to/scRhythmBayes/reproducibility/05_heart/infer_cell_phase_heart_fix_20261022.R"
+heart_panel_alignment_file <- "/path/to/external_plot_helpers/panel_alignment.R"
+heart_panel_audit_file <- "/path/to/external_plot_helpers/audit_panel_alignment.py"
+
+.libPaths(c(.libPaths(), heart_legacy_library))
+
+heart_figure_dir <- file.path(heart_root, "figures_complete_noif_20261023")
+heart_phase_file <- file.path(heart_root, "heart_infer_cell_phase.rds")
+heart_plot_input_file <- file.path(heart_figure_dir, "heart_plot_inputs_20261023.rds")
+heart_ovr_file <- file.path(heart_root, "heart_infer_ovr_rhythm.rds")
+heart_rho_file <- file.path(heart_figure_dir, "heart_run_phase_rho.rds")
+heart_dtw_file <- file.path(heart_figure_dir, "heart_run_dtw_similarity.rds")
+heart_param_dir <- file.path(heart_root, "gene_param")
+heart_module_dir <- file.path(heart_root, "rhythm_module")
+
+heart_refit_phase <- FALSE
+heart_run_gene_level <- FALSE
+heart_make_clock_panels <- FALSE
+
+heart_required_packages <- c(
+  "qs", "Seurat", "SeuratObject", "Matrix", "dplyr", "tibble", "tidyr",
+  "readr", "ggplot2", "ggridges", "patchwork", "ComplexHeatmap",
+  "circlize", "RColorBrewer", "circular", "reshape2", "gridExtra",
+  "ragg", "svglite", "scales", "jsonlite", "viridis", "magrittr", "MASS",
+  "dtw", "cellAlign"
+)
+
+heart_missing_packages <- heart_required_packages[
+  !vapply(heart_required_packages, requireNamespace, logical(1), quietly = TRUE)
+]
+stopifnot(length(heart_missing_packages) == 0L)
+stopifnot(utils::packageVersion("SeuratObject") >= "5.0.0")
+stopifnot(file.exists(heart_data_file))
+stopifnot(file.exists(heart_plotalign_file))
+stopifnot(file.exists(heart_seed_file))
+stopifnot(file.exists(heart_phase_fix_file))
+stopifnot(file.exists(heart_panel_alignment_file))
+stopifnot(file.exists(heart_panel_audit_file))
+
+`%>%` <- magrittr::`%>%`
+source(file.path(heart_algo_dir, "run_phase_rho.R"))
+source(file.path(heart_algo_dir, "run_dtw_similarity.R"))
+source(heart_panel_alignment_file)
+source("/path/to/scRhythmBayes/reproducibility/05_heart/measure_heart_panels_20261023.R")
+
+dir.create(heart_root, recursive = TRUE, showWarnings = FALSE)
+dir.create(heart_param_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(heart_module_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(heart_figure_dir, recursive = TRUE, showWarnings = FALSE)
+```
+
+# 2. Load data and validate the verified schema
+
+## 2.1 Optional full original object
+
+The default Seurat v5 library stays first; the legacy library is appended only
+to provide missing CellAlign/DTW dependencies. In v4, the `layer` argument can
+be ignored, so silently falling back to v4 is not permitted here.
+
+The object was inspected before this Rmd was written. It is a Seurat object with
+24,386 genes, 127,942 cells, one `RNA` assay, and `counts`, `data`, and
+`scale.data` layers. The following assertions deliberately fail if the source
+object changes.
+
+```{r heart_load_validate}
+heart <- qs::qread(heart_data_file)
+stopifnot(inherits(heart, "Seurat"))
+stopifnot(identical(Seurat::Assays(heart), "RNA"))
+Seurat::DefaultAssay(heart) <- "RNA"
+
+heart_layers <- SeuratObject::Layers(heart[["RNA"]])
+stopifnot(all(c("counts", "data", "scale.data") %in% heart_layers))
+
+heart_count <- SeuratObject::GetAssayData(heart, assay = "RNA", layer = "counts")
+heart_data <- SeuratObject::GetAssayData(heart, assay = "RNA", layer = "data")
+heart_meta <- heart@meta.data
+heart_meta <- heart_meta[colnames(heart_count), , drop = FALSE]
+heart_meta$cell <- rownames(heart_meta)
+
+heart_expected_meta <- c(
+  "orig.ident", "nCount_RNA", "nFeature_RNA", "Group", "Sample",
+  "replicate", "Period", "ZT", "percent.mt", "RNA_snn_res.0.5",
+  "seurat_clusters", "celltype"
+)
+stopifnot(identical(colnames(heart@meta.data), heart_expected_meta))
+stopifnot(identical(colnames(heart_count), heart_meta$cell))
+stopifnot(nrow(heart_count) == 24386L, ncol(heart_count) == 127942L)
+
+heart_celltype_levels <- c(
+  "Cardiomyocytes", "Endothelial", "Lymphocytes", "Myeloid", "Adipocytes",
+  "Neuron", "Pericytes", "SMC", "Fibroblasts", "Myofibroblasts"
+)
+stopifnot(setequal(unique(as.character(heart_meta$celltype)), heart_celltype_levels))
+stopifnot(setequal(unique(as.character(heart_meta$Group)), c("NCR", "ACR")))
+stopifnot(setequal(unique(as.character(heart_meta$ZT)), c("ZT08", "ZT16")))
+stopifnot(length(unique(as.character(heart_meta$Sample))) == 16L)
+
+heart_meta$Group <- factor(as.character(heart_meta$Group), levels = c("NCR", "ACR"))
+heart_meta$celltype <- factor(as.character(heart_meta$celltype), levels = heart_celltype_levels)
+heart_meta$ZT_num <- as.numeric(sub("^ZT", "", as.character(heart_meta$ZT)))
+
+heart_sample_design <- heart_meta |>
+  dplyr::distinct(.data$Group, .data$Sample, .data$replicate, .data$ZT, .data$ZT_num) |>
+  dplyr::arrange(.data$Group, .data$ZT_num, .data$Sample)
+
+stopifnot(nrow(heart_sample_design) == 16L)
+stopifnot(all(table(heart_sample_design$Group, heart_sample_design$ZT) == 4L))
+
+readr::write_tsv(
+  heart_sample_design,
+  file.path(heart_root, "verified_sample_design.tsv")
+)
+```
+
+## 2.2 Lightweight plotting input (used for this completed run)
+
+Use this chunk instead of reloading the full object when the prepared input
+exists. It retains all 127,942 cells and the 27 prespecified clock genes, read
+from the original per-celltype RNA data layers. Metadata fields, sample labels,
+and cell IDs were checked against the source schema and current phase cache.
+It is not a whole-transcriptome count matrix; Appendix A still requires 2.1.
+
+```{r heart_load_plot_inputs}
+heart_plot_inputs <- readRDS(heart_plot_input_file)
+heart_meta <- heart_plot_inputs$metadata
+heart_data <- heart_plot_inputs$clock_expression
+heart_celltype_levels <- heart_plot_inputs$celltype_levels
+stopifnot(identical(heart_meta$cell, colnames(heart_data)))
+stopifnot(nrow(heart_meta) == 127942L, heart_plot_inputs$RNA_features == 24386L)
+stopifnot(identical(unname(tools::md5sum(heart_phase_file)), heart_plot_inputs$phase_md5))
+stopifnot(all(c("cell", "celltype", "Group", "Sample", "ZT", "ZT_num") %in% names(heart_meta)))
+```
+
+# 3. Phase-first analysis: no gene-level fitting
+
+Run Sections 1--3, then the E/F/G/H chunks. Do not run Appendix A for these
+panels. The saved phase result is read, not recomputed. E itself does not need
+rho; rho is used only for H/S11B. Rho and DTW are calculated directly in
+separate chunks; no automatic cache branches are used. F also uses normalized RNA expression of the
+small legacy seed-gene set, but not gene-parameter or module inference.
+
+## 3.1 Load and validate the saved cell phase
+
+```{r heart_load_saved_phase}
+stopifnot(file.exists(heart_phase_file))
+res_phase_heart <- readRDS(heart_phase_file)
+stopifnot(is.data.frame(res_phase_heart))
+stopifnot(all(c("cell", "theta_pred", "r_cell", "stratum") %in% names(res_phase_heart)))
+stopifnot(!anyDuplicated(res_phase_heart$cell))
+stopifnot(setequal(res_phase_heart$cell, heart_meta$cell))
+stopifnot(all(is.finite(res_phase_heart$theta_pred)))
+stopifnot(all(is.finite(res_phase_heart$r_cell)))
+stopifnot(all(
+  as.character(res_phase_heart$stratum) ==
+    as.character(heart_meta[res_phase_heart$cell, "celltype"])
+))
+
+heart_theta <- stats::setNames(res_phase_heart$theta_pred, res_phase_heart$cell)
+heart_r_cell <- stats::setNames(res_phase_heart$r_cell, res_phase_heart$cell)
+heart_phase_md5 <- unname(tools::md5sum(heart_phase_file))
+```
+
+## 3.2 Calculate sample-level rho directly
+
+```{r heart_run_phase_rho}
+res_rho_heart <- run_phase_rho(
+  res_phase = res_phase_heart,
+  metadata = heart_meta,
+  celltype_by = "celltype",
+  group_by = "Group",
+  sample_by = "Sample",
+  theta_by = "theta_pred",
+  celltype_levels = heart_celltype_levels,
+  group_levels = c("NCR", "ACR"),
+  compare_groups = c("NCR", "ACR"),
+  min_cell = 10,
+  p_adjust_method = "BH",
+  Verbose = TRUE
+)
+
+saveRDS(res_rho_heart, heart_rho_file)
+readr::write_tsv(res_rho_heart$rho_sample, file.path(heart_figure_dir, "heart_rho_sample.tsv"))
+readr::write_tsv(res_rho_heart$sig_result, file.path(heart_figure_dir, "heart_rho_statistics.tsv"))
+res_rho_heart <- readRDS(heart_rho_file)
+stopifnot(all(c("data", "rho_sample", "sig_result") %in% names(res_rho_heart)))
+stopifnot(setequal(res_rho_heart$data$cell, res_phase_heart$cell))
+stopifnot(all(as.character(res_rho_heart$data$Group) == as.character(heart_meta[res_rho_heart$data$cell, "Group"])))
+stopifnot(all(as.character(res_rho_heart$data$Sample) == as.character(heart_meta[res_rho_heart$data$cell, "Sample"])))
+stopifnot(all(as.character(res_rho_heart$data$cell_type) == as.character(heart_meta[res_rho_heart$data$cell, "celltype"])))
+stopifnot(all(abs(atan2(
+  sin(res_rho_heart$data$theta - heart_theta[res_rho_heart$data$cell]),
+  cos(res_rho_heart$data$theta - heart_theta[res_rho_heart$data$cell])
+)) < 1e-8))
+```
+
+## 3.3 Calculate phase-distribution DTW directly
+
+```{r heart_run_dtw_similarity}
+res_dtw_heart <- run_dtw_similarity(
+  res_phase = res_phase_heart,
+  metadata = heart_meta,
+  theta_by = "theta_pred",
+  celltype_by = "celltype",
+  group_by = "Group",
+  group_levels = c("NCR", "ACR"),
+  celltype_levels = heart_celltype_levels,
+  n_bin = 24,
+  min_cell = 10,
+  normalize_distance = TRUE,
+  Verbose = TRUE
+)
+
+saveRDS(res_dtw_heart, heart_dtw_file)
+readr::write_tsv(
+  tibble::rownames_to_column(as.data.frame(res_dtw_heart$similarity), "profile"),
+  file.path(heart_figure_dir, "heart_dtw_similarity.tsv")
+)
+res_dtw_heart <- readRDS(heart_dtw_file)
+stopifnot(all(c("data", "similarity", "annotation") %in% names(res_dtw_heart)))
+stopifnot(identical(dim(res_dtw_heart$similarity), c(20L, 20L)))
+stopifnot(all(is.finite(res_dtw_heart$similarity)))
+stopifnot(setequal(res_dtw_heart$data$cell, res_phase_heart$cell))
+stopifnot(all(as.character(res_dtw_heart$data$Group) == as.character(heart_meta[res_dtw_heart$data$cell, "Group"])))
+stopifnot(all(as.character(res_dtw_heart$data$cell_type) == as.character(heart_meta[res_dtw_heart$data$cell, "celltype"])))
+stopifnot(all(abs(atan2(
+  sin(res_dtw_heart$data$phase_rad - heart_theta[res_dtw_heart$data$cell]),
+  cos(res_dtw_heart$data$phase_rad - heart_theta[res_dtw_heart$data$cell])
+)) < 1e-8))
+```
+
+# 4. Shared figure settings
+
+```{r heart_figure_settings}
+heart_group_cols <- c("NCR" = "#D7E8F0", "ACR" = "#E9D5E3")
+heart_group_line_cols <- c("NCR" = "#5F8EA3", "ACR" = "#A17494")
+heart_zt_cols <- c("ZT08" = "#D7E8F0", "ZT16" = "#E9D5E3")
+heart_celltype_cols <- c(
+  "Cardiomyocytes" = "#E64B35", "Endothelial" = "#4DBBD5",
+  "Lymphocytes" = "#00A087", "Myeloid" = "#3C5488",
+  "Adipocytes" = "#F39B7F", "Neuron" = "#8491B4",
+  "Pericytes" = "#91D1C2", "SMC" = "#DC0000",
+  "Fibroblasts" = "#7E6148", "Myofibroblasts" = "#B09C85"
+)
+heart_phase_breaks <- c(0, pi / 2, pi, 3 * pi / 2, 2 * pi)
+heart_phase_labels <- c("0", "π/2", "π", "3π/2", "2π")
+heart_base_family <- "Arial"
+grDevices::pdfFonts(Arial = grDevices::pdfFonts("ArialMT")[[1]])
+heart_export_dimensions <- list(fig_width_mm = 183)
+
+heart_save_svg <- function(plot, filename, width, height) {
+  svglite::svglite(filename, width = width, height = height)
+  print(plot)
+  grDevices::dev.off()
+}
+
+heart_save_tiff <- function(plot, filename, width, height) {
+  ragg::agg_tiff(
+    filename, width = width, height = height, units = "in",
+    res = 600, compression = "lzw"
+  )
+  print(plot)
+  grDevices::dev.off()
+}
+```
+
+# 5. Main Figure E: cell-phase ridgeline
+
+```{r heart_main_E}
+res_phase_heart <- readRDS(heart_phase_file)
+heart_phase_plot <- res_phase_heart |>
+  dplyr::select("cell", "theta_pred") |>
+  dplyr::left_join(
+    heart_meta |> dplyr::select("cell", "celltype", "Group"),
+    by = "cell"
+  ) |>
+  dplyr::mutate(
+    theta_pred = .data$theta_pred %% (2 * pi),
+    Group = factor(.data$Group, levels = c("NCR", "ACR"))
+  )
+stopifnot(nrow(heart_phase_plot) == nrow(res_phase_heart))
+stopifnot(!anyNA(heart_phase_plot))
+
+# Legacy E ordering: pooled, condition-wise rho; independent of the H cache.
+heart_celltype_rho_order <- heart_phase_plot |>
+  dplyr::group_by(.data$celltype, .data$Group) |>
+  dplyr::summarise(
+    rho = sqrt(mean(cos(.data$theta_pred))^2 + mean(sin(.data$theta_pred))^2),
+    .groups = "drop"
+  ) |>
+  dplyr::group_by(.data$celltype) |>
+  dplyr::summarise(mean_rho = mean(.data$rho), .groups = "drop") |>
+  dplyr::arrange(dplyr::desc(.data$mean_rho)) |>
+  dplyr::pull(.data$celltype) |>
+  as.character()
+
+heart_E_density_groups <- heart_phase_plot |>
+  dplyr::group_by(.data$celltype, .data$Group) |>
+  dplyr::summarise(theta_list = list(.data$theta_pred), n_cells = dplyr::n(), .groups = "drop")
+
+heart_E_density <- dplyr::bind_rows(lapply(seq_len(nrow(heart_E_density_groups)), function(i) {
+  theta <- heart_E_density_groups$theta_list[[i]]
+  den <- stats::density(
+    c(theta - 2 * pi, theta, theta + 2 * pi),
+    from = 0, to = 2 * pi, n = 720, bw = 0.35
+  )
+  tibble::tibble(
+    celltype = as.character(heart_E_density_groups$celltype[i]),
+    Group = as.character(heart_E_density_groups$Group[i]),
+    theta = den$x, density = den$y,
+    n_cells = heart_E_density_groups$n_cells[i]
+  )
+}))
+heart_E_ridge_levels <- rev(as.vector(t(outer(
+  heart_celltype_rho_order, c("NCR", "ACR"), paste, sep = " | "
+))))
+heart_E_density$ridge_id <- factor(
+  paste(heart_E_density$celltype, heart_E_density$Group, sep = " | "),
+  levels = heart_E_ridge_levels
+)
+heart_E_density$Group <- factor(heart_E_density$Group, levels = c("NCR", "ACR"))
+
+heart_E_blocks <- tibble::tibble(celltype = heart_celltype_rho_order) |>
+  dplyr::mutate(
+    idx_ncr = match(paste(.data$celltype, "NCR", sep = " | "), heart_E_ridge_levels),
+    idx_acr = match(paste(.data$celltype, "ACR", sep = " | "), heart_E_ridge_levels),
+    ymin = pmin(.data$idx_ncr, .data$idx_acr) - 0.48,
+    ymax = pmax(.data$idx_ncr, .data$idx_acr) + 0.48,
+    xmin = -0.78 * pi, xmax = -0.06 * pi
+  )
+heart_E_block_cols <- c(
+  "#F6EDEE", "#EAF1F6", "#EAF5F1", "#F3EFF8", "#F7F1EA",
+  "#EEF3F8", "#EDF6F2", "#F7F2E8", "#EEF0F7", "#F4EEF5"
+)
+
+p_main_E <- ggplot2::ggplot(
+  heart_E_density,
+  ggplot2::aes(
+    x = .data$theta, y = .data$ridge_id,
+    height = .data$density, group = .data$ridge_id, fill = .data$Group
+  )
+) +
+  ggplot2::geom_rect(
+    data = heart_E_blocks,
+    ggplot2::aes(xmin = .data$xmin, xmax = .data$xmax, ymin = .data$ymin, ymax = .data$ymax),
+    inherit.aes = FALSE, fill = heart_E_block_cols, color = NA
+  ) +
+  ggplot2::geom_text(
+    data = heart_E_blocks,
+    ggplot2::aes(x = (.data$xmin + .data$xmax) / 2, y = (.data$ymin + .data$ymax) / 2,
+                 label = .data$celltype),
+    inherit.aes = FALSE, fontface = "bold", size = 2.5
+  ) +
+  ggridges::geom_ridgeline(
+    color = "black", linewidth = 0.3, alpha = 0.95, scale = 10, min_height = 0
+  ) +
+  ggplot2::scale_fill_manual(values = heart_group_cols, breaks = c("NCR", "ACR")) +
+  ggplot2::scale_x_continuous(
+    limits = c(-0.84 * pi, 2 * pi), breaks = heart_phase_breaks,
+    labels = heart_phase_labels, expand = c(0, 0)
+  ) +
+  ggplot2::scale_y_discrete(labels = NULL) +
+  ggplot2::labs(title = "Cell Phase Distribution", x = "Predicted phase θ", y = NULL, fill = NULL) +
+  ggplot2::theme_classic(base_size = 9, base_family = heart_base_family) +
+  ggplot2::theme(
+    plot.title = ggplot2::element_text(face = "bold", hjust = 0.5),
+    axis.text.y = ggplot2::element_blank(),
+    axis.ticks.y = ggplot2::element_blank(),
+    axis.line.y = ggplot2::element_blank(),
+    legend.position = "top"
+  )
+
+readr::write_tsv(heart_phase_plot, file.path(heart_figure_dir, "Main_E_cell_phases.tsv"))
+readr::write_tsv(heart_E_density, file.path(heart_figure_dir, "Main_E_circular_density.tsv"))
+ggplot2::ggsave(file.path(heart_figure_dir, "Main_E_phase_ridgeline.pdf"), p_main_E, width = 4.8, height = 4.6, device = grDevices::cairo_pdf)
+ggplot2::ggsave(file.path(heart_figure_dir, "Main_E_phase_ridgeline.png"), p_main_E, width = 4.8, height = 4.6, dpi = 600)
+heart_save_svg(p_main_E, file.path(heart_figure_dir, "Main_E_phase_ridgeline.svg"), 4.8, 4.6)
+```
+
+# 6. Main Figure F: CellAlign local dissimilarity heatmaps
+
+The current `run_dtw_similarity()` output is used for panel G. F is different:
+it aligns normalized clock-gene expression along inferred phase, not phase
+histograms alone. It does NOT require `infer_gene_param()`, modules, or OVR.
+The legacy 30-point interpolation and 20 permutations are retained. This is
+structural reuse with the new phases and repaired seed symbols, not a claim of
+numerical identity with the old screenshot.
+
+```{r heart_main_F_cellalign}
+sub2ind <- cellAlign::sub2ind
+source(heart_plotalign_file)
+
+heart_seed_env <- new.env(parent = emptyenv())
+heart_seed_objects <- load(heart_seed_file, envir = heart_seed_env)
+heart_seed_genes <- unique(toupper(as.character(unlist(
+  mget(heart_seed_objects, envir = heart_seed_env),
+  use.names = FALSE
+))))
+heart_seed_genes[heart_seed_genes == "BMAL1"] <- "ARNTL"
+heart_seed_genes <- intersect(heart_seed_genes, rownames(heart_data))
+readr::write_tsv(
+  tibble::tibble(gene = heart_seed_genes),
+  file.path(heart_figure_dir, "Main_F_seed_genes.tsv")
+)
+stopifnot(length(heart_seed_genes) >= 20L)
+
+heart_cellalign_order <- c(
+  "Cardiomyocytes", "Endothelial", "Lymphocytes", "Myeloid", "Adipocytes",
+  "Neuron", "Pericytes", "SMC", "Fibroblasts", "Myofibroblasts"
+)
+heart_cellalign_dir <- file.path(heart_figure_dir, "Main_F_CellAlign")
+set.seed(1)
+dir.create(heart_cellalign_dir, recursive = TRUE, showWarnings = FALSE)
+heart_alignment_panels <- vector("list", length(heart_cellalign_order))
+names(heart_alignment_panels) <- heart_cellalign_order
+
+for (heart_ct in heart_cellalign_order) {
+  heart_alignment_file <- file.path(heart_cellalign_dir, paste0("Alignment_", heart_ct, ".rds"))
+  heart_cells_ct <- heart_meta$cell[heart_meta$celltype == heart_ct]
+  heart_meta_ct <- heart_meta[heart_cells_ct, , drop = FALSE]
+  heart_meta_ct$theta_pred <- heart_theta[heart_cells_ct] %% (2 * pi)
+  heart_expr_ct <- heart_data[heart_seed_genes, heart_cells_ct, drop = FALSE]
+
+  heart_ncr_cells <- heart_meta_ct$cell[heart_meta_ct$Group == "NCR"]
+  heart_acr_cells <- heart_meta_ct$cell[heart_meta_ct$Group == "ACR"]
+
+  heart_ncr_inter <- cellAlign::interWeights(
+    expDataBatch = as.matrix(heart_expr_ct[, heart_ncr_cells, drop = FALSE]),
+    trajCond = heart_meta_ct[heart_ncr_cells, "theta_pred"],
+    winSz = 0.1,
+    numPts = 30
+  )
+  heart_acr_inter <- cellAlign::interWeights(
+    expDataBatch = as.matrix(heart_expr_ct[, heart_acr_cells, drop = FALSE]),
+    trajCond = heart_meta_ct[heart_acr_cells, "theta_pred"],
+    winSz = 0.1,
+    numPts = 30
+  )
+
+  stopifnot(all(is.finite(heart_ncr_inter$interpolatedVals)))
+  stopifnot(all(is.finite(heart_acr_inter$interpolatedVals)))
+  heart_F_variable <- heart_seed_genes[
+    apply(heart_ncr_inter$interpolatedVals, 1, function(x) diff(range(x))) > 1e-12 &
+      apply(heart_acr_inter$interpolatedVals, 1, function(x) diff(range(x))) > 1e-12
+  ]
+  readr::write_tsv(
+    tibble::tibble(gene = heart_seed_genes, used = heart_seed_genes %in% heart_F_variable),
+    file.path(heart_cellalign_dir, paste0("Seed_gene_QC_", heart_ct, ".tsv"))
+  )
+  stopifnot(length(heart_F_variable) >= 3L)
+  heart_ncr_scaled <- cellAlign::scaleInterpolate(heart_ncr_inter)
+  heart_acr_scaled <- cellAlign::scaleInterpolate(heart_acr_inter)
+  heart_alignment <- cellAlign::globalAlign(
+    x = heart_acr_scaled$scaledData[heart_F_variable, , drop = FALSE],
+    y = heart_ncr_scaled$scaledData[heart_F_variable, , drop = FALSE],
+    scores = list(query = heart_acr_scaled$traj, ref = heart_ncr_scaled$traj),
+    sigCalc = TRUE,
+    numPerm = 20
+  )
+
+  attr(heart_alignment, "heart_phase_md5") <- heart_phase_md5
+  attr(heart_alignment, "heart_seed_genes") <- heart_F_variable
+  saveRDS(heart_alignment, heart_alignment_file)
+  heart_cost <- heart_alignment$localCostMatrix
+  heart_path <- heart_alignment$align[[1]]
+  heart_cost[cbind(heart_path$index1, heart_path$index2)] <- NA_real_
+  heart_cost_data <- expand.grid(ACR = seq_len(nrow(heart_cost)), NCR = seq_len(ncol(heart_cost)))
+  heart_cost_data$cost <- as.vector(heart_cost)
+  stopifnot(all(is.na(heart_cost_data$cost) | (heart_cost_data$cost >= 0 & heart_cost_data$cost <= 1)))
+  readr::write_tsv(heart_cost_data, file.path(heart_cellalign_dir, paste0("Local_cost_", heart_ct, ".tsv")))
+  heart_alignment_panels[[heart_ct]] <- ggplot2::ggplot(
+    heart_cost_data, ggplot2::aes(x = .data$NCR, y = .data$ACR, fill = .data$cost)
+  ) +
+    ggplot2::geom_raster() +
+    ggplot2::scale_fill_gradientn(
+      colors = viridis::plasma(100), limits = c(0, 1), breaks = c(0, 0.5, 1),
+      na.value = "#BDBDBD", name = "Dissimilarity"
+    ) +
+    ggplot2::scale_x_continuous(breaks = NULL, expand = c(0, 0)) +
+    ggplot2::scale_y_reverse(breaks = NULL, expand = c(0, 0)) +
+    ggplot2::coord_fixed() +
+    ggplot2::labs(title = heart_ct, x = "NCR", y = "ACR") +
+    ggplot2::theme_classic(base_size = 8, base_family = heart_base_family) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(size = 9, face = "bold", hjust = 0.5),
+      axis.title = ggplot2::element_text(size = 8, face = "bold"),
+      axis.line = ggplot2::element_blank(),
+      plot.background = ggplot2::element_blank(),
+      panel.background = ggplot2::element_blank(),
+      legend.title = ggplot2::element_text(size = 5.5),
+      legend.text = ggplot2::element_text(size = 5.5),
+      legend.key.height = grid::unit(0.9, "cm"),
+      legend.key.width = grid::unit(0.13, "cm"),
+      legend.margin = ggplot2::margin(0, 0, 0, 0),
+      plot.margin = ggplot2::margin(3, 1, 3, 1)
+    )
+
+  grDevices::cairo_pdf(
+    file.path(heart_cellalign_dir, paste0("Dissimilarity_Heatmap_", heart_ct, ".pdf")),
+    width = 4, height = 3
+  )
+  plotAlignCustom(alignment = heart_alignment, title = heart_ct)
+  grDevices::dev.off()
+
+  ragg::agg_png(
+    file.path(heart_cellalign_dir, paste0("Dissimilarity_Heatmap_", heart_ct, ".png")),
+    width = 4, height = 3, units = "in", res = 600
+  )
+  plotAlignCustom(alignment = heart_alignment, title = heart_ct)
+  grDevices::dev.off()
+}
+
+saveRDS(heart_alignment_panels, file.path(heart_figure_dir, "Main_F_panel_objects.rds"))
+```
+
+## 6.1 Assemble saved CellAlign panels
+
+```{r heart_main_F_grid}
+heart_alignment_panels <- readRDS(file.path(heart_figure_dir, "Main_F_panel_objects.rds"))
+p_main_F <- patchwork::wrap_plots(heart_alignment_panels, ncol = 5) &
+  ggplot2::theme(
+    plot.background = ggplot2::element_blank(), panel.background = ggplot2::element_blank(),
+    legend.background = ggplot2::element_blank(), legend.box.background = ggplot2::element_blank()
+  )
+heart_F_ids <- paste0("p", seq_len(10))
+measure_heart_panels(
+  patchwork::patchworkGrob(p_main_F),
+  file.path(heart_figure_dir, "Main_F_CellAlign_grid"), 12, 4.3,
+  "^panel[.]", 2, 5,
+  split(heart_F_ids, rep(1:2, each = 5)), split(heart_F_ids, rep(1:5, 2))
+)
+ggplot2::ggsave(file.path(heart_figure_dir, "Main_F_CellAlign_grid.pdf"), p_main_F, width = 12, height = 4.3, device = grDevices::cairo_pdf)
+ggplot2::ggsave(file.path(heart_figure_dir, "Main_F_CellAlign_grid.png"), p_main_F, width = 12, height = 4.3, dpi = 600, bg = "white")
+heart_save_svg(p_main_F, file.path(heart_figure_dir, "Main_F_CellAlign_grid.svg"), 12, 4.3)
+heart_save_tiff(p_main_F, file.path(heart_figure_dir, "Main_F_CellAlign_grid.tiff"), 12, 4.3)
+```
+
+# 7. Main Figure G: DTW similarity heatmap
+
+```{r heart_main_G_dtw_heatmap}
+res_dtw_heart <- readRDS(heart_dtw_file)
+heart_dtw_similarity <- res_dtw_heart$similarity
+heart_dtw_annotation <- res_dtw_heart$annotation[rownames(heart_dtw_similarity), , drop = FALSE]
+
+heart_G_top <- ComplexHeatmap::HeatmapAnnotation(
+  Group = heart_dtw_annotation$Group,
+  celltype = heart_dtw_annotation$cell_type,
+  col = list(Group = heart_group_cols, celltype = heart_celltype_cols),
+  show_annotation_name = TRUE
+)
+heart_G_left <- ComplexHeatmap::rowAnnotation(
+  Group = heart_dtw_annotation$Group,
+  celltype = heart_dtw_annotation$cell_type,
+  col = list(Group = heart_group_cols, celltype = heart_celltype_cols),
+  show_annotation_name = FALSE,
+  show_legend = FALSE
+)
+
+heart_G <- ComplexHeatmap::Heatmap(
+  heart_dtw_similarity,
+  name = "Similarity",
+  col = circlize::colorRamp2(c(0, 0.5, 1), c("#081D58", "#41B6C4", "#FFFFD9")),
+  top_annotation = heart_G_top,
+  left_annotation = heart_G_left,
+  cluster_rows = TRUE,
+  cluster_columns = TRUE,
+  show_row_names = TRUE,
+  row_names_side = "right",
+  row_names_gp = grid::gpar(fontsize = 7, fontface = "bold", fontfamily = heart_base_family),
+  show_column_names = FALSE,
+  column_title = "DTW-based Similarity",
+  column_title_gp = grid::gpar(fontsize = 12, fontface = "bold", fontfamily = heart_base_family),
+  border = FALSE
+)
+
+grDevices::cairo_pdf(file.path(heart_figure_dir, "Main_G_DTW_similarity.pdf"), width = 6.5, height = 6.2)
+ComplexHeatmap::draw(heart_G, merge_legends = TRUE, heatmap_legend_side = "right", annotation_legend_side = "right")
+grDevices::dev.off()
+svglite::svglite(file.path(heart_figure_dir, "Main_G_DTW_similarity.svg"), width = 6.5, height = 6.2)
+ComplexHeatmap::draw(heart_G, merge_legends = TRUE, heatmap_legend_side = "right", annotation_legend_side = "right")
+grDevices::dev.off()
+ragg::agg_png(file.path(heart_figure_dir, "Main_G_DTW_similarity.png"), width = 6.5, height = 6.2, units = "in", res = 600)
+ComplexHeatmap::draw(heart_G, merge_legends = TRUE, heatmap_legend_side = "right", annotation_legend_side = "right")
+grDevices::dev.off()
+```
+
+# 8. Main Figure H and Supplementary Figure S11B: sample-level rho
+
+Dots are biological samples, not individual cells. A donor × celltype with
+fewer than 10 cells has rho recorded as NA by `run_phase_rho()`; this is an
+analysis-quality threshold, not removal of that donor from the source data.
+The exported count table records the actual usable n in each group. Stars
+come from the current two-sided Wilcoxon tests with BH adjustment across cell
+types, never from the reference image.
+
+
+```{r heart_main_H_rho}
+res_rho_heart <- readRDS(heart_rho_file)
+heart_rho_sample <- res_rho_heart$rho_sample |>
+  dplyr::mutate(
+    Group = factor(.data$Group, levels = c("NCR", "ACR")),
+    cell_type = factor(.data$cell_type, levels = heart_celltype_levels)
+  )
+heart_rho_n <- heart_rho_sample |>
+  dplyr::group_by(.data$cell_type, .data$Group) |>
+  dplyr::summarise(
+    n_sample_total = dplyr::n(), n_sample_used = sum(is.finite(.data$rho)),
+    .groups = "drop"
+  )
+readr::write_tsv(heart_rho_n, file.path(heart_figure_dir, "Main_H_sample_counts.tsv"))
+readr::write_tsv(heart_rho_sample, file.path(heart_figure_dir, "Main_H_sample_rho.tsv"))
+readr::write_tsv(res_rho_heart$sig_result, file.path(heart_figure_dir, "Main_H_statistics.tsv"))
+heart_rho_plot <- heart_rho_sample |> dplyr::filter(is.finite(.data$rho))
+set.seed(1)
+heart_rho_sig <- res_rho_heart$sig_result |>
+  dplyr::mutate(
+    cell_type = factor(.data$cell_type, levels = heart_celltype_levels),
+    y_pos = max(heart_rho_sample$rho, na.rm = TRUE) + 0.012
+  )
+
+p_main_H <- ggplot2::ggplot(
+  heart_rho_plot,
+  ggplot2::aes(x = .data$cell_type, y = .data$rho, fill = .data$Group)
+) +
+  ggplot2::geom_boxplot(
+    position = ggplot2::position_dodge(width = 0.72), width = 0.62,
+    outlier.shape = NA, linewidth = 0.35
+  ) +
+  ggplot2::geom_point(
+    ggplot2::aes(group = .data$Group),
+    position = ggplot2::position_jitterdodge(jitter.width = 0.08, dodge.width = 0.72, seed = 1),
+    size = 0.85, alpha = 0.8
+  ) +
+  ggplot2::geom_text(
+    data = heart_rho_sig,
+    ggplot2::aes(x = .data$cell_type, y = .data$y_pos, label = .data$p_label),
+    inherit.aes = FALSE, size = 3.0, fontface = "bold"
+  ) +
+  ggplot2::scale_fill_manual(values = heart_group_cols) +
+  ggplot2::scale_y_continuous(breaks = seq(0, 1, by = 0.02), labels = scales::percent_format(accuracy = 1), expand = ggplot2::expansion(mult = c(0.05, 0.16))) +
+  ggplot2::labs(x = NULL, y = "ρ (%)", fill = NULL) +
+  ggplot2::theme_classic(base_size = 9, base_family = heart_base_family) +
+  ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1), legend.position = "top")
+
+ggplot2::ggsave(file.path(heart_figure_dir, "Main_H_sample_rho.pdf"), p_main_H, width = 7.2, height = 3.5, device = grDevices::cairo_pdf)
+ggplot2::ggsave(file.path(heart_figure_dir, "Main_H_sample_rho.png"), p_main_H, width = 7.2, height = 3.5, dpi = 600)
+heart_save_svg(p_main_H, file.path(heart_figure_dir, "Main_H_sample_rho.svg"), 7.2, 3.5)
+```
+
+## 8.1 Optional Supplementary Figure S11B
+
+```{r heart_s11B_rho}
+
+p_s11B <- ggplot2::ggplot(
+  heart_rho_plot,
+  ggplot2::aes(x = .data$Group, y = .data$rho, fill = .data$Group)
+) +
+  ggplot2::geom_boxplot(width = 0.55, outlier.shape = NA, linewidth = 0.35) +
+  ggplot2::geom_point(position = ggplot2::position_jitter(width = 0.08, seed = 1), size = 0.8, alpha = 0.85) +
+  ggplot2::geom_text(
+    data = heart_rho_sig,
+    ggplot2::aes(x = .data$x_pos, y = .data$y_pos, label = .data$p_label),
+    inherit.aes = FALSE, size = 3.0, fontface = "bold"
+  ) +
+  ggplot2::facet_wrap(~cell_type, ncol = 5, scales = "free_y") +
+  ggplot2::scale_y_continuous(breaks = seq(0, 1, by = 0.005), labels = scales::label_number(accuracy = 0.001)) +
+  ggplot2::scale_fill_manual(values = heart_group_cols, guide = "none") +
+  ggplot2::labs(x = NULL, y = "rho") +
+  ggplot2::theme_classic(base_size = 8, base_family = heart_base_family) +
+  ggplot2::theme(strip.background = ggplot2::element_blank(), strip.text = ggplot2::element_text(face = "bold"))
+
+heart_S11B_ids <- paste0("p", seq_len(10))
+measure_heart_panels(
+  ggplot2::ggplotGrob(p_s11B), file.path(heart_figure_dir, "S11_B_sample_rho"),
+  11, 5.3, "^panel-[0-9]+-[0-9]+[.]", 2, 5,
+  split(heart_S11B_ids, rep(1:2, each = 5)), split(heart_S11B_ids, rep(1:5, 2))
+)
+ggplot2::ggsave(file.path(heart_figure_dir, "S11_B_sample_rho.pdf"), p_s11B, width = 11, height = 5.3, device = grDevices::cairo_pdf)
+ggplot2::ggsave(file.path(heart_figure_dir, "S11_B_sample_rho.png"), p_s11B, width = 11, height = 5.3, dpi = 600)
+heart_save_svg(p_s11B, file.path(heart_figure_dir, "S11_B_sample_rho.svg"), 11, 5.3)
+```
+
+# 9. Core-clock curve source used by Main I and S11C
+
+Deferred: do not run Sections 9--10 or 12 until the I-panel design is agreed.
+These chunks are gated by `heart_make_clock_panels <- FALSE`.
+
+The module labels are taken from the newly fitted module result. A missing curve
+is intentional for one-sided modules because `infer_rhythm_module()` masks the
+non-rhythmic group parameters.
+
+```{r heart_core_clock_curves, eval=FALSE}
+stopifnot(isTRUE(heart_make_clock_panels))
+heart_core_genes <- c(
+  "ARNTL", "CLOCK", "CRY1", "CRY2", "DBP", "NFIL3", "NPAS2",
+  "NR1D1", "NR1D2", "PER1", "PER2", "PER3", "TEF", "CIART"
+)
+heart_curve_dir <- file.path(heart_figure_dir, "Core_clock_curves")
+dir.create(heart_curve_dir, recursive = TRUE, showWarnings = FALSE)
+
+heart_curve_plot <- function(celltype_use, gene_use) {
+  module_use <- readRDS(
+    file.path(heart_module_dir, paste0(celltype_use, "_infer_rhythm_module.rds"))
+  )$module_result |>
+    dplyr::filter(.data$gene == gene_use)
+
+  stopifnot(nrow(module_use) == 1L)
+
+  param_use <- readRDS(
+    file.path(heart_param_dir, paste0(celltype_use, "_infer_gene_param.rds"))
+  )$param_wide |>
+    dplyr::filter(.data$gene == gene_use)
+  stopifnot(nrow(param_use) == 1L)
+  phase_grid <- seq(0, 2 * pi, length.out = 200)
+
+  curve_use <- dplyr::bind_rows(
+    tibble::tibble(
+      Group = "NCR", phase = phase_grid,
+      expression = param_use$Mean_NCR +
+        module_use$Amplitude_NCR * cos(phase_grid - module_use$Phase_NCR)
+    ),
+    tibble::tibble(
+      Group = "ACR", phase = phase_grid,
+      expression = param_use$Mean_ACR +
+        module_use$Amplitude_ACR * cos(phase_grid - module_use$Phase_ACR)
+    )
+  ) |>
+    dplyr::filter(is.finite(.data$expression)) |>
+    dplyr::mutate(Group = factor(.data$Group, levels = c("NCR", "ACR")))
+
+  ggplot2::ggplot(curve_use, ggplot2::aes(x = .data$phase, y = .data$expression, color = .data$Group)) +
+    ggplot2::geom_line(linewidth = 1.0) +
+    ggplot2::scale_color_manual(values = heart_group_line_cols, drop = FALSE) +
+    ggplot2::scale_x_continuous(breaks = heart_phase_breaks, labels = heart_phase_labels) +
+    ggplot2::labs(
+      title = gene_use,
+      subtitle = paste0("M", module_use$module_map),
+      x = expression("Predicted phase " * phi),
+      y = "Normalized Expression",
+      color = NULL
+    ) +
+    ggplot2::theme_classic(base_size = 7, base_family = heart_base_family) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold", hjust = 0.5, size = 9),
+      plot.subtitle = ggplot2::element_text(hjust = 0.5, size = 6),
+      axis.text = ggplot2::element_text(size = 5.5),
+      axis.title = ggplot2::element_text(size = 6.5),
+      legend.position = "top",
+      legend.key.width = grid::unit(0.28, "cm"),
+      legend.text = ggplot2::element_text(size = 5.5)
+    )
+}
+
+heart_core_plot <- list()
+for (heart_ct in heart_celltype_levels) {
+  heart_core_plot[[heart_ct]] <- list()
+  for (heart_gene in intersect(heart_core_genes, rownames(heart_data))) {
+    heart_core_plot[[heart_ct]][[heart_gene]] <- heart_curve_plot(heart_ct, heart_gene)
+  }
+}
+```
+
+# 10. Main Figure I: selected core-clock rows
+
+```{r heart_main_I, eval=FALSE}
+stopifnot(isTRUE(heart_make_clock_panels))
+heart_main_I_genes <- list(
+  "Neuron" = c("CLOCK", "ARNTL", "PER2", "PER1", "NR1D2", "NR1D1", "NPAS2", "NFIL3", "TEF", "PER3"),
+  "SMC" = c("CLOCK", "ARNTL", "PER2", "PER1", "NR1D2", "NR1D1", "NPAS2", "NFIL3", "TEF", "CRY1"),
+  "Cardiomyocytes" = c("CLOCK", "ARNTL", "PER2", "PER1", "NR1D2", "NR1D1", "NPAS2", "NFIL3", "CRY1", "CRY2")
+)
+
+heart_main_I_rows <- lapply(names(heart_main_I_genes), function(heart_ct) {
+  patchwork::wrap_plots(heart_core_plot[[heart_ct]][heart_main_I_genes[[heart_ct]]], nrow = 1) +
+    patchwork::plot_annotation(title = heart_ct)
+})
+p_main_I <- patchwork::wrap_plots(heart_main_I_rows, ncol = 1, guides = "collect")
+
+require_patchwork_panel_alignment(
+  p_main_I,
+  manifest_path = file.path(heart_figure_dir, "Main_I_core_clock.alignment-layout.json"),
+  report_path = file.path(heart_figure_dir, "Main_I_core_clock.alignment.json"),
+  overlay_svg = file.path(heart_figure_dir, "Main_I_core_clock.alignment.svg"),
+  width_in = 15,
+  height_in = 6.0,
+  audit_script = heart_panel_audit_file,
+  python = Sys.which("python3"),
+  strict = TRUE
+)
+ggplot2::ggsave(file.path(heart_figure_dir, "Main_I_core_clock.pdf"), p_main_I, width = 15, height = 6.0, limitsize = FALSE)
+ggplot2::ggsave(file.path(heart_figure_dir, "Main_I_core_clock.png"), p_main_I, width = 15, height = 6.0, dpi = 600, limitsize = FALSE)
+heart_save_svg(p_main_I, file.path(heart_figure_dir, "Main_I_core_clock.svg"), 15, 6.0)
+heart_save_tiff(p_main_I, file.path(heart_figure_dir, "Main_I_core_clock.tiff"), 15, 6.0)
+```
+
+# 11. Supplementary Figure S11A: phase flowers by group
+
+```{r heart_s11A_phase_flowers}
+heart_phase_zt_plot <- res_phase_heart |>
+  dplyr::select("cell", "theta_pred") |>
+  dplyr::left_join(
+    heart_meta |> dplyr::select("cell", "celltype", "Group", "ZT_num"), by = "cell"
+  ) |>
+  dplyr::mutate(theta_pred = .data$theta_pred %% (2 * pi))
+stopifnot(nrow(heart_phase_zt_plot) == 127942L, !anyNA(heart_phase_zt_plot))
+
+heart_flower_plots <- heart_flower_polygons <- heart_flower_source <- list()
+heart_window_source <- tibble::tibble(
+  ZT_group = c("ZT08", "ZT16"), window_start = c(6, 14), window_end = c(10, 18)
+)
+heart_ring_poly <- dplyr::bind_rows(lapply(seq_len(2), function(i) {
+  theta <- seq(heart_window_source$window_start[i], heart_window_source$window_end[i], length.out = 160) / 24 * 2 * pi
+  tibble::tibble(
+    theta = c(theta, rev(theta)), radius = c(rep(0.84, 160), rep(0.72, 160)),
+    ZT_group = heart_window_source$ZT_group[i]
+  )
+})) |>
+  dplyr::mutate(x = .data$radius * sin(.data$theta), y = .data$radius * cos(.data$theta))
+heart_guide <- tibble::tibble(theta = seq(0, 2 * pi, length.out = 361)) |>
+  dplyr::mutate(x = 1.68 * sin(.data$theta), y = 1.68 * cos(.data$theta))
+heart_ticks <- tibble::tibble(hour = seq(0, 21, by = 3)) |>
+  dplyr::mutate(
+    theta = .data$hour / 24 * 2 * pi,
+    x = 1.58 * sin(.data$theta), xend = 1.68 * sin(.data$theta),
+    y = 1.58 * cos(.data$theta), yend = 1.68 * cos(.data$theta),
+    label_x = 2.25 * sin(.data$theta), label_y = 2.25 * cos(.data$theta),
+    lab = paste0(.data$hour, "h")
+  )
+
+for (heart_ct in heart_celltype_levels) {
+  heart_ct_phase <- heart_phase_zt_plot |> dplyr::filter(.data$celltype == heart_ct)
+  heart_curve_parts <- heart_poly_parts <- list()
+  heart_k <- 1L
+  for (heart_group in c("NCR", "ACR")) {
+    for (heart_zt in c(8, 16)) {
+      theta <- heart_ct_phase$theta_pred[
+        heart_ct_phase$Group == heart_group & heart_ct_phase$ZT_num == heart_zt
+      ]
+      stopifnot(length(theta) >= 2L)
+      den <- stats::density(
+        c(theta - 2 * pi, theta, theta + 2 * pi), from = 0, to = 2 * pi, n = 720, bw = 0.35
+      )
+      radius <- 0.92 + 0.72 * den$y / max(den$y)
+      heart_curve_parts[[heart_k]] <- tibble::tibble(
+        celltype = heart_ct, Group = heart_group, ZT_group = sprintf("ZT%02d", heart_zt),
+        theta = den$x, density = den$y, radius = radius
+      )
+      heart_poly_parts[[heart_k]] <- tibble::tibble(
+        celltype = heart_ct, Group = heart_group, ZT_group = sprintf("ZT%02d", heart_zt),
+        theta = c(den$x, rev(den$x)), radius = c(radius, rep(0.92, length(radius)))
+      )
+      heart_k <- heart_k + 1L
+    }
+  }
+  heart_flower_source[[heart_ct]] <- dplyr::bind_rows(heart_curve_parts)
+  heart_flower_polygons[[heart_ct]] <- dplyr::bind_rows(heart_poly_parts) |>
+    dplyr::mutate(
+      x = .data$radius * sin(.data$theta), y = .data$radius * cos(.data$theta),
+      Group = factor(.data$Group, levels = c("NCR", "ACR"))
+    )
+  heart_flower_n <- heart_ct_phase |>
+    dplyr::count(.data$Group, name = "n_cells") |>
+    dplyr::mutate(
+      Group = factor(.data$Group, levels = c("NCR", "ACR")),
+      lab = paste0("n=", .data$n_cells)
+    )
+
+  heart_flower_plots[[heart_ct]] <- ggplot2::ggplot() +
+    ggplot2::geom_polygon(
+      data = heart_flower_polygons[[heart_ct]],
+      ggplot2::aes(x = .data$x, y = .data$y, fill = .data$ZT_group, group = .data$ZT_group),
+      alpha = 0.45, color = NA
+    ) +
+    ggplot2::geom_polygon(
+      data = heart_ring_poly,
+      ggplot2::aes(x = .data$x, y = .data$y, fill = .data$ZT_group, group = .data$ZT_group),
+      alpha = 0.95, color = NA
+    ) +
+    ggplot2::geom_path(
+      data = heart_guide, ggplot2::aes(x = .data$x, y = .data$y),
+      color = "grey65", linewidth = 0.25
+    ) +
+    ggplot2::geom_segment(
+      data = heart_ticks,
+      ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend),
+      color = "grey55", linewidth = 0.25
+    ) +
+    ggplot2::geom_text(
+      data = heart_ticks,
+      ggplot2::aes(x = .data$label_x, y = .data$label_y, label = .data$lab),
+      size = 2.0, color = "grey35"
+    ) +
+    ggplot2::geom_text(
+      data = heart_flower_n, ggplot2::aes(x = 0, y = 0.35, label = .data$lab),
+      size = 1.85, fontface = "bold"
+    ) +
+    ggplot2::facet_wrap(~Group, nrow = 1) +
+    ggplot2::coord_fixed(xlim = c(-2.75, 2.75), ylim = c(-2.75, 2.75), expand = FALSE) +
+    ggplot2::scale_fill_manual(values = heart_zt_cols, name = "True ZT",
+                              breaks = c("ZT08", "ZT16"), labels = c("ZT08", "ZT16")) +
+    ggplot2::labs(title = heart_ct) +
+    ggplot2::theme_void(base_size = 7, base_family = heart_base_family) +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold", hjust = 0.5, size = 7),
+      strip.text = ggplot2::element_text(face = "bold", size = 6),
+      legend.position = "right", legend.title = ggplot2::element_text(size = 6),
+      legend.text = ggplot2::element_text(size = 5.5),
+      legend.key.size = grid::unit(0.3, "cm"),
+      legend.margin = ggplot2::margin(0, 0, 0, 0),
+      plot.margin = ggplot2::margin(3, 2, 3, 2)
+    )
+  ggplot2::ggsave(
+    file.path(heart_figure_dir, paste0("S11_A_", heart_ct, "_phase_flower.pdf")),
+    heart_flower_plots[[heart_ct]], width = 7, height = 4.3, device = grDevices::cairo_pdf
+  )
+}
+
+readr::write_tsv(dplyr::bind_rows(heart_flower_source), file.path(heart_figure_dir, "S11_A_density_source.tsv"))
+readr::write_tsv(heart_window_source, file.path(heart_figure_dir, "S11_A_sampling_windows.tsv"))
+heart_s11A_grobs <- lapply(seq_along(heart_flower_plots), function(i) {
+  grid::grobTree(ggplot2::ggplotGrob(heart_flower_plots[[i]]),
+                vp = grid::viewport(name = paste0("heart_S11A_", i)))
+})
+heart_S11A_grid <- gridExtra::arrangeGrob(grobs = heart_s11A_grobs, ncol = 5)
+heart_S11A_ids <- paste0("p", seq_len(20))
+heart_S11A_rows <- c(
+  split(heart_S11A_ids, rep(1:10, each = 2)),
+  list(heart_S11A_ids[seq(1, 9, 2)], heart_S11A_ids[seq(2, 10, 2)],
+       heart_S11A_ids[seq(11, 19, 2)], heart_S11A_ids[seq(12, 20, 2)])
+)
+measure_heart_panels(
+  heart_S11A_grid, file.path(heart_figure_dir, "S11_A_phase_flowers"),
+  11, 5.5, "^panel-[0-9]+-[0-9]+[.]", 2, 10,
+  heart_S11A_rows, split(heart_S11A_ids, rep(1:10, 2))
+)
+grDevices::cairo_pdf(file.path(heart_figure_dir, "S11_A_phase_flowers.pdf"), width = 11, height = 5.5)
+grid::grid.draw(heart_S11A_grid)
+grDevices::dev.off()
+svglite::svglite(file.path(heart_figure_dir, "S11_A_phase_flowers.svg"), width = 11, height = 5.5)
+grid::grid.draw(heart_S11A_grid)
+grDevices::dev.off()
+ragg::agg_png(file.path(heart_figure_dir, "S11_A_phase_flowers.png"), width = 11, height = 5.5, units = "in", res = 600)
+grid::grid.draw(heart_S11A_grid)
+grDevices::dev.off()
+ragg::agg_tiff(file.path(heart_figure_dir, "S11_A_phase_flowers.tiff"), width = 11, height = 5.5, units = "in", res = 600, compression = "lzw")
+grid::grid.draw(heart_S11A_grid)
+grDevices::dev.off()
+```
+
+# 12. Supplementary Figure S11C: remaining core-clock rows
+
+```{r heart_s11C, eval=FALSE}
+stopifnot(isTRUE(heart_make_clock_panels))
+heart_s11C_genes <- list(
+  "Adipocytes" = c("PER3", "PER1", "NPAS2", "ARNTL", "NFIL3", "NR1D2"),
+  "Lymphocytes" = c("NR1D1", "DBP", "CRY2", "CRY1", "NR1D2", "CLOCK", "ARNTL", "PER1", "PER2", "NPAS2", "NFIL3"),
+  "Myeloid" = c("NR1D1", "DBP", "CRY2", "CRY1", "NR1D2", "CLOCK", "ARNTL", "PER1", "PER2", "NPAS2", "NFIL3"),
+  "Myofibroblasts" = c("NR1D1", "DBP", "TEF", "CRY1", "NR1D2", "CLOCK", "ARNTL", "PER1", "PER2", "NPAS2", "PER3"),
+  "Pericytes" = c("NR1D1", "DBP", "CRY2", "CRY1", "NR1D2", "CLOCK", "ARNTL", "PER1", "PER2", "NPAS2", "NFIL3"),
+  "Endothelial" = c("NR1D1", "DBP", "CRY2", "CRY1", "NR1D2", "CLOCK", "ARNTL", "PER1", "PER2", "NPAS2", "NFIL3"),
+  "Fibroblasts" = c("NR1D1", "DBP", "CRY2", "CRY1", "NR1D2", "CLOCK", "ARNTL", "PER1", "PER2", "NPAS2", "NFIL3")
+)
+
+heart_s11C_rows <- lapply(names(heart_s11C_genes), function(heart_ct) {
+  heart_row_plots <- heart_core_plot[[heart_ct]][heart_s11C_genes[[heart_ct]]]
+
+  heart_row_plots <- c(
+    heart_row_plots,
+    rep(list(patchwork::plot_spacer()), 11L - length(heart_row_plots))
+  )
+  patchwork::wrap_plots(heart_row_plots, nrow = 1) +
+    patchwork::plot_annotation(title = heart_ct)
+})
+p_s11C <- patchwork::wrap_plots(heart_s11C_rows, ncol = 1, guides = "collect")
+
+require_patchwork_panel_alignment(
+  p_s11C,
+  manifest_path = file.path(heart_figure_dir, "S11_C_core_clock.alignment-layout.json"),
+  report_path = file.path(heart_figure_dir, "S11_C_core_clock.alignment.json"),
+  overlay_svg = file.path(heart_figure_dir, "S11_C_core_clock.alignment.svg"),
+  width_in = 16.3,
+  height_in = 13.5,
+  audit_script = heart_panel_audit_file,
+  python = Sys.which("python3"),
+  strict = TRUE
+)
+ggplot2::ggsave(file.path(heart_figure_dir, "S11_C_core_clock.pdf"), p_s11C, width = 16.3, height = 13.5, limitsize = FALSE)
+ggplot2::ggsave(file.path(heart_figure_dir, "S11_C_core_clock.png"), p_s11C, width = 16.3, height = 13.5, dpi = 600, limitsize = FALSE)
+heart_save_svg(p_s11C, file.path(heart_figure_dir, "S11_C_core_clock.svg"), 16.3, 13.5)
+heart_save_tiff(p_s11C, file.path(heart_figure_dir, "S11_C_core_clock.tiff"), 16.3, 13.5)
+```
+
+# Appendix A. Optional expensive analysis -- NOT required for E--H
+
+All chunks below are disabled and guarded. Keep `heart_refit_phase = FALSE`
+and `heart_run_gene_level = FALSE` for the current phase-first task.
+Existing per-celltype gene/module files are protected by assertions and are not overwritten. If a future
+refit uses different phases or a different design, select a new `heart_root`;
+do not mix old and new caches. No original source script is modified.
+
+## A1. Optional phase refit (disabled)
+
+Gene symbols in this object are human-style uppercase symbols, so the species is
+set to `human` rather than inferred from the sample description.
+
+The isolated phase-function repair handles the QR-identified aliased coefficient
+in the initial two-ZT design. It preserves NB fitting and the Poisson-limit
+fallback, and records each seed fit in the returned object's attributes.
+
+```{r heart_infer_cell_phase, eval=FALSE}
+stopifnot(isTRUE(heart_refit_phase))
+stopifnot(!file.exists(heart_phase_file))
+source(heart_phase_fix_file)
+res_phase_heart <- infer_cell_phase(
+  count = heart_count,
+  metadata = heart_meta,
+  ZT_by = "ZT_num",
+  strata_by = "celltype",
+  Species = "human",
+  n_grid = 60,
+  n_iter_outer = 5,
+  n_iter_seed = 3,
+  Kappa = 5,
+  p_mix = 0.85,
+  Min_n = 200,
+  setseed = 1,
+  Verbose = TRUE,
+  min_seed = 0.01,
+  family = "NB"
+)
+
+saveRDS(res_phase_heart, heart_phase_file)
+readr::write_tsv(res_phase_heart, file.path(heart_root, "heart_infer_cell_phase.tsv"))
+readr::write_tsv(
+  attr(res_phase_heart, "seed_fit_diagnostics"),
+  file.path(heart_root, "heart_seed_fit_diagnostics.tsv")
+)
+```
+
+## A2. Optional gene parameters (disabled; not needed for E--H)
+
+Each group contains eight biological samples, with four samples at each ZT.
+`Sample` is therefore the independent resampling unit and `ZT_num` is the
+sample-bootstrap stratum.
+
+```{r heart_infer_gene_param, eval=FALSE}
+stopifnot(isTRUE(heart_run_gene_level))
+source(file.path(heart_algo_dir, "infer_gene_param.R"))
+res_phase_heart <- readRDS(heart_phase_file)
+heart_theta <- stats::setNames(res_phase_heart$theta_pred, res_phase_heart$cell)
+heart_r_cell <- stats::setNames(res_phase_heart$r_cell, res_phase_heart$cell)
+
+heart_param <- vector("list", length(heart_celltype_levels))
+names(heart_param) <- heart_celltype_levels
+
+for (heart_ct in heart_celltype_levels) {
+  heart_param_path <- file.path(heart_param_dir, paste0(heart_ct, "_infer_gene_param.rds"))
+  stopifnot(!file.exists(heart_param_path))
+  heart_cells_ct <- heart_meta$cell[heart_meta$celltype == heart_ct]
+  heart_count_ct <- heart_count[, heart_cells_ct, drop = FALSE]
+  heart_meta_ct <- heart_meta[heart_cells_ct, , drop = FALSE]
+
+  heart_param[[heart_ct]] <- infer_gene_param(
+    count = heart_count_ct,
+    metadata = heart_meta_ct,
+    theta_pred = heart_theta[heart_cells_ct],
+    r_cell = heart_r_cell[heart_cells_ct],
+    strata_by = "Group",
+    ZT_by = "ZT_num",
+    B = 100,
+    n_worker = min(12L, max(1L, parallel::detectCores() - 2L)),
+    setseed = 1,
+    Verbose = TRUE,
+    sample_by = "Sample",
+    sample_boot_by = "ZT_num"
+  )
+
+  saveRDS(
+    heart_param[[heart_ct]],
+    file.path(heart_param_dir, paste0(heart_ct, "_infer_gene_param.rds"))
+  )
+  readr::write_tsv(
+    heart_param[[heart_ct]]$param_wide,
+    file.path(heart_param_dir, paste0(heart_ct, "_param_wide.tsv"))
+  )
+}
+```
+
+## A3. Optional modules (disabled)
+
+```{r heart_infer_rhythm_module, eval=FALSE}
+stopifnot(isTRUE(heart_run_gene_level))
+source(file.path(heart_algo_dir, "infer_rhythm_module.R"))
+heart_module <- vector("list", length(heart_celltype_levels))
+names(heart_module) <- heart_celltype_levels
+
+for (heart_ct in heart_celltype_levels) {
+  heart_module_path <- file.path(heart_module_dir, paste0(heart_ct, "_infer_rhythm_module.rds"))
+  stopifnot(!file.exists(heart_module_path))
+  heart_param_ct <- readRDS(
+    file.path(heart_param_dir, paste0(heart_ct, "_infer_gene_param.rds"))
+  )
+  heart_module_out_ct <- file.path(heart_module_dir, heart_ct)
+  dir.create(heart_module_out_ct, recursive = TRUE, showWarnings = FALSE)
+
+  heart_module[[heart_ct]] <- infer_rhythm_module(
+    param_wide = heart_param_ct$param_wide,
+    compare_by = "Group",
+    group1 = "NCR",
+    group2 = "ACR",
+    tau_q = 0.05,
+    tau_A = 0.25,
+    tau_dA = 1,
+    tau_dphi = pi / 6,
+    out_dir = heart_module_out_ct,
+    Verbose = TRUE
+  )
+
+  saveRDS(
+    heart_module[[heart_ct]],
+    file.path(heart_module_dir, paste0(heart_ct, "_infer_rhythm_module.rds"))
+  )
+}
+```
+
+## A4. Optional one-vs-rest markers (disabled; not needed for E--H)
+
+```{r heart_infer_ovr_rhythm, eval=FALSE}
+stopifnot(isTRUE(heart_run_gene_level))
+stopifnot(!file.exists(heart_ovr_file))
+source(file.path(heart_algo_dir, "infer_ovr_rhythm.R"))
+res_ovr_heart <- infer_ovr_rhythm(
+  count = heart_count,
+  metadata = heart_meta,
+  theta_pred = heart_theta[colnames(heart_count)],
+  r_cell = heart_r_cell[colnames(heart_count)],
+  group_by = "celltype",
+  ZT_by = "ZT_num",
+  target_groups = heart_celltype_levels,
+  q_cut = 0.05,
+  amp_cut = 0.25,
+  n_worker = min(12L, max(1L, parallel::detectCores() - 2L)),
+  setseed = 1,
+  Verbose = TRUE,
+  sample_by = "Sample",
+  B = 100,
+  sample_boot_by = "ZT_num"
+)
+
+saveRDS(res_ovr_heart, heart_ovr_file)
+readr::write_tsv(res_ovr_heart$ovr_result, file.path(heart_root, "heart_ovr_result.tsv"))
+readr::write_tsv(res_ovr_heart$ovr_markers, file.path(heart_root, "heart_ovr_markers.tsv"))
+```
+
+# 13. Output inventory and session record
+
+```{r heart_output_inventory}
+heart_output_inventory <- tibble::tibble(
+  path = list.files(heart_figure_dir, recursive = TRUE, full.names = TRUE),
+  size_bytes = file.info(list.files(heart_figure_dir, recursive = TRUE, full.names = TRUE))$size
+)
+readr::write_tsv(heart_output_inventory, file.path(heart_figure_dir, "output_inventory.tsv"))
+writeLines(capture.output(sessionInfo()), file.path(heart_figure_dir, "sessionInfo.txt"))
+```
+
+# 14. Saved-result NCR/ACR cell-type ranking
+
+This section reads the completed `run_phase_rho()` and
+`run_dtw_similarity()` RDS objects only. It does not run phase inference, gene
+inference, rho or DTW again.
+
+Delta rho is defined as `mean rho(ACR) - mean rho(NCR)` using the group means
+already stored in `rho_sample_summary`. The DTW value is the same-cell-type
+NCR-versus-ACR raw normalized distance extracted from the saved `distance`
+matrix with the saved `annotation`; heatmap similarity colours are not used as
+effect sizes. Rank 1 is the largest absolute rho change or largest paired DTW
+distance, and the descriptive combined order is the ascending sum of the two
+ranks. Existing p values and BH FDR are retained from `sig_result`, do not enter
+the ranking, and unavailable tests remain NA rather than being labelled `ns`.
+
+```{r heart-saved-result-ranking-20261024, eval=FALSE, message=TRUE, warning=TRUE}
+source(
+  "/path/to/scRhythmBayes/reproducibility/05_heart/scHeart_existing_results_ranking_20261024.R"
+)
+```
+
+The ranking CSV and independent PNG/PDF scatter are written under
+`/path/to/source_archive/new figures /figure6/existing_results_review_20261024`.

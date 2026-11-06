@@ -1,0 +1,130 @@
+---
+title: "Cell-to-gene"
+output: html_document
+---
+
+## 读取
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(patchwork)
+
+input_dir <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1/R_input"
+out <- path.expand("/path/to/scRhythmBayes/R/c2g")
+dir.create(file.path(out, "data"), recursive = TRUE, showWarnings = FALSE)
+dir.create(file.path(out, "fig"), showWarnings = FALSE)
+
+fit <- readRDS(file.path(input_dir, "cell_to_gene_phase_sensitivity/gene_level_phase_sensitivity_fits.rds"))
+post <- readRDS(file.path(input_dir, "phase_uncertainty/phase_Q.rds"))
+truth <- read.csv(file.path(dirname(input_dir), "gene_truth.csv"))
+meta <- read.csv(file.path(input_dir, "metadata.csv"))
+
+truth <- truth %>%
+  dplyr::filter(tolower(is_seed) != "true", !gene_id %in% post$seed) %>%
+  dplyr::transmute(gene = gene_id, celltype,
+                   Rhythmic = tolower(true_rhythmic) == "true",
+                   true_phase_rad, true_amplitude)
+
+est <- dplyr::bind_rows(
+  "True phase" = fit[["Oracle true phase"]]$param_long,
+  "Phase only" = fit[["Predicted phase + uniform weight"]]$param_long,
+  "Phase + r_cell" = fit[["Current SRB phase + r_cell"]]$param_long,
+  "Sample ZT" = fit[["ZT-only + uniform weight"]]$param_long,
+  .id = "Method"
+)
+```
+
+## 计算
+
+```{r}
+methods <- c("True phase", "Phase only", "Phase + r_cell", "Sample ZT")
+
+dat <- tidyr::crossing(truth, Method = methods) %>%
+  dplyr::left_join(est, by = c("gene", "celltype", "Method")) %>%
+  dplyr::left_join(dplyr::distinct(meta, celltype, sigma_bio_hour), by = "celltype") %>%
+  dplyr::mutate(
+    Method = factor(Method, levels = methods),
+    Detected = is.finite(FDR) & FDR < 0.05,
+    Phase_error = abs(atan2(sin(Phase - true_phase_rad),
+                            cos(Phase - true_phase_rad))) * 24/(2*pi),
+    Amp_error = abs(Amplitude_shrunk - true_amplitude)
+  )
+
+res <- dat %>%
+  dplyr::group_by(Method, celltype, sigma_bio_hour) %>%
+  dplyr::summarise(
+    Genes = dplyr::n(), N_rhythmic = sum(Rhythmic),
+    TP = sum(Detected & Rhythmic), FP = sum(Detected & !Rhythmic),
+    Power = TP / N_rhythmic,
+    Phase_MAE = mean(Phase_error[Rhythmic], na.rm = TRUE),
+    Amp_MAE = mean(Amp_error[Rhythmic], na.rm = TRUE),
+    FDP = FP / pmax(TP + FP, 1),
+    .groups = "drop"
+  )
+
+write.csv(dat, file.path(out, "data/c2g_gene.csv"), row.names = FALSE)
+write.csv(res, file.path(out, "data/c2g.csv"), row.names = FALSE)
+res
+```
+
+## 作图
+
+```{r, fig.width=8.2677, fig.height=5.8465}
+theme_set(theme_classic(base_size = 9, base_family = "Helvetica") +
+  theme(plot.title = element_text(size = 10, face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_blank(), legend.text = element_text(size = 8),
+        legend.key.width = grid::unit(12, "pt"),
+        plot.background = element_rect(fill = "white", colour = NA),
+        legend.background = element_rect(fill = "white", colour = NA),
+        plot.margin = margin(6, 8, 6, 6)))
+
+col <- c("True phase" = "#202020", "Phase only" = "#D18C6D",
+         "Phase + r_cell" = "#A43B3B", "Sample ZT" = "#919191")
+shp <- c("True phase" = 16, "Phase only" = 1, "Phase + r_cell" = 17, "Sample ZT" = 15)
+
+p1 <- ggplot(res, aes(sigma_bio_hour, Power * 100, colour = Method, shape = Method)) +
+  geom_line(linewidth = 0.6) + geom_point(size = 2) +
+  scale_colour_manual(values = col) + scale_shape_manual(values = shp) +
+  scale_x_continuous(breaks = 1:6 + 0.5) +
+  labs(title = "Detection power", x = "Phase dispersion (h)", y = "Power (%)")
+
+p2 <- ggplot(res, aes(sigma_bio_hour, Phase_MAE, colour = Method, shape = Method)) +
+  geom_line(linewidth = 0.6) + geom_point(size = 2) +
+  scale_colour_manual(values = col) + scale_shape_manual(values = shp) +
+  scale_x_continuous(breaks = 1:6 + 0.5) +
+  labs(title = "Acrophase error", x = "Phase dispersion (h)", y = "MAE (h)")
+
+p3 <- ggplot(res, aes(sigma_bio_hour, Amp_MAE, colour = Method, shape = Method)) +
+  geom_line(linewidth = 0.6) + geom_point(size = 2) +
+  scale_colour_manual(values = col) + scale_shape_manual(values = shp) +
+  scale_x_continuous(breaks = 1:6 + 0.5) +
+  labs(title = "Amplitude error", x = "Phase dispersion (h)", y = "MAE")
+
+p4 <- ggplot(res, aes(sigma_bio_hour, FDP * 100, colour = Method, shape = Method)) +
+  geom_hline(yintercept = 5, linetype = 2, colour = "#B8B8B8", linewidth = 0.4) +
+  geom_line(linewidth = 0.6) + geom_point(size = 2) +
+  scale_colour_manual(values = col) + scale_shape_manual(values = shp) +
+  scale_x_continuous(breaks = 1:6 + 0.5) +
+  labs(title = "False discoveries", x = "Phase dispersion (h)", y = "FDP (%)")
+
+p <- (p1 + p2 + p3 + p4) +
+  plot_layout(ncol = 2, guides = "collect") +
+  plot_annotation(tag_levels = "A") & theme(legend.position = "bottom")
+
+p
+```
+
+## 保存
+
+```{r}
+ggsave(file.path(out, "fig/c2g.pdf"), p, width = 210, height = 148.5, units = "mm",
+       device = "pdf", family = "Helvetica", useDingbats = FALSE)
+ggsave(file.path(out, "fig/c2g.svg"), p, width = 210, height = 148.5, units = "mm",
+       device = svglite::svglite)
+ggsave(file.path(out, "fig/c2g.png"), p, width = 210, height = 148.5, units = "mm",
+       dpi = 300, device = ragg::agg_png)
+saveRDS(p, file.path(out, "fig/c2g.rds"))
+```

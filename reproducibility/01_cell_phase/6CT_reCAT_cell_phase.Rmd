@@ -1,0 +1,129 @@
+---
+title: "6CT_reCAT_cell_phase"
+author: "zhangqian"
+date: "2026-09-14"
+output: html_document
+---
+
+```{r}
+install.packages(c(
+  "remotes",
+  "Matrix",
+  "ggplot2",
+  "doParallel",
+  "mclust",
+  "cluster",
+  "TSP",
+  "dplyr",
+  "readr"
+))
+
+remotes::install_url(
+  "https://github.com/tinglabs/reCAT/archive/refs/heads/main.tar.gz",
+  dependencies = FALSE,
+  upgrade = "never"
+)
+
+library(reCAT)
+packageVersion("reCAT")
+```
+
+
+#run
+```{r}
+library(Matrix)
+library(dplyr)
+library(readr)
+library(reCAT)
+
+RUN_DIR <- "/path/to/analysis_home/Projects/scRhythmBayes_simulation/output/scRITMO_extended_simulation/sigma_gradient_1p5_2p5_3p5_4p5_5p5_6p5_empirical_fixed_v1"
+R_INPUT_DIR <- file.path(RUN_DIR, "R_input")
+OUT_DIR <- path.expand("/path/to/scRhythmBayes/R/reCAT_6CT")
+dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+counts <- as(Matrix::readMM(file.path(R_INPUT_DIR, "count_gene_by_cell.mtx")), "dgCMatrix")
+genes <- readr::read_csv(file.path(R_INPUT_DIR, "genes.csv"), show_col_types = FALSE)
+meta <- readr::read_csv(file.path(R_INPUT_DIR, "metadata.csv"), show_col_types = FALSE)
+cell_truth <- readr::read_csv(file.path(RUN_DIR, "cell_truth.csv"), show_col_types = FALSE)
+
+rownames(counts) <- genes$gene
+colnames(counts) <- meta$cell
+library_size <- cell_truth$library_size[match(meta$cell, cell_truth$cell_id)]
+
+stopifnot(nrow(counts) == 1000, ncol(counts) == 9000, nrow(meta) == 9000, identical(colnames(counts), meta$cell), !anyDuplicated(meta$cell), all(is.finite(library_size)), all(library_size > 0))
+
+circadian_seed_genes <- c("Bhlhe40", "Bhlhe41", "Bmal1", "Ciart", "Clock", "Cry1", "Dbp", "Npas2", "Nr1d1", "Nr1d2", "Per1", "Per2", "Per3", "Rorc", "Tef")
+stopifnot(all(circadian_seed_genes %in% rownames(counts)))
+
+seed_expr <- log2(sweep(as.matrix(counts[circadian_seed_genes, , drop = FALSE]), 2, library_size / 1e6, "/") + 1)
+
+wrap24 <- function(x) x %% 24
+circ_delta <- function(x, y) ((x - y + 12) %% 24) - 12
+circ_mean_hour <- function(x) wrap24(atan2(mean(sin(2 * pi * x / 24)), mean(cos(2 * pi * x / 24))) * 24 / (2 * pi))
+
+anchor_to_ZT <- function(raw_phase, ZT) {
+  directions <- c(1, -1)
+  offsets <- sapply(directions, function(d) circ_mean_hour(circ_delta(ZT, wrap24(d * raw_phase))))
+  predictions <- lapply(seq_along(directions), function(i) wrap24(directions[i] * raw_phase + offsets[i]))
+  losses <- sapply(predictions, function(x) mean(abs(circ_delta(x, ZT))))
+  best <- which.min(losses)
+  list(phase = predictions[[best]], direction = directions[best], offset = offsets[best], ZT_MAE = losses[best])
+}
+
+run_reCAT <- function(ct) {
+  message("Running reCAT: ", ct)
+  idx <- which(meta$celltype == ct)
+  md_all <- meta[idx, , drop = FALSE]
+  test_exp <- t(seed_expr[, idx, drop = FALSE])
+  rownames(test_exp) <- md_all$cell
+  test_exp <- test_exp[, apply(test_exp, 2, sd) > 0, drop = FALSE]
+
+  cell_sd <- apply(test_exp, 1, sd)
+  keep_cell <- is.finite(cell_sd) & cell_sd > 0
+  message("  eligible cells: ", sum(keep_cell), "/", length(keep_cell), " (", round(100 * mean(keep_cell), 2), "%)")
+
+  md <- md_all[keep_cell, , drop = FALSE]
+  test_exp <- test_exp[keep_cell, , drop = FALSE]
+
+  stopifnot(nrow(test_exp) == nrow(md), ncol(test_exp) >= 2, all(is.finite(test_exp)), all(apply(test_exp, 1, sd) > 0))
+
+  set.seed(20260910)
+  ordIndex <- reCAT::get_ordIndex(test_exp = test_exp, threadnum = 8, step_size = 5, base_cycle_range = 6:9, clust_method = "Corr")
+
+  recat_rank <- integer(nrow(test_exp))
+  recat_rank[ordIndex] <- seq_len(nrow(test_exp))
+  raw_phase <- 24 * (recat_rank - 1) / nrow(test_exp)
+  anchored <- anchor_to_ZT(raw_phase, md$ZT)
+
+  data.frame(
+    cell = md$cell,
+    celltype = md$celltype,
+    reCAT_rank = recat_rank,
+    reCAT_phase_raw_hour = raw_phase,
+    reCAT_phase_hour = anchored$phase,
+    reCAT_phase_rad = anchored$phase * 2 * pi / 24,
+    reCAT_direction = anchored$direction,
+    reCAT_offset_hour = anchored$offset,
+    reCAT_ZT_alignment_MAE = anchored$ZT_MAE
+  )
+}
+reCAT_result <- bind_rows(lapply(sort(unique(meta$celltype)), run_reCAT))#6:59-7：10
+reCAT_result <- reCAT_result[match(meta$cell, reCAT_result$cell), ]
+
+stopifnot(nrow(reCAT_result) == 9000, !anyDuplicated(reCAT_result$cell), identical(reCAT_result$cell, meta$cell))
+
+reCAT_result <- meta %>% left_join(reCAT_result, by = c("cell", "celltype"))
+reCAT_result_pred <- reCAT_result
+reCAT_result <- meta %>% left_join(reCAT_result_pred, by = c("cell", "celltype"))
+reCAT_result$reCAT_eligible <- !is.na(reCAT_result$reCAT_phase_hour)
+stopifnot(nrow(reCAT_result) == nrow(meta), identical(reCAT_result$cell, meta$cell), "T_true" %in% colnames(reCAT_result))
+reCAT_result$reCAT_abs_circular_error_hour <- abs(circ_delta(reCAT_result$reCAT_phase_hour, reCAT_result$T_true))
+reCAT_summary <- reCAT_result %>% group_by(celltype, sigma_bio_hour) %>% summarise(n_total = n(), n_predicted = sum(reCAT_eligible), coverage = mean(reCAT_eligible), circular_MAE_hour = mean(reCAT_abs_circular_error_hour, na.rm = TRUE), circular_median_AE_hour = median(reCAT_abs_circular_error_hour, na.rm = TRUE), .groups = "drop")
+print(reCAT_summary)
+readr::write_csv(reCAT_result, file.path(OUT_DIR, "reCAT_6CT_cell_phase.csv"))
+readr::write_csv(reCAT_summary, file.path(OUT_DIR, "reCAT_6CT_summary.csv"))
+saveRDS(reCAT_result, file.path(OUT_DIR, "reCAT_6CT_cell_phase.rds"))
+
+
+```
+

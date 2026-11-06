@@ -1,0 +1,435 @@
+---
+title: "Heart phase figures: separate, balanced panels"
+date: "2026-10-23"
+output:
+  html_document:
+    toc: true
+---
+
+This is a plotting-only companion to the complete heart analysis. It reads the
+completed heart results and a read-only plotting reference. No phase inference,
+gene fitting, CellAlign alignment, rho testing, or DTW calculation is repeated.
+The previous heart exports and the reference script/results are not overwritten.
+
+The reference supplies typography, plotting forms and a coordinated palette,
+not a mandatory tall outer canvas. Following the latest layout request, the
+heart panels are exported separately at balanced aspect ratios. They are not
+compressed into a shared contact sheet or combined main figure. All ten cell
+types are retained. I and S11C remain deferred.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = FALSE, echo = TRUE, fig.retina = 2)
+```
+
+# 1. Saved input and display settings
+
+```{r aligned_input}
+heart_root <- "/path/to/analysis_home/scRhythmBayes/data/scHeart_ACR_NCR_new_20261022"
+heart_saved_dir <- file.path(heart_root, "figures_complete_noif_20261023")
+heart_aligned_dir <- file.path(heart_root, "figures_fly_style_separate_20261023")
+heart_reference_rmd <- "/path/to/analysis_home/scRhythmBayes/GSE157504_validation/GSE157504_LD_scRhythmBayes_validation.Rmd"
+heart_code_dir <- "/path/to/scRhythmBayes/reproducibility/05_heart"
+heart_reference_md5 <- unname(tools::md5sum(heart_reference_rmd))
+
+heart_packages <- c("dplyr", "readr", "ggplot2", "patchwork", "ComplexHeatmap",
+                    "circlize", "RColorBrewer", "grid", "gridExtra", "tibble", "jsonlite", "ragg", "svglite")
+stopifnot(all(vapply(heart_packages, requireNamespace, logical(1), quietly = TRUE)))
+grDevices::pdfFonts(Arial = grDevices::pdfFonts("ArialMT")[[1]])
+dir.create(heart_aligned_dir, recursive = TRUE, showWarnings = FALSE)
+source(file.path(heart_code_dir, "measure_aligned_heart_panels_20261023.R"))
+source(file.path(heart_code_dir, "measure_heart_panels_20261023.R"))
+source("/path/to/scRhythmBayes/R/plot_dtw_heatmap.R")
+
+heart_saved <- readRDS(file.path(heart_saved_dir, "completed_plot_objects.rds"))
+heart_rho <- readRDS(file.path(heart_saved_dir, "heart_run_phase_rho.rds"))
+heart_dtw <- readRDS(file.path(heart_saved_dir, "heart_run_dtw_similarity.rds"))
+heart_density <- readr::read_tsv(
+  file.path(heart_saved_dir, "Main_E_circular_density.tsv"), show_col_types = FALSE
+)
+heart_celltypes <- names(heart_saved$F_individual)
+stopifnot(length(heart_celltypes) == 10L, nrow(heart_density) == 14400L)
+stopifnot(nrow(heart_dtw$similarity) == 20L)
+heart_density_counts <- heart_density |> dplyr::distinct(.data$celltype, .data$Group, .data$n_cells)
+stopifnot(sum(heart_density_counts$n_cells) == 127942L)
+
+heart_group_fill <- c(NCR = "#D7E8F0", ACR = "#E9D5E3")
+heart_group_line <- c(NCR = "#5F8EA3", ACR = "#A17494")
+heart_zt_fill <- stats::setNames(unname(heart_group_fill), c("ZT08", "ZT16"))
+heart_zt_line <- stats::setNames(unname(heart_group_line), c("ZT08", "ZT16"))
+heart_preview_dpi <- 120L
+heart_celltype_cols <- c(
+  Cardiomyocytes = "#E64B35", Endothelial = "#4DBBD5",
+  Lymphocytes = "#00A087", Myeloid = "#3C5488", Adipocytes = "#F39B7F",
+  Neuron = "#8491B4", Pericytes = "#91D1C2", SMC = "#DC0000",
+  Fibroblasts = "#7E6148", Myofibroblasts = "#B09C85"
+)
+heart_sizes <- data.frame(
+  panel = c("E", "F", "G", "H", "S11A", "S11B"),
+  width_in = c(9.2, 13.5, 9.8, 11.8, 11, 11),
+  height_in = c(8.2, 9.4, 8.8, 5.6, 5.5, 5.3)
+)
+readr::write_tsv(heart_sizes, file.path(heart_aligned_dir, "panel_dimensions.tsv"))
+readr::write_tsv(data.frame(
+  dataset = c("Heart", "Heart", "Fly", "Fly"),
+  group = c("NCR", "ACR", "LD", "DD"),
+  fill = c(unname(heart_group_fill), "#D8EADE", "#D5CAE3"),
+  line = c(unname(heart_group_line), "#688B78", "#7C6B91")
+), file.path(heart_aligned_dir, "group_palette.tsv"))
+readr::write_tsv(data.frame(
+  label = names(heart_zt_fill), fill = unname(heart_zt_fill), line = unname(heart_zt_line)
+), file.path(heart_aligned_dir, "True_ZT_palette.tsv"))
+
+heart_export_plot <- function(plot, name, width, height) {
+  ggplot2::ggsave(file.path(heart_aligned_dir, paste0(name, ".pdf")), plot,
+                 width = width, height = height, device = grDevices::cairo_pdf, bg = "white")
+  svglite::svglite(file.path(heart_aligned_dir, paste0(name, ".svg")), width = width, height = height)
+  grid::grid.draw(plot)
+  grDevices::dev.off()
+  ggplot2::ggsave(file.path(heart_aligned_dir, paste0(name, ".png")), plot,
+                 width = width, height = height, dpi = 600, device = ragg::agg_png, bg = "white")
+  ggplot2::ggsave(file.path(heart_aligned_dir, paste0(name, "_preview.png")), plot,
+                 width = width, height = height, dpi = heart_preview_dpi, device = ragg::agg_png, bg = "white")
+}
+```
+
+# 2. E: overlapping circular-density ridges
+
+The saved circular KDE is unchanged (bandwidth 0.35, 720 grid points). As in
+the reference, each curve is normalized to its own peak for display. Ridge
+height is therefore not cell abundance or a directly comparable density peak.
+The original absolute KDE remains available in the source table.
+
+```{r aligned_E, fig.width=9.2, fig.height=8.2}
+heart_E_order <- rev(levels(heart_saved$E$data$ridge_id))
+heart_E_order <- unique(sub(" [|] .*", "", heart_E_order))
+stopifnot(setequal(heart_E_order, heart_celltypes))
+heart_ridge <- heart_density |>
+  dplyr::group_by(.data$celltype, .data$Group) |>
+  dplyr::mutate(
+    ridge_height = .data$density / max(.data$density),
+    baseline = match(.data$celltype, rev(heart_E_order))
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(Group = factor(.data$Group, levels = c("NCR", "ACR")))
+
+p_heart_E <- ggplot2::ggplot(
+  heart_ridge, ggplot2::aes(x = .data$theta, group = interaction(.data$celltype, .data$Group))
+) +
+  ggplot2::geom_ribbon(ggplot2::aes(
+    ymin = .data$baseline, ymax = .data$baseline + 0.90 * .data$ridge_height, fill = .data$Group
+  ), alpha = 0.65) +
+  ggplot2::geom_line(ggplot2::aes(
+    y = .data$baseline + 0.90 * .data$ridge_height, colour = .data$Group
+  ), linewidth = 0.72) +
+  ggplot2::scale_fill_manual(values = heart_group_fill, name = NULL) +
+  ggplot2::scale_colour_manual(values = heart_group_line, name = NULL) +
+  ggplot2::scale_x_continuous(
+    breaks = c(0, pi / 2, pi, 3 * pi / 2, 2 * pi),
+    labels = c("0", "π/2", "π", "3π/2", "2π"), expand = ggplot2::expansion(mult = 0)
+  ) +
+  ggplot2::scale_y_continuous(
+    breaks = seq_along(heart_E_order), labels = rev(heart_E_order),
+    expand = ggplot2::expansion(add = c(0.2, 1.0))
+  ) +
+  ggplot2::labs(x = "Phase (rad)", y = NULL) +
+  ggplot2::theme_classic(base_size = 16, base_family = "sans") +
+  ggplot2::theme(
+    legend.position = "top", legend.text = ggplot2::element_text(size = 16),
+    axis.title.x = ggplot2::element_text(size = 20, face = "bold"),
+    axis.text.x = ggplot2::element_text(size = 16, colour = "black"),
+    axis.text.y = ggplot2::element_text(size = 14, colour = "black"),
+    axis.line.y = ggplot2::element_blank(), axis.ticks.y = ggplot2::element_blank(),
+    plot.margin = ggplot2::margin(10, 14, 10, 10)
+  )
+heart_export_plot(p_heart_E, "Heart_E_phase_density", 9.2, 8.2)
+readr::write_tsv(heart_ridge, file.path(heart_aligned_dir, "Heart_E_display_data.tsv"))
+p_heart_E
+```
+
+# 3. F: saved local costs, four columns
+
+The saved local-cost matrices and gray warping paths are unchanged. Only the
+canvas, typography and arrangement are changed. The last row contains two
+plots and two empty slots; no cell types are omitted.
+
+```{r aligned_F, fig.width=13.5, fig.height=9.4}
+heart_F_panels <- lapply(heart_saved$F_individual, function(p) {
+  p$coordinates <- ggplot2::coord_cartesian(expand = FALSE)
+  p + ggplot2::guides(fill = ggplot2::guide_colorbar(
+    barheight = grid::unit(1.8, "cm"), barwidth = grid::unit(0.18, "cm"),
+    title.position = "top", title.hjust = 0, ticks = FALSE
+  )) + ggplot2::theme(
+    text = ggplot2::element_text(family = "sans"),
+    plot.title = ggplot2::element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.title = ggplot2::element_text(size = 12, face = "bold"),
+    legend.title = ggplot2::element_text(size = 10, face = "bold"),
+    legend.text = ggplot2::element_text(size = 10),
+    legend.spacing.x = grid::unit(0.08, "cm"),
+    plot.margin = ggplot2::margin(7, 3, 7, 3),
+    plot.background = ggplot2::element_blank(), panel.background = ggplot2::element_blank(),
+    legend.background = ggplot2::element_blank(), legend.box.background = ggplot2::element_blank()
+  )
+})
+p_heart_F <- patchwork::wrap_plots(heart_F_panels, ncol = 4)
+heart_F_ids <- paste0("p", seq_len(10))
+measure_aligned_heart_panels(
+  patchwork::patchworkGrob(p_heart_F), file.path(heart_aligned_dir, "Heart_F_CellAlign"),
+  13.5, 9.4, "^panel(-[0-9]+)?[.]", heart_F_ids,
+  list(heart_F_ids[1:4], heart_F_ids[5:8], heart_F_ids[9:10]),
+  list(heart_F_ids[c(1, 5, 9)], heart_F_ids[c(2, 6, 10)],
+       heart_F_ids[c(3, 7)], heart_F_ids[c(4, 8)])
+)
+heart_export_plot(p_heart_F, "Heart_F_CellAlign", 13.5, 9.4)
+for (celltype in heart_celltypes) {
+  heart_export_plot(heart_F_panels[[celltype]], paste0("Heart_F_", celltype), 3.6, 3.6)
+}
+p_heart_F
+```
+
+# 4. G: square heatmap body with the reference plotting interface
+
+The 20 by 20 similarity matrix is unchanged. Its within-matrix normalization
+does not support absolute comparison with similarity values in another dataset.
+
+```{r aligned_G, fig.width=9.8, fig.height=8.8}
+heart_ht <- plot_dtw_heatmap(
+  dtw_res = heart_dtw, matrix_type = "similarity",
+  cluster_rows = TRUE, cluster_columns = TRUE,
+  show_row_names = TRUE, show_column_names = FALSE,
+  group_colors = heart_group_fill, celltype_colors = heart_celltype_cols,
+  title = "DTW-based Similarity",
+  width = grid::unit(12.5, "cm"), height = grid::unit(12.5, "cm")
+)
+heart_ht$heatmap@heatmap_param$show_heatmap_legend <- FALSE
+heart_similarity_legend <- ComplexHeatmap::Legend(
+  title = "Similarity", col_fun = heart_ht$heatmap@matrix_color_mapping@col_fun,
+  at = c(0, 0.5, 1), labels = c("0", "0.5", "1"),
+  title_gp = grid::gpar(fontsize = 16, fontface = "bold"),
+  labels_gp = grid::gpar(fontsize = 13), title_gap = grid::unit(4, "mm"),
+  legend_height = grid::unit(5, "cm")
+)
+for (format in c("pdf", "svg", "png")) {
+  heart_G_device <- list(pdf = grDevices::cairo_pdf, svg = svglite::svglite,
+                         png = ragg::agg_png)[[format]]
+  heart_G_arguments <- list(
+    pdf = list(filename = file.path(heart_aligned_dir, "Heart_G_DTW_similarity.pdf"), width = 9.8, height = 8.8),
+    svg = list(file = file.path(heart_aligned_dir, "Heart_G_DTW_similarity.svg"), width = 9.8, height = 8.8),
+    png = list(filename = file.path(heart_aligned_dir, "Heart_G_DTW_similarity.png"), width = 9.8, height = 8.8, units = "in", res = 600)
+  )[[format]]
+  do.call(heart_G_device, heart_G_arguments)
+  ComplexHeatmap::draw(heart_ht$heatmap, merge_legends = TRUE,
+                       heatmap_legend_list = list(heart_similarity_legend),
+                       heatmap_legend_side = "right", annotation_legend_side = "right",
+                       padding = grid::unit(c(6, 4, 4, 4), "mm"))
+  grDevices::dev.off()
+}
+ragg::agg_png(file.path(heart_aligned_dir, "Heart_G_DTW_similarity_preview.png"),
+              width = 9.8, height = 8.8, units = "in", res = heart_preview_dpi)
+ComplexHeatmap::draw(heart_ht$heatmap, merge_legends = TRUE,
+                     heatmap_legend_list = list(heart_similarity_legend),
+                     heatmap_legend_side = "right", annotation_legend_side = "right",
+                     padding = grid::unit(c(6, 4, 4, 4), "mm"))
+grDevices::dev.off()
+```
+
+# 5. H: reference styling on a wider, shorter canvas
+
+All saved patient rho values, sample-quality thresholds, raw P values, BH
+corrections and labels are retained. The y axis is 0--100%, with annotations
+above 100%, as in the reference. No test is recalculated.
+
+```{r aligned_H, fig.width=11.8, fig.height=5.6}
+heart_H_data <- heart_rho$rho_sample |>
+  dplyr::filter(is.finite(.data$rho)) |>
+  dplyr::mutate(rho_percent = 100 * .data$rho, Group = factor(.data$Group, levels = c("NCR", "ACR")))
+heart_H_order <- heart_H_data |>
+  dplyr::group_by(.data$cell_type) |>
+  dplyr::summarise(rho_mean = mean(.data$rho), .groups = "drop") |>
+  dplyr::arrange(dplyr::desc(.data$rho_mean)) |>
+  dplyr::pull(.data$cell_type)
+heart_H_data$cell_type <- factor(heart_H_data$cell_type, levels = heart_H_order)
+heart_H_sig <- heart_rho$sig_result |>
+  dplyr::mutate(cell_type = factor(.data$cell_type, levels = heart_H_order), y_pos = 103)
+
+p_heart_H <- ggplot2::ggplot(heart_H_data,
+  ggplot2::aes(x = .data$cell_type, y = .data$rho_percent, fill = .data$Group)
+) +
+  ggplot2::geom_boxplot(position = ggplot2::position_dodge(width = 0.72),
+    width = 0.56, linewidth = 0.55, outlier.shape = NA, alpha = 0.95) +
+  ggplot2::geom_point(position = ggplot2::position_jitterdodge(
+    jitter.width = 0.08, dodge.width = 0.72, seed = 1),
+    size = 1.35, alpha = 0.8, show.legend = FALSE) +
+  ggplot2::geom_text(data = heart_H_sig,
+    ggplot2::aes(x = .data$cell_type, y = .data$y_pos, label = .data$p_label),
+    inherit.aes = FALSE, size = 4.4, fontface = "bold") +
+  ggplot2::scale_fill_manual(values = heart_group_fill, breaks = c("NCR", "ACR"), name = NULL) +
+  ggplot2::scale_y_continuous(limits = c(0, 105), breaks = seq(0, 100, by = 20),
+    expand = ggplot2::expansion(mult = c(0.01, 0.02))) +
+  ggplot2::labs(x = NULL, y = "rho (%)") +
+  ggplot2::theme_classic(base_size = 10, base_family = "sans") +
+  ggplot2::theme(
+    axis.title.y = ggplot2::element_text(size = 12, face = "bold"),
+    axis.text.x = ggplot2::element_text(size = 8, face = "bold", angle = 45, hjust = 1),
+    axis.text.y = ggplot2::element_text(size = 9),
+    legend.text = ggplot2::element_text(size = 10, face = "bold"), legend.position = "top"
+  )
+heart_export_plot(p_heart_H, "Heart_H_sample_rho", 11.8, 5.6)
+p_heart_H_zoom <- p_heart_H + ggplot2::scale_y_continuous(
+  limits = c(floor(min(heart_H_data$rho_percent)) - 1, 105),
+  breaks = seq(0, 100, by = 2), expand = ggplot2::expansion(mult = c(0.01, 0.02))
+)
+heart_export_plot(p_heart_H_zoom, "Heart_H_sample_rho_zoom", 11.8, 5.6)
+readr::write_tsv(heart_H_data, file.path(heart_aligned_dir, "Heart_H_display_data.tsv"))
+readr::write_tsv(heart_rho$sig_result, file.path(heart_aligned_dir, "Heart_H_unchanged_statistics.tsv"))
+p_heart_H
+```
+
+# 6. Supplementary rho: same new group palette
+
+The supplementary panels use the same blue/mauve color family. In S11A the
+colors encode ZT08/ZT16, while NCR/ACR remain separate facets; the color
+reuse does not imply that a condition corresponds to a single sampling time.
+
+```{r aligned_S11B}
+p_heart_S11B <- heart_saved$S11B +
+  ggplot2::scale_fill_manual(values = heart_group_fill, guide = "none")
+heart_S11B_ids <- paste0("p", seq_len(10))
+measure_aligned_heart_panels(
+  ggplot2::ggplotGrob(p_heart_S11B), file.path(heart_aligned_dir, "Heart_S11B_sample_rho"),
+  11, 5.3, "^panel-[0-9]+-[0-9]+[.]", heart_S11B_ids,
+  split(heart_S11B_ids, rep(1:2, each = 5)), split(heart_S11B_ids, rep(1:5, 2))
+)
+heart_export_plot(p_heart_S11B, "Heart_S11B_sample_rho", 11, 5.3)
+```
+
+## 6.1 S11A: True ZT legend
+
+The legend uses the verified metadata labels ZT08 and ZT16, not AM/PM.
+"True ZT" denotes those original sampling labels. They represent the source
+AM/PM sampling windows (06:00--10:00 and 14:00--18:00), not precisely recorded
+individual collection times. The saved circular densities and window arcs
+are reused without re-estimation; cell counts and phase distributions do not change.
+
+```{r aligned_S11A, fig.width=11, fig.height=5.5}
+heart_S11A_source <- readr::read_tsv(
+  file.path(heart_saved_dir, "S11_A_density_source.tsv"), show_col_types = FALSE
+)
+heart_S11A_windows <- readr::read_tsv(
+  file.path(heart_saved_dir, "S11_A_sampling_windows.tsv"), show_col_types = FALSE
+)
+heart_S11A_meta <- readRDS(file.path(heart_saved_dir, "heart_plot_inputs_20261023.rds"))$metadata
+stopifnot(all(c("cell", "celltype", "Group", "ZT") %in% names(heart_S11A_meta)))
+stopifnot(setequal(unique(as.character(heart_S11A_meta$ZT)), c("ZT08", "ZT16")))
+stopifnot(setequal(unique(heart_S11A_source$ZT_group), names(heart_zt_fill)))
+stopifnot(nrow(heart_S11A_meta) == 127942L, nrow(heart_S11A_source) == 28800L)
+heart_S11A_n <- heart_S11A_meta |>
+  dplyr::count(.data$celltype, .data$Group, name = "n_cells") |>
+  dplyr::mutate(Group = factor(.data$Group, levels = c("NCR", "ACR")),
+                lab = paste0("n=", .data$n_cells))
+stopifnot(sum(heart_S11A_n$n_cells) == 127942L)
+
+heart_S11A_polygons <- heart_S11A_source |>
+  dplyr::group_by(.data$celltype, .data$Group, .data$ZT_group) |>
+  dplyr::group_modify(function(data, key) {
+    tibble::tibble(theta = c(data$theta, rev(data$theta)),
+                   radius = c(data$radius, rep(0.92, nrow(data))))
+  }) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(x = .data$radius * sin(.data$theta), y = .data$radius * cos(.data$theta),
+                Group = factor(.data$Group, levels = c("NCR", "ACR")))
+heart_S11A_ring <- dplyr::bind_rows(lapply(seq_len(nrow(heart_S11A_windows)), function(i) {
+  theta <- seq(heart_S11A_windows$window_start[i], heart_S11A_windows$window_end[i],
+                length.out = 160) / 24 * 2 * pi
+  tibble::tibble(ZT_group = heart_S11A_windows$ZT_group[i],
+                 theta = c(theta, rev(theta)), radius = c(rep(0.84, 160), rep(0.72, 160)))
+})) |>
+  dplyr::mutate(x = .data$radius * sin(.data$theta), y = .data$radius * cos(.data$theta))
+heart_S11A_guide <- tibble::tibble(theta = seq(0, 2 * pi, length.out = 361)) |>
+  dplyr::mutate(x = 1.68 * sin(.data$theta), y = 1.68 * cos(.data$theta))
+heart_S11A_ticks <- tibble::tibble(hour = seq(0, 21, by = 3)) |>
+  dplyr::mutate(theta = .data$hour / 24 * 2 * pi,
+    x = 1.58 * sin(.data$theta), xend = 1.68 * sin(.data$theta),
+    y = 1.58 * cos(.data$theta), yend = 1.68 * cos(.data$theta),
+    label_x = 2.25 * sin(.data$theta), label_y = 2.25 * cos(.data$theta),
+    lab = paste0(.data$hour, "h"))
+
+heart_S11A_plots <- stats::setNames(vector("list", length(heart_celltypes)), heart_celltypes)
+for (celltype in heart_celltypes) {
+  heart_S11A_plots[[celltype]] <- ggplot2::ggplot() +
+    ggplot2::geom_polygon(
+      data = dplyr::filter(heart_S11A_polygons, .data$celltype == .env$celltype),
+      ggplot2::aes(x = .data$x, y = .data$y, fill = .data$ZT_group, group = .data$ZT_group),
+      alpha = 0.65, colour = NA
+    ) +
+    ggplot2::geom_polygon(data = heart_S11A_ring,
+      ggplot2::aes(x = .data$x, y = .data$y, fill = .data$ZT_group, group = .data$ZT_group),
+      alpha = 0.95, colour = NA) +
+    ggplot2::geom_path(data = heart_S11A_guide, ggplot2::aes(x = .data$x, y = .data$y),
+                       colour = "grey65", linewidth = 0.25) +
+    ggplot2::geom_segment(data = heart_S11A_ticks,
+      ggplot2::aes(x = .data$x, xend = .data$xend, y = .data$y, yend = .data$yend),
+      colour = "grey55", linewidth = 0.25) +
+    ggplot2::geom_text(data = heart_S11A_ticks,
+      ggplot2::aes(x = .data$label_x, y = .data$label_y, label = .data$lab),
+      size = 2, colour = "grey35") +
+    ggplot2::geom_text(data = dplyr::filter(heart_S11A_n, .data$celltype == .env$celltype),
+      ggplot2::aes(x = 0, y = 0.35, label = .data$lab), size = 1.85, fontface = "bold") +
+    ggplot2::facet_wrap(~Group, nrow = 1) +
+    ggplot2::coord_fixed(xlim = c(-2.75, 2.75), ylim = c(-2.75, 2.75), expand = FALSE) +
+    ggplot2::scale_fill_manual(values = heart_zt_fill, name = "True ZT",
+      breaks = c("ZT08", "ZT16"), labels = c("ZT08", "ZT16"), drop = FALSE) +
+    ggplot2::labs(title = celltype) +
+    ggplot2::theme_void(base_size = 7, base_family = "Arial") +
+    ggplot2::theme(
+      plot.title = ggplot2::element_text(face = "bold", hjust = 0.5, size = 7),
+      strip.text = ggplot2::element_text(face = "bold", size = 6),
+      legend.position = "right", legend.title = ggplot2::element_text(size = 6),
+      legend.text = ggplot2::element_text(size = 5.5),
+      legend.key.size = grid::unit(0.3, "cm"), legend.margin = ggplot2::margin(0, 0, 0, 0),
+      plot.margin = ggplot2::margin(3, 2, 3, 2)
+    )
+  stopifnot(identical(unique(as.character(heart_S11A_plots[[celltype]]$layers[[1]]$data$celltype)), celltype))
+  heart_export_plot(heart_S11A_plots[[celltype]], paste0("Heart_S11A_", celltype, "_true_ZT"), 7, 4.3)
+}
+heart_S11A_grobs <- lapply(seq_along(heart_S11A_plots), function(i) {
+  grid::grobTree(ggplot2::ggplotGrob(heart_S11A_plots[[i]]),
+                 vp = grid::viewport(name = paste0("heart_trueZT_", i)))
+})
+heart_S11A_grid <- gridExtra::arrangeGrob(grobs = heart_S11A_grobs, ncol = 5)
+heart_S11A_ids <- paste0("p", seq_len(20))
+heart_S11A_rows <- c(split(heart_S11A_ids, rep(1:10, each = 2)),
+  list(heart_S11A_ids[seq(1, 9, 2)], heart_S11A_ids[seq(2, 10, 2)],
+       heart_S11A_ids[seq(11, 19, 2)], heart_S11A_ids[seq(12, 20, 2)]))
+measure_heart_panels(heart_S11A_grid, file.path(heart_aligned_dir, "Heart_S11A_true_ZT"),
+  11, 5.5, "^panel-[0-9]+-[0-9]+[.]", 2, 10,
+  heart_S11A_rows, split(heart_S11A_ids, rep(1:10, 2)))
+heart_export_plot(heart_S11A_grid, "Heart_S11A_true_ZT", 11, 5.5)
+readr::write_tsv(heart_S11A_n, file.path(heart_aligned_dir, "Heart_S11A_unchanged_cell_counts.tsv"))
+stopifnot(isTRUE(all.equal(as.data.frame(heart_S11A_source), as.data.frame(readr::read_tsv(
+  file.path(heart_saved_dir, "S11_A_density_source.tsv"), show_col_types = FALSE)),
+  check.attributes = FALSE, tolerance = 0)))
+```
+
+# 7. Integrity and reusable plot objects
+
+```{r aligned_integrity}
+stopifnot(identical(heart_reference_md5, unname(tools::md5sum(heart_reference_rmd))))
+stopifnot(identical(heart_rho$sig_result,
+                   readRDS(file.path(heart_saved_dir, "heart_run_phase_rho.rds"))$sig_result))
+stopifnot(identical(heart_dtw$similarity,
+                   readRDS(file.path(heart_saved_dir, "heart_run_dtw_similarity.rds"))$similarity))
+stopifnot(identical(heart_saved$H$data$rho, heart_rho$rho_sample$rho[is.finite(heart_rho$rho_sample$rho)]))
+stopifnot(all(vapply(heart_celltypes, function(celltype) {
+  identical(heart_F_panels[[celltype]]$data, heart_saved$F_individual[[celltype]]$data)
+}, logical(1))))
+saveRDS(list(E = p_heart_E, F = p_heart_F, F_individual = heart_F_panels,
+             G = heart_ht$heatmap, G_legend = heart_similarity_legend,
+             H = p_heart_H, H_zoom = p_heart_H_zoom, S11B = p_heart_S11B,
+             S11A = heart_S11A_grid, S11A_individual = heart_S11A_plots),
+        file.path(heart_aligned_dir, "heart_aligned_plot_objects.rds"))
+readr::write_tsv(data.frame(
+  check = c("reference_script_unchanged", "phase_refit", "gene_fit", "tests_recalculated"),
+  value = c("TRUE", "FALSE", "FALSE", "FALSE")
+), file.path(heart_aligned_dir, "integrity_checks.tsv"))
+writeLines(capture.output(sessionInfo()), file.path(heart_aligned_dir, "sessionInfo.txt"))
+```

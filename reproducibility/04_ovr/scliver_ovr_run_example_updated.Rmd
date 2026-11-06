@@ -1,0 +1,4958 @@
+---
+title: "scliver_ovr_run_example"
+output: html_document
+author: "zhangqian"
+date: "2026-09-25"
+---
+
+#load data
+```{r load-data}
+library(qs)
+library(Seurat)
+library(Matrix)
+library(dplyr)
+library(readr)
+library(furrr)
+
+source("/path/to/scRhythmBayes/reproducibility/support/legacy/infer_cell_phase.R")
+source("/path/to/scRhythmBayes/R/infer_gene_param.R")
+source("/path/to/scRhythmBayes/reproducibility/support/legacy/infer_ovr_rhythm_clean.R")
+
+scliver_file <- "/path/to/data_volume/scRhythmBayes/data/scCircadianLiver-RNAonly.qs"
+out_dir <- "/path/to/data_volume/scRhythmBayes/data/revised_liver_full"
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+input_cache_file <- file.path(out_dir, "liver_count_meta_cache.qs")
+input_cache <- if (file.exists(input_cache_file)) tryCatch(qread(input_cache_file), error = function(e) NULL) else NULL
+if (is.list(input_cache) && all(c("count_mat", "meta") %in% names(input_cache))) {
+  count_mat <- input_cache$count_mat; meta <- input_cache$meta; rm(input_cache)
+} else {
+  scliver <- qread(scliver_file); DefaultAssay(scliver) <- "RNA"
+  count_mat <- GetAssayData(scliver, assay = "RNA", layer = "counts"); meta <- scliver@meta.data
+  input_cache_tmp <- paste0(input_cache_file, ".tmp"); qsave(list(count_mat = count_mat, meta = meta), input_cache_tmp, preset = "balanced"); if (!file.rename(input_cache_tmp, input_cache_file)) stop("Failed to finalize count/meta cache")
+  rm(scliver); gc(full = TRUE)
+}
+meta$cell <- rownames(meta)
+meta$ZT_num <- readr::parse_number(as.character(meta$ZT))
+```
+
+#main version
+```{r main-ovr, eval=FALSE}
+res_phase <- infer_cell_phase(count = count_mat,
+                              metadata = meta,
+                              ZT_by = "ZT_num",
+                              strata_by = "celltype",
+                              Species = "mouse",
+                              setseed = 1,
+                              Verbose = TRUE)
+
+saveRDS(res_phase, file.path(out_dir, "liver_phase.rds"))
+
+res_param <- infer_gene_param(count = count_mat,
+                              metadata = meta,
+                              theta_pred = res_phase$theta_pred,
+                              r_cell = res_phase$r_cell,
+                              strata_by = "celltype",
+                              B = 100,
+                              n_worker = 10,
+                              setseed = 1,
+                              sample_by = NULL,
+                              Verbose = TRUE)
+
+saveRDS(res_param, file.path(out_dir, "liver_gene_param.rds"))
+
+ovr_dir <- file.path(out_dir, "ovr_clean")
+dir.create(ovr_dir, recursive = TRUE, showWarnings = FALSE)
+
+celltypes <- sort(unique(as.character(meta$celltype)))
+
+for (ct in celltypes) {
+  ct_file <- gsub("[^A-Za-z0-9]+", "_", ct)
+  out_file <- file.path(ovr_dir, paste0("OVR_", ct_file, "_vs_Rest.rds"))
+
+  if (file.exists(out_file)) {
+    message("Skip completed: ", ct)
+    next
+  }
+
+  res_one <- infer_ovr_rhythm(count = count_mat,
+                              metadata = meta,
+                              theta_pred = res_phase$theta_pred,
+                              r_cell = res_phase$r_cell,
+                              group_by = "celltype",
+                              target_groups = ct,
+                              q_cut = 0.05,
+                              amp_cut = 0.25,
+                              n_worker = 10,
+                              setseed = 1,
+                              Verbose = TRUE,
+                              sample_by = NULL,
+                              B = 1)
+
+  saveRDS(res_one, out_file)
+  message("Saved: ", ct)
+  rm(res_one)
+  gc()
+}
+
+ovr_list <- lapply(celltypes, function(ct) readRDS(file.path(ovr_dir, paste0("OVR_", gsub("[^A-Za-z0-9]+", "_", ct), "_vs_Rest.rds"))))
+names(ovr_list) <- celltypes
+
+ovr_result <- bind_rows(lapply(ovr_list, function(x) x$ovr_result))
+ovr_markers <- bind_rows(lapply(ovr_list, function(x) x$ovr_markers))
+ovr_summary <- ovr_markers %>% count(celltype, name = "n_marker") %>% right_join(data.frame(celltype = celltypes), by = "celltype") %>% mutate(n_marker = ifelse(is.na(n_marker), 0L, n_marker)) %>% arrange(match(celltype, celltypes))
+
+res_ovr <- list(ovr_result = ovr_result,
+                ovr_markers = ovr_markers,
+                ovr_summary = ovr_summary)
+
+saveRDS(res_ovr, file.path(out_dir, "liver_ovr_clean.rds"))
+write.csv(ovr_markers, file.path(out_dir, "liver_ovr_clean_markers.csv"), row.names = FALSE)
+write.csv(ovr_summary, file.path(out_dir, "liver_ovr_clean_summary.csv"), row.names = FALSE)
+
+res_ovr$ovr_summary
+```
+
+# LOCO
+```{r loco, eval=FALSE}
+# LOCO
+loco_dir <- file.path(out_dir, "ovr_loco")
+dir.create(loco_dir, recursive = TRUE, showWarnings = FALSE)
+
+for (ct in celltypes) {
+  for (leave_ct in setdiff(celltypes, ct)) {
+
+    cells_use <- meta$cell[meta$celltype != leave_ct]
+    count_use <- count_mat[, cells_use, drop = FALSE]
+    meta_use <- meta[cells_use, , drop = FALSE]
+    phase_id <- match(cells_use, res_phase$cell)
+
+    res_loco <- infer_ovr_rhythm(count = count_use,
+                                 metadata = meta_use,
+                                 theta_pred = res_phase$theta_pred[phase_id],
+                                 r_cell = res_phase$r_cell[phase_id],
+                                 group_by = "celltype",
+                                 target_groups = ct,
+                                 q_cut = 0.05,
+                                 amp_cut = 0.25,
+                                 n_worker = 10,
+                                 setseed = 1,
+                                 Verbose = TRUE,
+                                 sample_by = NULL,
+                                 B = 1)
+
+    ct_file <- gsub("[^A-Za-z0-9]+", "_", ct)
+    leave_file <- gsub("[^A-Za-z0-9]+", "_", leave_ct)
+
+    saveRDS(res_loco, file.path(loco_dir, paste0("LOCO_", ct_file, "_leave_", leave_file, ".rds")))
+
+    rm(res_loco, count_use, meta_use)
+    gc()
+  }
+}
+```
+
+# pairwise
+```{r pairwise, eval=FALSE}
+
+pairwise_dir <- file.path(out_dir, "ovr_pairwise")
+dir.create(pairwise_dir, recursive = TRUE, showWarnings = FALSE)
+
+for (i in 1:(length(celltypes) - 1)) {
+  for (j in (i + 1):length(celltypes)) {
+
+    ct1 <- celltypes[i]
+    ct2 <- celltypes[j]
+
+    cells_use <- meta$cell[meta$celltype %in% c(ct1, ct2)]
+    count_use <- count_mat[, cells_use, drop = FALSE]
+    meta_use <- meta[cells_use, , drop = FALSE]
+    phase_id <- match(cells_use, res_phase$cell)
+
+    res_pair <- infer_ovr_rhythm(count = count_use,
+                                 metadata = meta_use,
+                                 theta_pred = res_phase$theta_pred[phase_id],
+                                 r_cell = res_phase$r_cell[phase_id],
+                                 group_by = "celltype",
+                                 target_groups = c(ct1, ct2),
+                                 q_cut = 0.05,
+                                 amp_cut = 0.25,
+                                 n_worker = 10,
+                                 setseed = 1,
+                                 Verbose = TRUE,
+                                 sample_by = NULL,
+                                 B = 1)
+
+    ct1_file <- gsub("[^A-Za-z0-9]+", "_", ct1)
+    ct2_file <- gsub("[^A-Za-z0-9]+", "_", ct2)
+
+    saveRDS(res_pair, file.path(pairwise_dir, paste0("PAIR_", ct1_file, "_vs_", ct2_file, ".rds")))
+
+    rm(res_pair, count_use, meta_use)
+    gc()
+  }
+}
+```
+
+
+
+```{r collect-results, eval=FALSE}
+loco_files <- list.files(loco_dir, pattern = "\\.rds$", full.names = TRUE)
+
+loco_result <- NULL
+
+for (f in loco_files) {
+  x <- readRDS(f)
+  x$ovr_result$comparison <- basename(f)
+  loco_result <- bind_rows(loco_result, x$ovr_result)
+}
+
+loco_markers <- loco_result %>% filter(ovr_marker)
+
+saveRDS(loco_result, file.path(out_dir, "liver_ovr_loco_all.rds"))
+write.csv(loco_markers, file.path(out_dir, "liver_ovr_loco_markers.csv"), row.names = FALSE)
+
+pairwise_files <- list.files(pairwise_dir, pattern = "\\.rds$", full.names = TRUE)
+
+pairwise_result <- NULL
+
+for (f in pairwise_files) {
+  x <- readRDS(f)
+  x$ovr_result$comparison <- basename(f)
+  pairwise_result <- bind_rows(pairwise_result, x$ovr_result)
+}
+
+pairwise_markers <- pairwise_result %>% filter(ovr_marker)
+
+saveRDS(pairwise_result, file.path(out_dir, "liver_ovr_pairwise_all.rds"))
+write.csv(pairwise_markers, file.path(out_dir, "liver_ovr_pairwise_markers.csv"), row.names = FALSE)
+```
+
+# OVR Figure B--F
+## Shared input + panel B
+
+```{r figure-input-panel-B}
+suppressPackageStartupMessages({
+  library(dplyr); library(tidyr); library(tibble); library(readr); library(ggplot2); library(stringr)
+})
+
+ovr_force_recompute <- FALSE
+ovr_allow_findall_recompute <- FALSE
+ovr_force_export <- FALSE
+ovr_heatmap_workers <- 1L
+ovr_export_cairo <- FALSE
+ovr_export_tiff_600 <- FALSE
+options(future.globals.maxSize = 2 * 1024^3)
+
+ovr_data_dir <- "/path/to/scRhythmBayes/data"
+baseline_dir <- file.path(ovr_data_dir, "ovr_baseline")
+loco_file <- file.path(ovr_data_dir, "liver_ovr_loco_all.rds")
+loco_summary_file <- file.path(ovr_data_dir, "liver_ovr_loco_summary.csv")
+figure_dir <- file.path(ovr_data_dir, "ovr_figure_revision")
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+
+baseline_files <- list.files(baseline_dir, pattern = "[.]rds$", full.names = TRUE)
+stopifnot(length(baseline_files) == 7L, file.exists(loco_file), file.exists(loco_summary_file))
+baseline_list <- setNames(lapply(baseline_files, readRDS), basename(baseline_files))
+baseline_all <- dplyr::bind_rows(lapply(baseline_list, function(x) x$ovr_result))
+baseline_markers <- baseline_all %>% dplyr::filter(ovr_marker) %>% dplyr::distinct(celltype, gene, .keep_all = TRUE)
+loco_all <- readRDS(loco_file)
+loco_summary_saved <- read_csv(loco_summary_file, show_col_types = FALSE)
+stopifnot(all(c("gene", "celltype", "Phase_target", "FDR_target", "FDR_rest", "ovr_marker") %in% names(baseline_all)))
+stopifnot(all(c("gene", "celltype", "left_out_celltype", "ovr_marker") %in% names(loco_all)))
+
+loco_expected <- loco_all %>% dplyr::distinct(celltype, left_out_celltype) %>% dplyr::count(celltype, name = "n_expected_loco")
+stopifnot(all(loco_expected$n_expected_loco == 6L))
+loco_support <- loco_all %>% dplyr::group_by(celltype, gene) %>% dplyr::summarise(n_tested_loco = dplyr::n_distinct(left_out_celltype), support_n = sum(ovr_marker, na.rm = TRUE), .groups = "drop")
+baseline_stability <- baseline_markers %>% dplyr::left_join(loco_support, by = c("celltype", "gene")) %>% dplyr::left_join(loco_expected, by = "celltype") %>% dplyr::mutate(n_tested_loco = dplyr::coalesce(n_tested_loco, 0L), support_n = dplyr::coalesce(support_n, 0L), support_group = dplyr::case_when(support_n == 6L ~ "6/6", support_n == 5L ~ "5/6", support_n == 4L ~ "4/6", TRUE ~ "<=3/6"), support_group = factor(support_group, levels = c("<=3/6", "4/6", "5/6", "6/6")))
+celltype_order <- baseline_stability %>% dplyr::count(celltype, name = "n_marker") %>% dplyr::arrange(dplyr::desc(n_marker), celltype) %>% dplyr::pull(celltype)
+panel_b_df <- baseline_stability %>% dplyr::count(celltype, support_group, name = "n_marker") %>% tidyr::complete(celltype, support_group, fill = list(n_marker = 0L)) %>% dplyr::mutate(celltype = factor(celltype, levels = rev(celltype_order)))
+panel_b_total <- baseline_stability %>% dplyr::count(celltype, name = "n_marker") %>% dplyr::mutate(celltype = factor(celltype, levels = rev(celltype_order)))
+panel_b_check <- baseline_stability %>% dplyr::group_by(celltype) %>% dplyr::summarise(n_baseline = dplyr::n(), n_stable_6_of_6 = sum(support_n == 6L), n_stable_5_of_6 = sum(support_n >= 5L), median_stability = median(support_n / n_expected_loco), .groups = "drop") %>% dplyr::left_join(loco_summary_saved, by = "celltype", suffix = c("_recomputed", "_saved"))
+
+celltype_levels <- c("Hep.PV", "Hep.CV", "Kupffer cells", "Fibroblasts", "Endothelial", "Lymphocytes", "Cholangiocytes")
+celltype_pal <- c("Hep.PV" = "#E84D33", "Hep.CV" = "#55B3CF", "Kupffer cells" = "#455A8B", "Fibroblasts" = "#9ED3C9", "Endothelial" = "#13A88E", "Lymphocytes" = "#F29C7E", "Cholangiocytes" = "#6A78A8")
+stability_pal <- c("<=3/6" = "#D9D9D9", "4/6" = "#9ECAE1", "5/6" = "#4292C6", "6/6" = "#084594")
+theme_ovr <- function(base_size = 11) theme_classic(base_size = base_size, base_family = "sans") + theme(axis.line = element_line(linewidth = 0.4), axis.ticks = element_line(linewidth = 0.4), plot.title = element_text(face = "bold", hjust = 0.5), legend.title = element_text(face = "bold"), panel.grid = element_blank())
+save_gg <- function(p, stem, width, height, dpi = 300) {
+  pdf_file <- paste0(stem, ".pdf"); cairo_file <- paste0(stem, "_cairo.pdf"); svg_file <- paste0(stem, ".svg"); png_file <- paste0(stem, ".png"); tiff_file <- paste0(stem, ".tiff")
+  if (ovr_force_export || !file.exists(pdf_file)) ggsave(pdf_file, p, device = grDevices::pdf, width = width, height = height, units = "in", bg = "white", useDingbats = FALSE)
+  if (ovr_export_cairo && (ovr_force_export || !file.exists(cairo_file))) ggsave(cairo_file, p, device = grDevices::cairo_pdf, width = width, height = height, units = "in", bg = "white")
+  if (ovr_force_export || !file.exists(svg_file)) ggsave(svg_file, p, device = svglite::svglite, width = width, height = height, units = "in", bg = "white")
+  if (ovr_force_export || !file.exists(png_file)) ggsave(png_file, p, device = ragg::agg_png, width = width, height = height, units = "in", dpi = dpi, bg = "white")
+  if (ovr_export_tiff_600 && (ovr_force_export || !file.exists(tiff_file))) ggsave(tiff_file, p, device = ragg::agg_tiff, width = width, height = height, units = "in", dpi = 600, bg = "white", compression = "lzw")
+}
+
+write_tsv(baseline_all, file.path(figure_dir, "source_baseline_ovr_all.tsv.gz"))
+write_tsv(baseline_stability, file.path(figure_dir, "source_baseline_marker_loco_support.tsv"))
+write_tsv(panel_b_df, file.path(figure_dir, "panel_B_stability_counts.tsv"))
+write_tsv(panel_b_check, file.path(figure_dir, "panel_B_saved_summary_check.tsv"))
+
+p_B <- ggplot(panel_b_df, aes(x = n_marker, y = celltype, fill = support_group)) + geom_col(width = 0.72) + geom_text(data = panel_b_total, aes(x = n_marker, y = celltype, label = n_marker), inherit.aes = FALSE, hjust = -0.25, size = 3.4) + scale_fill_manual(values = stability_pal, drop = FALSE, name = "LOCO support") + guides(fill = guide_legend(reverse = TRUE)) + scale_x_continuous(expand = expansion(mult = c(0, 0.10))) + labs(title = "Baseline OVR markers and LOCO robustness", x = "Baseline OVR marker count", y = NULL) + theme_ovr() + theme(axis.text.y = element_text(face = "bold"), legend.position = "top")
+print(p_B)
+save_gg(p_B, file.path(figure_dir, "panel_B_baseline_LOCO_stacked_bar"), 7.2, 4.5)
+
+plot_df_ovr <- baseline_markers %>% dplyr::count(celltype, name = "OVR_gene_count") %>% dplyr::arrange(dplyr::desc(OVR_gene_count)) %>% dplyr::mutate(celltype = factor(celltype, levels = celltype))
+write_tsv(plot_df_ovr, file.path(figure_dir, "baseline_OVR_gene_count_by_celltype.tsv"))
+p_gene_count <- ggplot(plot_df_ovr, aes(x = celltype, y = OVR_gene_count, fill = celltype)) + geom_col(width = 0.72) + geom_text(aes(label = OVR_gene_count), vjust = -0.35, size = 5, fontface = "bold") + scale_fill_manual(values = celltype_pal[levels(plot_df_ovr$celltype)], guide = "none") + scale_y_continuous(expand = expansion(mult = c(0, 0.10))) + labs(title = "Baseline OVR marker count across cell types", x = "Cell type", y = "Gene count") + theme_bw() + theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 18), axis.title = element_text(face = "bold", size = 14), axis.text.x = element_text(angle = 45, hjust = 1, face = "bold", size = 11), axis.text.y = element_text(face = "bold", size = 12), panel.grid.major.x = element_blank(), panel.grid.minor = element_blank())
+print(p_gene_count)
+save_gg(p_gene_count, file.path(figure_dir, "panel_B_baseline_OVR_gene_count_barplot"), 8.2, 6)
+
+upset_dir <- file.path(figure_dir, "baseline_OVR_UpSet_all7"); dir.create(upset_dir, recursive = TRUE, showWarnings = FALSE)
+if (!requireNamespace("UpSetR", quietly = TRUE)) {
+  message("UpSet plot skipped because package 'UpSetR' is not installed.")
+} else {
+  celltypes_all <- as.character(plot_df_ovr$celltype)
+  gene_list <- setNames(lapply(celltypes_all, function(ct) sort(unique(baseline_markers$gene[baseline_markers$celltype == ct]))), celltypes_all)
+  all_genes <- sort(unique(unlist(gene_list)))
+  incidence_df <- tibble::tibble(gene = all_genes)
+  for (ct in celltypes_all) incidence_df[[ct]] <- as.integer(all_genes %in% gene_list[[ct]])
+  upset_df <- as.data.frame(incidence_df[, celltypes_all, drop = FALSE])
+  saveRDS(gene_list, file.path(upset_dir, "baseline_OVR_all7_gene_list.rds")); write_tsv(incidence_df, file.path(upset_dir, "baseline_OVR_all7_incidence_matrix.tsv"))
+  upset_obj <- UpSetR::upset(upset_df, sets = celltypes_all, keep.order = TRUE, order.by = "freq", nsets = length(celltypes_all), nintersects = NA, sets.bar.color = "grey35", main.bar.color = "black", matrix.color = "black", point.size = 3.2, line.size = 1, mb.ratio = c(0.65, 0.35), text.scale = c(1.6, 1.4, 1.4, 1.2, 1.5, 1.2), mainbar.y.label = "Intersection size", sets.x.label = "Set size")
+  draw_upset <- function() { grid::grid.newpage(); print(upset_obj, newpage = FALSE); invisible(NULL) }
+  upset_pdf <- file.path(upset_dir, "baseline_OVR_all7_UpSet.pdf"); upset_cairo <- file.path(upset_dir, "baseline_OVR_all7_UpSet_cairo.pdf"); upset_svg <- file.path(upset_dir, "baseline_OVR_all7_UpSet.svg"); upset_png <- file.path(upset_dir, "baseline_OVR_all7_UpSet.png"); upset_tiff <- file.path(upset_dir, "baseline_OVR_all7_UpSet.tiff")
+  if (ovr_force_export || !file.exists(upset_pdf)) { grDevices::pdf(upset_pdf, width = 15, height = 7, family = "sans", useDingbats = FALSE); draw_upset(); dev.off() }
+  if (ovr_export_cairo && (ovr_force_export || !file.exists(upset_cairo))) { grDevices::cairo_pdf(upset_cairo, width = 15, height = 7, family = "sans"); draw_upset(); dev.off() }
+  if (ovr_force_export || !file.exists(upset_svg)) { svglite::svglite(upset_svg, width = 15, height = 7, bg = "white"); draw_upset(); dev.off() }
+  if (ovr_force_export || !file.exists(upset_png)) { ragg::agg_png(upset_png, width = 15, height = 7, units = "in", res = 300, background = "white"); draw_upset(); dev.off() }
+  if (ovr_export_tiff_600 && (ovr_force_export || !file.exists(upset_tiff))) { ragg::agg_tiff(upset_tiff, width = 15, height = 7, units = "in", res = 600, background = "white", compression = "lzw"); draw_upset(); dev.off() }
+}
+gc()
+```
+
+## Panel C: OVR full-matrix heatmap
+
+```{r panel-C-ovr-fullmatrix-heatmap}
+
+suppressPackageStartupMessages({
+  library(qs)
+  library(Seurat)
+  library(Matrix)
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(mgcv)
+  library(ComplexHeatmap)
+  library(future)
+  library(ragg)
+})
+
+source("/path/to/scRhythmBayes/reproducibility/support/legacy/liver_block_m3_heatmap.R")
+
+future::plan(future::sequential)
+options(future.globals.maxSize = 2 * 1024^3)
+
+ovr_data_dir <- "/path/to/scRhythmBayes/data"
+baseline_dir <- file.path(ovr_data_dir, "ovr_baseline")
+figure_dir <- file.path(ovr_data_dir, "figure3_revision")
+phase_file <- file.path(out_dir, "liver_phase.rds")
+
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+
+pdf_file <- file.path(figure_dir, "panel_C_OVR_empirical_rank.pdf")
+png_file <- file.path(figure_dir, "panel_C_OVR_empirical_rank.png")
+rds_file <- file.path(figure_dir, "panel_C_OVR_empirical_rank.rds")
+rank_file <- file.path(figure_dir, "panel_C_empirical_peak_rank_diagnostic.tsv")
+summary_file <- file.path(figure_dir, "panel_C_empirical_peak_validation_summary.tsv")
+
+baseline_files <- list.files(
+  baseline_dir,
+  pattern = "\\.rds$",
+  full.names = TRUE
+)
+
+stopifnot(length(baseline_files) == 7L)
+
+baseline_list <- lapply(
+  baseline_files,
+  readRDS
+)
+
+baseline_all <- bind_rows(
+  lapply(
+    baseline_list,
+    function(x) x$ovr_result
+  )
+)
+
+baseline_markers <- baseline_all %>%
+  filter(ovr_marker) %>%
+  distinct(celltype, gene, .keep_all = TRUE)
+
+cat(
+  "Baseline OVR assignments:",
+  nrow(baseline_markers),
+  "\n"
+)
+
+print(
+  baseline_markers %>%
+    count(celltype, name = "n_marker") %>%
+    arrange(desc(n_marker))
+)
+
+phase_obj <- readRDS(phase_file)
+
+cell_meta <- meta
+
+rownames(cell_meta) <- as.character(
+  cell_meta$cell
+)
+
+cell_meta$cell <- NULL
+
+cell_meta <- cell_meta[
+  colnames(count_mat),
+  ,
+  drop = FALSE
+]
+
+cell_meta$celltype <- as.character(
+  cell_meta$celltype
+)
+
+phase_cells <- as.character(
+  phase_obj$cell
+)
+
+phase_id <- match(
+  rownames(cell_meta),
+  phase_cells
+)
+
+stopifnot(
+  !anyNA(phase_id)
+)
+
+cell_meta$theta_pred <- as.numeric(
+  phase_obj$theta_pred[
+    phase_id
+  ]
+)
+
+stopifnot(
+  all(is.finite(cell_meta$theta_pred)),
+  !"cell" %in% colnames(cell_meta),
+  identical(
+    rownames(cell_meta),
+    colnames(count_mat)
+  )
+)
+
+wrap_phase <- function(x) {
+  ((as.numeric(x) %% (2 * pi)) + 2 * pi) %% (2 * pi)
+}
+
+celltype_order <- c(
+  "Hep.PV",
+  "Hep.CV",
+  "Endothelial",
+  "Fibroblasts",
+  "Kupffer cells",
+  "Lymphocytes",
+  "Cholangiocytes"
+)
+
+ovr_heatmap_df <- baseline_markers %>%
+  transmute(
+    gene = as.character(gene),
+    TargetCellType = as.character(celltype),
+    Phase_target = as.numeric(Phase_target),
+    Phase_plot = wrap_phase(Phase_target),
+    Module3_flag = TRUE
+  ) %>%
+  filter(
+    gene %in% rownames(count_mat),
+    TargetCellType %in% celltype_order,
+    is.finite(Phase_plot)
+  ) %>%
+  distinct(
+    TargetCellType,
+    gene,
+    .keep_all = TRUE
+  )
+
+cat(
+  "Genes entering heatmap:",
+  nrow(ovr_heatmap_df),
+  "\n"
+)
+
+full_library_size <- Matrix::colSums(
+  count_mat
+)
+
+stopifnot(
+  all(full_library_size > 0)
+)
+
+empirical_grid_hour <- seq(
+  0,
+  24,
+  length.out = 121
+)[-121]
+
+peak_list <- vector(
+  "list",
+  length(celltype_order)
+)
+
+names(peak_list) <- celltype_order
+
+for (ct in celltype_order) {
+
+  genes_ct <- ovr_heatmap_df$gene[
+    ovr_heatmap_df$TargetCellType == ct
+  ]
+
+  cells_ct <- rownames(cell_meta)[
+    cell_meta$celltype == ct
+  ]
+
+  theta_hour <- wrap_phase(
+    cell_meta[
+      cells_ct,
+      "theta_pred"
+    ]
+  ) / (2 * pi) * 24
+
+  norm_factor <- 1e4 /
+    full_library_size[
+      cells_ct
+    ]
+
+  fit_dat <- data.frame(
+    expr = numeric(
+      length(cells_ct)
+    ),
+    theta_hour = theta_hour
+  )
+
+  peak_hour <- vapply(
+    genes_ct,
+    function(g) {
+
+      fit_dat$expr <- log1p(
+        as.numeric(
+          count_mat[
+            g,
+            cells_ct,
+            drop = TRUE
+          ]
+        ) * norm_factor
+      )
+
+      fit <- mgcv::gam(
+        expr ~ s(
+          theta_hour,
+          bs = "cc",
+          k = 8
+        ),
+        data = fit_dat,
+        method = "REML",
+        knots = list(
+          theta_hour = c(
+            0,
+            24
+          )
+        )
+      )
+
+      pred <- as.numeric(
+        predict(
+          fit,
+          newdata = data.frame(
+            theta_hour = empirical_grid_hour
+          )
+        )
+      )
+
+      empirical_grid_hour[
+        which.max(pred)
+      ]
+    },
+    numeric(1)
+  )
+
+  peak_list[[ct]] <- tibble(
+    TargetCellType = ct,
+    gene = genes_ct,
+    empirical_smooth_peak_hour = peak_hour
+  )
+
+  message(
+    ct,
+    ": ",
+    length(genes_ct),
+    " genes completed"
+  )
+
+  gc()
+}
+
+empirical_peak_df <- bind_rows(
+  peak_list
+)
+
+ovr_heatmap_df_empirical <- ovr_heatmap_df %>%
+  left_join(
+    empirical_peak_df,
+    by = c(
+      "TargetCellType",
+      "gene"
+    )
+  ) %>%
+  mutate(
+    model_phase_hour =
+      Phase_plot /
+      (2 * pi) *
+      24,
+
+    circular_error_hour =
+      abs(
+        (
+          empirical_smooth_peak_hour -
+          model_phase_hour +
+          12
+        ) %%
+          24 -
+          12
+      ),
+
+    empirical_phase_rad =
+      empirical_smooth_peak_hour /
+      24 *
+      2 *
+      pi,
+
+    TargetCellType = factor(
+      TargetCellType,
+      levels = celltype_order
+    )
+  ) %>%
+  arrange(
+    TargetCellType,
+    empirical_smooth_peak_hour,
+    gene
+  ) %>%
+  group_by(
+    TargetCellType
+  ) %>%
+  mutate(
+    phase_rank = row_number()
+  ) %>%
+  ungroup() %>%
+  mutate(
+    TargetCellType = as.character(
+      TargetCellType
+    )
+  )
+
+stopifnot(
+  nrow(ovr_heatmap_df_empirical) ==
+    nrow(ovr_heatmap_df),
+
+  all(
+    is.finite(
+      ovr_heatmap_df_empirical$
+        empirical_phase_rad
+    )
+  ),
+
+  !anyDuplicated(
+    ovr_heatmap_df_empirical[
+      c(
+        "TargetCellType",
+        "gene"
+      )
+    ]
+  )
+)
+
+empirical_rank_diagnostic <- ovr_heatmap_df_empirical %>%
+  transmute(
+    celltype = TargetCellType,
+    gene,
+    Phase_target,
+    model_phase_hour,
+    empirical_smooth_peak_hour,
+    circular_error_hour,
+    empirical_phase_rad,
+    phase_rank
+  )
+
+write_tsv(
+  empirical_rank_diagnostic,
+  rank_file
+)
+
+phase_validation_summary <- empirical_rank_diagnostic %>%
+  group_by(
+    celltype
+  ) %>%
+  summarise(
+    n = n(),
+
+    median_error_h =
+      median(
+        circular_error_hour,
+        na.rm = TRUE
+      ),
+
+    mean_error_h =
+      mean(
+        circular_error_hour,
+        na.rm = TRUE
+      ),
+
+    pct_within_2h =
+      mean(
+        circular_error_hour <= 2,
+        na.rm = TRUE
+      ) *
+      100,
+
+    pct_within_4h =
+      mean(
+        circular_error_hour <= 4,
+        na.rm = TRUE
+      ) *
+      100,
+
+    .groups = "drop"
+  )
+
+write_tsv(
+  phase_validation_summary,
+  summary_file
+)
+
+print(
+  phase_validation_summary
+)
+
+heatmap_genes <- unique(
+  ovr_heatmap_df_empirical$gene
+)
+
+heatmap_input_mat <- count_mat[
+  heatmap_genes,
+  ,
+  drop = FALSE
+]
+
+library_remainder <- pmax(
+  full_library_size -
+    Matrix::colSums(
+      heatmap_input_mat
+    ),
+  0
+)
+
+remainder_mat <- Matrix::Matrix(
+  library_remainder,
+  nrow = 1,
+  sparse = TRUE,
+  dimnames = list(
+    ".library.remainder",
+    colnames(count_mat)
+  )
+)
+
+heatmap_input_mat <- rbind(
+  heatmap_input_mat,
+  remainder_mat
+)
+
+stopifnot(
+  max(
+    abs(
+      Matrix::colSums(
+        heatmap_input_mat
+      ) -
+        full_library_size
+    )
+  ) <
+    1e-7
+)
+
+cat(
+  "Full count matrix:",
+  nrow(count_mat),
+  "genes x",
+  ncol(count_mat),
+  "cells\n"
+)
+
+cat(
+  "Heatmap input matrix:",
+  nrow(heatmap_input_mat),
+  "rows x",
+  ncol(heatmap_input_mat),
+  "cells\n"
+)
+
+gc()
+
+future::plan(
+  future::sequential
+)
+
+res_empirical_ht <- build_scRhythm_OVR_fullmatrix_heatmap(
+  expr_mat = heatmap_input_mat,
+  cell_meta = cell_meta,
+  ovr_df = ovr_heatmap_df_empirical,
+  out_dir = figure_dir,
+  celltype_col = "celltype",
+  theta_col = "theta_pred",
+  gene_col = "gene",
+  target_col = "TargetCellType",
+  phase_col = "empirical_phase_rad",
+  flag_col = "Module3_flag",
+  n_grid = 60,
+  k = 8
+)
+
+saveRDS(
+  res_empirical_ht,
+  rds_file
+)
+
+pdf(
+  pdf_file,
+  width = 16,
+  height = 12,
+  useDingbats = FALSE
+)
+
+plot(
+  res_empirical_ht
+)
+
+dev.off()
+
+ragg::agg_png(
+  png_file,
+  width = 16,
+  height = 12,
+  units = "in",
+  res = 300,
+  background = "white"
+)
+
+plot(
+  res_empirical_ht
+)
+
+dev.off()
+
+cat(
+  "\nSaved files:\n"
+)
+
+cat(
+  "PDF: ",
+  pdf_file,
+  "\n",
+  sep = ""
+)
+
+cat(
+  "PNG: ",
+  png_file,
+  "\n",
+  sep = ""
+)
+
+cat(
+  "RDS: ",
+  rds_file,
+  "\n",
+  sep = ""
+)
+
+cat(
+  "Rank: ",
+  rank_file,
+  "\n",
+  sep = ""
+)
+
+cat(
+  "Summary: ",
+  summary_file,
+  "\n",
+  sep = ""
+)
+
+cat(
+  "\nPDF exists: ",
+  file.exists(pdf_file),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "PNG exists: ",
+  file.exists(png_file),
+  "\n",
+  sep = ""
+)
+
+plot(
+  res_empirical_ht
+)
+
+rm(
+  heatmap_input_mat,
+  remainder_mat,
+  library_remainder
+)
+
+gc()
+
+```
+
+```{r panel-C-ovr-fullmatrix-heatmap}
+
+suppressPackageStartupMessages({
+  library(qs)
+  library(Seurat)
+  library(Matrix)
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(mgcv)
+  library(ComplexHeatmap)
+  library(future)
+  library(ragg)
+})
+
+source("/path/to/scRhythmBayes/reproducibility/support/legacy/liver_block_m3_heatmap.R")
+
+future::plan(future::sequential)
+options(future.globals.maxSize = 2 * 1024^3)
+
+ovr_data_dir <- "/path/to/scRhythmBayes/data"
+baseline_dir <- file.path(ovr_data_dir, "ovr_baseline")
+figure_dir <- file.path(ovr_data_dir, "figure3_revision")
+phase_file <- file.path(out_dir, "liver_phase.rds")
+
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+
+baseline_files <- list.files(
+  baseline_dir,
+  pattern = "\\.rds$",
+  full.names = TRUE
+)
+
+stopifnot(length(baseline_files) == 7L)
+
+baseline_list <- lapply(
+  baseline_files,
+  readRDS
+)
+
+baseline_all <- bind_rows(
+  lapply(
+    baseline_list,
+    function(x) x$ovr_result
+  )
+)
+
+baseline_markers <- baseline_all %>%
+  filter(ovr_marker) %>%
+  distinct(celltype, gene, .keep_all = TRUE)
+
+cat(
+  "Baseline OVR assignments:",
+  nrow(baseline_markers),
+  "\n"
+)
+
+print(
+  baseline_markers %>%
+    count(celltype, name = "n_marker") %>%
+    arrange(desc(n_marker))
+)
+
+phase_obj <- readRDS(phase_file)
+
+cell_meta <- meta
+
+rownames(cell_meta) <- as.character(
+  cell_meta$cell
+)
+
+cell_meta$cell <- NULL
+
+cell_meta <- cell_meta[
+  colnames(count_mat),
+  ,
+  drop = FALSE
+]
+
+cell_meta$celltype <- as.character(
+  cell_meta$celltype
+)
+
+phase_cells <- as.character(
+  phase_obj$cell
+)
+
+phase_id <- match(
+  rownames(cell_meta),
+  phase_cells
+)
+
+stopifnot(
+  !anyNA(phase_id)
+)
+
+cell_meta$theta_pred <- as.numeric(
+  phase_obj$theta_pred[
+    phase_id
+  ]
+)
+
+stopifnot(
+  all(is.finite(cell_meta$theta_pred)),
+  !"cell" %in% colnames(cell_meta),
+  identical(
+    rownames(cell_meta),
+    colnames(count_mat)
+  )
+)
+
+wrap_phase <- function(x) {
+  ((as.numeric(x) %% (2 * pi)) + 2 * pi) %% (2 * pi)
+}
+
+celltype_order <- c(
+  "Hep.PV",
+  "Hep.CV",
+  "Endothelial",
+  "Fibroblasts",
+  "Kupffer cells",
+  "Lymphocytes",
+  "Cholangiocytes"
+)
+
+ovr_heatmap_df <- baseline_markers %>%
+  transmute(
+    gene = as.character(gene),
+    TargetCellType = as.character(celltype),
+    Phase_target = as.numeric(Phase_target),
+    Phase_plot = wrap_phase(Phase_target),
+    Module3_flag = TRUE
+  ) %>%
+  filter(
+    gene %in% rownames(count_mat),
+    TargetCellType %in% celltype_order,
+    is.finite(Phase_plot)
+  ) %>%
+  distinct(
+    TargetCellType,
+    gene,
+    .keep_all = TRUE
+  )
+
+cat(
+  "Genes entering heatmap:",
+  nrow(ovr_heatmap_df),
+  "\n"
+)
+
+full_library_size <- Matrix::colSums(
+  count_mat
+)
+
+stopifnot(
+  all(full_library_size > 0)
+)
+
+empirical_grid_hour <- seq(
+  0,
+  24,
+  length.out = 121
+)[-121]
+
+peak_list <- vector(
+  "list",
+  length(celltype_order)
+)
+
+names(peak_list) <- celltype_order
+
+for (ct in celltype_order) {
+
+  genes_ct <- ovr_heatmap_df$gene[
+    ovr_heatmap_df$TargetCellType == ct
+  ]
+
+  cells_ct <- rownames(cell_meta)[
+    cell_meta$celltype == ct
+  ]
+
+  theta_hour <- wrap_phase(
+    cell_meta[
+      cells_ct,
+      "theta_pred"
+    ]
+  ) / (2 * pi) * 24
+
+  norm_factor <- 1e4 /
+    full_library_size[
+      cells_ct
+    ]
+
+  fit_dat <- data.frame(
+    expr = numeric(
+      length(cells_ct)
+    ),
+    theta_hour = theta_hour
+  )
+
+  peak_hour <- vapply(
+    genes_ct,
+    function(g) {
+
+      fit_dat$expr <- log1p(
+        as.numeric(
+          count_mat[
+            g,
+            cells_ct,
+            drop = TRUE
+          ]
+        ) * norm_factor
+      )
+
+      fit <- mgcv::gam(
+        expr ~ s(
+          theta_hour,
+          bs = "cc",
+          k = 8
+        ),
+        data = fit_dat,
+        method = "REML",
+        knots = list(
+          theta_hour = c(
+            0,
+            24
+          )
+        )
+      )
+
+      pred <- as.numeric(
+        predict(
+          fit,
+          newdata = data.frame(
+            theta_hour = empirical_grid_hour
+          )
+        )
+      )
+
+      empirical_grid_hour[
+        which.max(pred)
+      ]
+    },
+    numeric(1)
+  )
+
+  peak_list[[ct]] <- tibble(
+    TargetCellType = ct,
+    gene = genes_ct,
+    empirical_smooth_peak_hour = peak_hour
+  )
+
+  message(
+    ct,
+    ": ",
+    length(genes_ct),
+    " genes completed"
+  )
+
+  gc()
+}
+
+empirical_peak_df <- bind_rows(
+  peak_list
+)
+
+ovr_heatmap_df_empirical <- ovr_heatmap_df %>%
+  left_join(
+    empirical_peak_df,
+    by = c(
+      "TargetCellType",
+      "gene"
+    )
+  ) %>%
+  mutate(
+    model_phase_hour =
+      Phase_plot /
+      (2 * pi) *
+      24,
+
+    circular_error_hour =
+      abs(
+        (
+          empirical_smooth_peak_hour -
+          model_phase_hour +
+          12
+        ) %%
+          24 -
+          12
+      ),
+
+    empirical_phase_rad =
+      empirical_smooth_peak_hour /
+      24 *
+      2 *
+      pi,
+
+    TargetCellType = factor(
+      TargetCellType,
+      levels = celltype_order
+    )
+  ) %>%
+  arrange(
+    TargetCellType,
+    empirical_smooth_peak_hour,
+    gene
+  ) %>%
+  group_by(
+    TargetCellType
+  ) %>%
+  mutate(
+    phase_rank = row_number()
+  ) %>%
+  ungroup() %>%
+  mutate(
+    TargetCellType = as.character(
+      TargetCellType
+    )
+  )
+
+stopifnot(
+  nrow(ovr_heatmap_df_empirical) ==
+    nrow(ovr_heatmap_df),
+
+  all(
+    is.finite(
+      ovr_heatmap_df_empirical$
+        empirical_phase_rad
+    )
+  ),
+
+  !anyDuplicated(
+    ovr_heatmap_df_empirical[
+      c(
+        "TargetCellType",
+        "gene"
+      )
+    ]
+  )
+)
+
+empirical_rank_diagnostic <- ovr_heatmap_df_empirical %>%
+  transmute(
+    celltype = TargetCellType,
+    gene,
+    Phase_target,
+    model_phase_hour,
+    empirical_smooth_peak_hour,
+    circular_error_hour,
+    empirical_phase_rad,
+    phase_rank
+  )
+
+write_tsv(
+  empirical_rank_diagnostic,
+  file.path(
+    figure_dir,
+    "panel_C_empirical_peak_rank_diagnostic.tsv"
+  )
+)
+
+phase_validation_summary <- empirical_rank_diagnostic %>%
+  group_by(
+    celltype
+  ) %>%
+  summarise(
+    n = n(),
+
+    median_error_h =
+      median(
+        circular_error_hour,
+        na.rm = TRUE
+      ),
+
+    mean_error_h =
+      mean(
+        circular_error_hour,
+        na.rm = TRUE
+      ),
+
+    pct_within_2h =
+      mean(
+        circular_error_hour <= 2,
+        na.rm = TRUE
+      ) *
+      100,
+
+    pct_within_4h =
+      mean(
+        circular_error_hour <= 4,
+        na.rm = TRUE
+      ) *
+      100,
+
+    .groups = "drop"
+  )
+
+write_tsv(
+  phase_validation_summary,
+  file.path(
+    figure_dir,
+    "panel_C_empirical_peak_validation_summary.tsv"
+  )
+)
+
+print(
+  phase_validation_summary
+)
+
+heatmap_genes <- unique(
+  ovr_heatmap_df_empirical$gene
+)
+
+heatmap_input_mat <- count_mat[
+  heatmap_genes,
+  ,
+  drop = FALSE
+]
+
+library_remainder <- pmax(
+  full_library_size -
+    Matrix::colSums(
+      heatmap_input_mat
+    ),
+  0
+)
+
+remainder_mat <- Matrix::Matrix(
+  library_remainder,
+  nrow = 1,
+  sparse = TRUE,
+  dimnames = list(
+    ".library.remainder",
+    colnames(count_mat)
+  )
+)
+
+heatmap_input_mat <- rbind(
+  heatmap_input_mat,
+  remainder_mat
+)
+
+stopifnot(
+  max(
+    abs(
+      Matrix::colSums(
+        heatmap_input_mat
+      ) -
+        full_library_size
+    )
+  ) <
+    1e-7
+)
+
+cat(
+  "Full count matrix:",
+  nrow(count_mat),
+  "genes x",
+  ncol(count_mat),
+  "cells\n"
+)
+
+cat(
+  "Heatmap input matrix:",
+  nrow(heatmap_input_mat),
+  "rows x",
+  ncol(heatmap_input_mat),
+  "cells\n"
+)
+
+gc()
+
+future::plan(
+  future::sequential
+)
+
+res_empirical_proportional <- build_scRhythm_OVR_fullmatrix_heatmap(
+  expr_mat = heatmap_input_mat,
+  cell_meta = cell_meta,
+  ovr_df = ovr_heatmap_df_empirical,
+  out_dir = figure_dir,
+  celltype_col = "celltype",
+  theta_col = "theta_pred",
+  gene_col = "gene",
+  target_col = "TargetCellType",
+  phase_col = "empirical_phase_rad",
+  flag_col = "Module3_flag",
+  n_grid = 60,
+  k = 8
+)
+
+make_equal_width_helper <- function(fun) {
+
+  replace_grid <- function(x) {
+
+    if (!is.call(x)) {
+      return(x)
+    }
+
+    if (
+      identical(x[[1]], as.name("<-")) &&
+      identical(x[[2]], as.name("n_grid_use"))
+    ) {
+      return(
+        quote(
+          n_grid_use <- as.integer(n_grid)
+        )
+      )
+    }
+
+    as.call(
+      lapply(
+        x,
+        replace_grid
+      )
+    )
+  }
+
+  fun_equal <- fun
+
+  body(fun_equal) <- replace_grid(
+    body(fun_equal)
+  )
+
+  fun_equal
+}
+
+build_scRhythm_OVR_fullmatrix_heatmap_equal <- make_equal_width_helper(
+  build_scRhythm_OVR_fullmatrix_heatmap
+)
+
+res_empirical_equal <- build_scRhythm_OVR_fullmatrix_heatmap_equal(
+  expr_mat = heatmap_input_mat,
+  cell_meta = cell_meta,
+  ovr_df = ovr_heatmap_df_empirical,
+  out_dir = figure_dir,
+  celltype_col = "celltype",
+  theta_col = "theta_pred",
+  gene_col = "gene",
+  target_col = "TargetCellType",
+  phase_col = "empirical_phase_rad",
+  flag_col = "Module3_flag",
+  n_grid = 60,
+  k = 8
+)
+
+saveRDS(
+  res_empirical_proportional,
+  file.path(
+    figure_dir,
+    "panel_C_OVR_empirical_rank_proportional.rds"
+  )
+)
+
+saveRDS(
+  res_empirical_equal,
+  file.path(
+    figure_dir,
+    "panel_C_OVR_empirical_rank_equal_width.rds"
+  )
+)
+
+pdf(
+  file.path(
+    figure_dir,
+    "panel_C_OVR_empirical_rank_proportional.pdf"
+  ),
+  width = 16,
+  height = 12,
+  useDingbats = FALSE
+)
+
+plot(
+  res_empirical_proportional
+)
+
+dev.off()
+
+ragg::agg_png(
+  file.path(
+    figure_dir,
+    "panel_C_OVR_empirical_rank_proportional.png"
+  ),
+  width = 16,
+  height = 12,
+  units = "in",
+  res = 300,
+  background = "white"
+)
+
+plot(
+  res_empirical_proportional
+)
+
+dev.off()
+
+pdf(
+  file.path(
+    figure_dir,
+    "panel_C_OVR_empirical_rank_equal_width.pdf"
+  ),
+  width = 16,
+  height = 12,
+  useDingbats = FALSE
+)
+
+plot(
+  res_empirical_equal
+)
+
+dev.off()
+
+ragg::agg_png(
+  file.path(
+    figure_dir,
+    "panel_C_OVR_empirical_rank_equal_width.png"
+  ),
+  width = 16,
+  height = 12,
+  units = "in",
+  res = 300,
+  background = "white"
+)
+
+plot(
+  res_empirical_equal
+)
+
+dev.off()
+
+cat(
+  "\nSaved proportional-width heatmap:\n",
+  file.path(
+    figure_dir,
+    "panel_C_OVR_empirical_rank_proportional.png"
+  ),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "\nSaved equal-width heatmap:\n",
+  file.path(
+    figure_dir,
+    "panel_C_OVR_empirical_rank_equal_width.png"
+  ),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "\nProportional PNG exists: ",
+  file.exists(
+    file.path(
+      figure_dir,
+      "panel_C_OVR_empirical_rank_proportional.png"
+    )
+  ),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "Equal-width PNG exists: ",
+  file.exists(
+    file.path(
+      figure_dir,
+      "panel_C_OVR_empirical_rank_equal_width.png"
+    )
+  ),
+  "\n",
+  sep = ""
+)
+
+plot(
+  res_empirical_proportional
+)
+
+plot(
+  res_empirical_equal
+)
+
+rm(
+  heatmap_input_mat,
+  remainder_mat,
+  library_remainder
+)
+
+gc()
+```
+## Panels D--E: FindAllMarkers and overlap
+
+```{r panels-D-E-marker-comparison}
+suppressPackageStartupMessages({library(Seurat); library(RColorBrewer)})
+marker_dir <- file.path(figure_dir, "FindAllMarkers_celltype")
+overlap_dir <- file.path(figure_dir, "OVR_vs_FindAllMarkers")
+dir.create(marker_dir, recursive = TRUE, showWarnings = FALSE); dir.create(overlap_dir, recursive = TRUE, showWarnings = FALSE)
+
+marker_celltype_levels <- meta %>% dplyr::mutate(celltype = as.character(celltype)) %>% dplyr::count(celltype, name = "n_cells") %>% dplyr::arrange(dplyr::desc(n_cells), celltype) %>% dplyr::pull(celltype)
+markers_cache <- file.path(marker_dir, "FindAllMarkers_all.tsv")
+if (file.exists(markers_cache) && !ovr_force_recompute) {
+  markers_all <- readr::read_tsv(markers_cache, show_col_types = FALSE)
+} else {
+  if (!ovr_allow_findall_recompute) stop("FindAllMarkers cache is absent. Set ovr_allow_findall_recompute <- TRUE to run this memory-intensive step once.")
+  gc(full = TRUE)
+  old_plan_findall <- future::plan(); future::plan(future::sequential)
+  scliver_findall <- qread(scliver_file); DefaultAssay(scliver_findall) <- "RNA"
+  scliver_findall <- NormalizeData(scliver_findall, normalization.method = "LogNormalize", scale.factor = 10000, verbose = FALSE)
+  scliver_findall$celltype <- factor(as.character(scliver_findall$celltype), levels = marker_celltype_levels)
+  Idents(scliver_findall) <- "celltype"
+  markers_all <- tryCatch(FindAllMarkers(scliver_findall, assay = "RNA", group.by = "celltype", logfc.threshold = 1, test.use = "wilcox", slot = "data", only.pos = TRUE, verbose = FALSE), finally = future::plan(old_plan_findall))
+  rm(scliver_findall); gc(full = TRUE)
+}
+fc_col <- intersect(c("avg_log2FC", "avg_logFC"), names(markers_all))[1]
+if (is.na(fc_col)) stop("FindAllMarkers output has no avg_log2FC/avg_logFC column")
+markers_all$avg_log2FC <- markers_all[[fc_col]]
+markers_all <- markers_all %>% dplyr::mutate(cluster = factor(as.character(cluster), levels = marker_celltype_levels)) %>% dplyr::arrange(cluster, p_val_adj, dplyr::desc(avg_log2FC))
+markers_top5 <- markers_all %>% dplyr::filter(p_val_adj < 0.05, avg_log2FC > 1) %>% dplyr::group_by(cluster) %>% dplyr::arrange(p_val_adj, dplyr::desc(avg_log2FC), .by_group = TRUE) %>% dplyr::slice_head(n = 5) %>% dplyr::ungroup()
+heatmap_features <- unique(markers_top5$gene)
+write_tsv(markers_all, file.path(marker_dir, "FindAllMarkers_all.tsv")); write_tsv(markers_top5, file.path(marker_dir, "FindAllMarkers_top5_for_heatmap.tsv"))
+
+marker_full_library_size <- Matrix::colSums(count_mat)
+marker_count_mat <- count_mat[heatmap_features, , drop = FALSE]
+marker_remainder <- pmax(marker_full_library_size - Matrix::colSums(marker_count_mat), 0)
+marker_remainder_mat <- Matrix::Matrix(marker_remainder, nrow = 1, sparse = TRUE, dimnames = list(".library.remainder", colnames(count_mat)))
+marker_count_mat <- rbind(marker_count_mat, marker_remainder_mat)
+stopifnot(max(abs(Matrix::colSums(marker_count_mat) - marker_full_library_size)) < 1e-7)
+marker_meta <- meta[colnames(count_mat), , drop = FALSE]
+scliver_marker <- SeuratObject::CreateSeuratObject(counts = marker_count_mat, meta.data = marker_meta)
+scliver_marker$celltype <- factor(as.character(scliver_marker$celltype), levels = marker_celltype_levels)
+Idents(scliver_marker) <- "celltype"
+scliver_marker <- NormalizeData(scliver_marker, normalization.method = "LogNormalize", scale.factor = 10000, verbose = FALSE)
+scliver_marker <- ScaleData(scliver_marker, features = heatmap_features, verbose = FALSE)
+p_D <- DoHeatmap(scliver_marker, features = heatmap_features, group.by = "celltype", group.bar = TRUE, group.colors = celltype_pal, disp.min = -2.5, disp.max = 2.5, slot = "scale.data", assay = "RNA", label = FALSE, raster = TRUE, draw.lines = TRUE, group.bar.height = 0.03, combine = TRUE) + scale_fill_gradientn(colours = rev(RColorBrewer::brewer.pal(11, "RdYlBu"))) + theme(axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(), axis.text.y = element_text(face = "italic", size = 9), plot.title = element_text(hjust = 0.5, face = "bold"))
+print(p_D)
+save_gg(p_D, file.path(marker_dir, "panel_D_FindAllMarkers_top5_heatmap"), 12, 8)
+rm(scliver_marker, marker_count_mat, marker_remainder_mat, marker_remainder, marker_full_library_size); gc(full = TRUE)
+
+markers_sig <- markers_all %>% dplyr::filter(p_val_adj < 0.05, avg_log2FC > 1) %>% dplyr::transmute(cluster = as.character(cluster), gene = as.character(gene)) %>% dplyr::distinct()
+ovr_sig <- baseline_markers %>% dplyr::transmute(celltype = as.character(celltype), gene = as.character(gene)) %>% dplyr::distinct()
+celltype_levels <- c("Hep.PV", "Hep.CV", "Kupffer cells", "Fibroblasts", "Endothelial", "Lymphocytes", "Cholangiocytes")
+overlap_list <- lapply(celltype_levels, function(ct) {
+  genes_findall <- sort(unique(markers_sig$gene[markers_sig$cluster == ct])); genes_ovr <- sort(unique(ovr_sig$gene[ovr_sig$celltype == ct])); genes_intersect <- intersect(genes_findall, genes_ovr); genes_union <- union(genes_findall, genes_ovr)
+  list(celltype = ct, findall = genes_findall, ovr = genes_ovr, summary = tibble(celltype = ct, n_FindAllMarkers = length(genes_findall), n_OVR = length(genes_ovr), n_intersect = length(genes_intersect), n_union = length(genes_union), n_FindAllMarkers_only = length(setdiff(genes_findall, genes_ovr)), n_OVR_only = length(setdiff(genes_ovr, genes_findall)), overlap_ratio_by_min = ifelse(min(length(genes_findall), length(genes_ovr)) > 0, length(genes_intersect) / min(length(genes_findall), length(genes_ovr)), NA_real_), jaccard = ifelse(length(genes_union) > 0, length(genes_intersect) / length(genes_union), NA_real_)))
+})
+summary_df <- dplyr::bind_rows(lapply(overlap_list, function(x) x$summary))
+write_tsv(summary_df, file.path(overlap_dir, "OVR_vs_FindAllMarkers_overlap_summary.tsv"))
+
+plot_two_set_venn <- function(x, title) {
+  a <- length(x$findall); b <- length(x$ovr); i <- length(intersect(x$findall, x$ovr)); u <- length(union(x$findall, x$ovr)); fmt <- function(n) if (u == 0) as.character(n) else sprintf("%d\n(%.1f%%)", n, 100 * n / u)
+  th <- seq(0, 2 * pi, length.out = 400); circles <- dplyr::bind_rows(tibble::tibble(set = "FindAllMarkers", x = -0.45 + 0.90 * cos(th), y = 0.78 * sin(th)), tibble::tibble(set = "OVR baseline", x = 0.45 + 0.90 * cos(th), y = 0.78 * sin(th)))
+  ggplot(circles, aes(x, y, group = set, fill = set)) + geom_polygon(alpha = 0.55, colour = "white", linewidth = 0.8) + annotate("text", x = c(-0.62, 0, 0.62), y = 0, label = c(fmt(a - i), fmt(i), fmt(b - i)), size = 4.2, fontface = "bold") + annotate("text", x = c(-0.62, 0.62), y = 0.98, label = c("FindAllMarkers", "OVR baseline"), size = 3.5, fontface = "bold") + scale_fill_manual(values = c("FindAllMarkers" = "#E84D33", "OVR baseline" = "#55B3CF"), guide = "none") + coord_equal(xlim = c(-1.45, 1.45), ylim = c(-1.0, 1.18), clip = "off") + labs(title = title) + theme_void(base_family = "sans") + theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14), plot.margin = margin(8, 8, 8, 8), plot.background = element_rect(fill = "white", colour = NA), panel.background = element_rect(fill = "white", colour = NA))
+}
+
+for (x in overlap_list) {
+  ct_tag <- gsub("[^A-Za-z0-9]+", "_", x$celltype)
+  gene_table <- tibble::tibble(gene = sort(unique(c(x$findall, x$ovr)))) %>% dplyr::mutate(in_FindAllMarkers = gene %in% x$findall, in_OVR = gene %in% x$ovr, gene_class = dplyr::case_when(in_FindAllMarkers & in_OVR ~ "Intersect", in_FindAllMarkers ~ "FindAllMarkers_only", TRUE ~ "OVR_only"))
+  write_tsv(gene_table, file.path(overlap_dir, paste0(ct_tag, "_gene_overlap_table.tsv")))
+  p_venn <- plot_two_set_venn(x, x$celltype); print(p_venn); save_gg(p_venn, file.path(overlap_dir, paste0(ct_tag, "_OVR_vs_FindAllMarkers_venn")), 5.4, 4.5)
+}
+
+plot_df_E <- summary_df %>% dplyr::mutate(celltype = factor(celltype, levels = celltype_levels)) %>% tidyr::pivot_longer(c(n_FindAllMarkers, n_OVR, n_intersect), names_to = "set_type", values_to = "gene_count") %>% dplyr::mutate(set_type = factor(set_type, levels = c("n_FindAllMarkers", "n_OVR", "n_intersect"), labels = c("FindAllMarkers", "OVR baseline", "Intersection")))
+p_E <- ggplot(plot_df_E, aes(celltype, gene_count, fill = set_type)) + geom_col(position = position_dodge(width = 0.78), width = 0.70) + geom_text(aes(label = gene_count), position = position_dodge(width = 0.78), vjust = -0.35, size = 3.2) + scale_fill_manual(values = c("FindAllMarkers" = "#583722", "OVR baseline" = "#ABD1C6", "Intersection" = "#D8B4E2"), name = NULL) + scale_y_continuous(expand = expansion(mult = c(0, 0.12))) + labs(title = "Overlap between conventional and rhythmic markers", x = NULL, y = "Gene count") + theme_ovr() + theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"), legend.position = "top")
+print(p_E)
+save_gg(p_E, file.path(overlap_dir, "panel_E_OVR_vs_FindAllMarkers_overlap_barplot"), 8.5, 5.2)
+rm(markers_all, markers_top5, markers_sig, ovr_sig, overlap_list, p_D, p_E); gc(full = TRUE)
+```
+
+## Panel F: representative rhythmic curves
+
+```{r panel-F-gene-curves}
+suppressPackageStartupMessages({library(mgcv); library(Seurat)})
+curve_dir <- file.path(figure_dir, "panel_F_gene_curves")
+dir.create(curve_dir, recursive = TRUE, showWarnings = FALSE)
+
+top5_celltypes <- baseline_stability %>% count(celltype, name = "n_marker") %>% arrange(desc(n_marker), celltype) %>% slice_head(n = 5)
+candidate_top15 <- baseline_stability %>% filter(celltype %in% top5_celltypes$celltype) %>% mutate(delta_rank = coalesce(Delta_Amp, -Inf)) %>% group_by(celltype) %>% arrange(desc(support_n), FDR_target, desc(delta_rank), desc(Amplitude_target), Amplitude_rest, gene, .by_group = TRUE) %>% slice_head(n = 15) %>% mutate(rank_in_celltype = row_number()) %>% ungroup() %>% select(celltype, rank_in_celltype, gene, support_n, n_tested_loco, Amplitude_target, Amplitude_rest, Delta_Amp, Phase_target, Phase_rest, FDR_target, FDR_rest)
+focus_genes_final <- sort(intersect(unique(candidate_top15$gene), rownames(count_mat)))
+write_tsv(top5_celltypes, file.path(curve_dir, "top5_celltypes_by_baseline_marker_count.tsv")); write_tsv(candidate_top15, file.path(curve_dir, "candidate_top15.tsv")); write_tsv(tibble(gene = focus_genes_final), file.path(curve_dir, "focus_genes_final.tsv")); write_tsv(tibble(celltype = names(celltype_pal), color = unname(celltype_pal)), file.path(curve_dir, "celltype_color_key.tsv"))
+
+phase_obj_curve <- if (exists("res_phase", inherits = TRUE)) get("res_phase", inherits = TRUE) else readRDS(file.path(out_dir, "liver_phase.rds"))
+cell_meta_curve <- meta
+rownames(cell_meta_curve) <- as.character(cell_meta_curve$cell)
+cell_meta_curve$cell <- NULL
+cell_meta_curve <- cell_meta_curve[colnames(count_mat), , drop = FALSE]
+cell_meta_curve$theta_pred <- as.numeric(phase_obj_curve$theta_pred[match(rownames(cell_meta_curve), phase_obj_curve$cell)])
+cell_meta_curve <- cell_meta_curve %>% rownames_to_column("cell") %>% mutate(celltype = factor(as.character(celltype), levels = celltype_levels), theta_hour = ((theta_pred / (2 * pi)) * 24) %% 24) %>% filter(is.finite(theta_hour), !is.na(celltype))
+
+curve_library_size <- Matrix::colSums(count_mat)
+stopifnot(all(curve_library_size > 0))
+expr_data <- methods::as(count_mat[focus_genes_final, , drop = FALSE] %*% Matrix::Diagonal(x = 10000 / curve_library_size), "dgCMatrix")
+expr_data@x <- log1p(expr_data@x)
+
+fit_one_curve <- function(df_sub, n_grid = 300, k = 8) {
+  grid <- seq(0, 24, length.out = n_grid)
+  if (nrow(df_sub) < 20 || n_distinct(round(df_sub$theta_hour, 4)) < 6) return(tibble(theta_hour = numeric(), theta_pred = numeric(), expr_fit = numeric()))
+  fit <- try(mgcv::gam(expr ~ s(theta_hour, bs = "cc", k = k), data = df_sub, method = "REML", knots = list(theta_hour = c(0, 24))), silent = TRUE)
+  if (inherits(fit, "try-error")) return(tibble(theta_hour = numeric(), theta_pred = numeric(), expr_fit = numeric()))
+  pred <- tryCatch(as.numeric(predict(fit, newdata = data.frame(theta_hour = grid))), error = function(e) rep(NA_real_, length(grid)))
+  tibble(theta_hour = grid, theta_pred = grid / 24 * 2 * pi, expr_fit = pred)
+}
+
+for (gene_use in focus_genes_final) {
+  gene_tag <- gsub("[^A-Za-z0-9]+", "_", gene_use)
+  curve_source_file <- file.path(curve_dir, paste0(gene_tag, "_curve_source.tsv"))
+  if (file.exists(curve_source_file) && !ovr_force_recompute) {
+    cosinor_df <- readr::read_tsv(curve_source_file, show_col_types = FALSE) %>% dplyr::mutate(celltype = factor(celltype, levels = celltype_levels))
+  } else {
+    gene_values <- as.numeric(expr_data[gene_use, cell_meta_curve$cell, drop = TRUE])
+    gene_df <- cell_meta_curve %>% dplyr::mutate(expr = gene_values)
+    cosinor_df <- gene_df %>% group_by(celltype) %>% group_modify(~fit_one_curve(.x)) %>% ungroup() %>% filter(is.finite(expr_fit))
+    write_tsv(cosinor_df, curve_source_file)
+  }
+  if (nrow(cosinor_df) == 0) next
+  p_gene <- ggplot(cosinor_df, aes(theta_pred, expr_fit, colour = celltype)) + geom_line(linewidth = 1.15) + scale_colour_manual(values = celltype_pal, drop = FALSE, name = NULL) + scale_x_continuous(limits = c(0, 2 * pi), breaks = c(0, pi/2, pi, 3*pi/2, 2*pi), labels = c("0", "π/2", "π", "3π/2", "2π"), expand = expansion(mult = c(0.01, 0.03))) + labs(title = gene_use, x = expression("Predicted phase " * phi), y = "Normalized expression") + theme_ovr(10) + theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14), legend.position = "none")
+  save_gg(p_gene, file.path(curve_dir, paste0("OVR_7celltypes_", gene_tag, "_curve")), 4.8, 4.4)
+}
+rm(expr_data, curve_library_size); gc(full = TRUE)
+```
+
+
+
+## Panel F: representative rhythmic curves
+
+```{r panel-F-gene-curves}
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(Matrix)
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(ggplot2)
+  library(mgcv)
+  library(ragg)
+})
+
+curve_dir <- file.path(figure_dir, "panel_F_gene_curves")
+dir.create(curve_dir, recursive = TRUE, showWarnings = FALSE)
+
+celltype_levels_curve <- c(
+  "Hep.PV",
+  "Hep.CV",
+  "Kupffer cells",
+  "Fibroblasts",
+  "Endothelial",
+  "Lymphocytes",
+  "Cholangiocytes"
+)
+
+celltype_pal_curve <- c(
+  "Hep.PV" = "#E84D33",
+  "Hep.CV" = "#55B3CF",
+  "Kupffer cells" = "#455A8B",
+  "Fibroblasts" = "#9ED3C9",
+  "Endothelial" = "#13A88E",
+  "Lymphocytes" = "#F29C7E",
+  "Cholangiocytes" = "#6A78A8"
+)
+
+top5_celltypes <- baseline_stability %>%
+  dplyr::count(celltype, name = "n_marker") %>%
+  dplyr::arrange(desc(n_marker), celltype) %>%
+  dplyr::slice_head(n = 5)
+
+candidate_top15 <- baseline_stability %>%
+  dplyr::filter(celltype %in% top5_celltypes$celltype) %>%
+  dplyr::mutate(delta_rank = dplyr::coalesce(Delta_Amp, -Inf)) %>%
+  dplyr::group_by(celltype) %>%
+  dplyr::arrange(
+    desc(support_n),
+    FDR_target,
+    desc(FDR_rest),
+    desc(delta_rank),
+    desc(Amplitude_target),
+    Amplitude_rest,
+    gene,
+    .by_group = TRUE
+  ) %>%
+  dplyr::slice_head(n = 15) %>%
+  dplyr::mutate(rank_in_celltype = dplyr::row_number()) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(
+    celltype,
+    rank_in_celltype,
+    gene,
+    support_n,
+    n_tested_loco,
+    Amplitude_target,
+    Amplitude_rest,
+    Delta_Amp,
+    Phase_target,
+    Phase_rest,
+    FDR_target,
+    FDR_rest
+  )
+
+focus_genes_final <- candidate_top15 %>%
+  dplyr::pull(gene) %>%
+  unique() %>%
+  intersect(rownames(count_mat))
+
+readr::write_tsv(
+  top5_celltypes,
+  file.path(curve_dir, "top5_celltypes_by_baseline_marker_count.tsv")
+)
+
+readr::write_tsv(
+  candidate_top15,
+  file.path(curve_dir, "candidate_top15.tsv")
+)
+
+readr::write_tsv(
+  tibble::tibble(gene = focus_genes_final),
+  file.path(curve_dir, "focus_genes_final.tsv")
+)
+
+readr::write_tsv(
+  tibble::tibble(
+    celltype = names(celltype_pal_curve),
+    color = unname(celltype_pal_curve)
+  ),
+  file.path(curve_dir, "celltype_color_key.tsv")
+)
+
+gene_manifest <- candidate_top15 %>%
+  dplyr::group_by(gene) %>%
+  dplyr::summarise(
+    candidate_for = paste(as.character(celltype), collapse = ";"),
+    best_support = max(support_n, na.rm = TRUE),
+    best_FDR_target = min(FDR_target, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+readr::write_tsv(
+  gene_manifest,
+  file.path(curve_dir, "gene_curve_manifest.tsv")
+)
+
+phase_file_curve <- file.path(out_dir, "liver_phase.rds")
+phase_obj_curve <- readRDS(phase_file_curve)
+
+cell_meta_curve <- meta
+
+if (!"cell" %in% colnames(cell_meta_curve)) {
+  cell_meta_curve$cell <- rownames(cell_meta_curve)
+}
+
+rownames(cell_meta_curve) <- as.character(cell_meta_curve$cell)
+
+cell_meta_curve <- cell_meta_curve[
+  colnames(count_mat),
+  ,
+  drop = FALSE
+]
+
+phase_id_curve <- match(
+  rownames(cell_meta_curve),
+  as.character(phase_obj_curve$cell)
+)
+
+stopifnot(
+  !anyNA(phase_id_curve)
+)
+
+cell_meta_curve$theta_pred <- as.numeric(
+  phase_obj_curve$theta_pred[
+    phase_id_curve
+  ]
+)
+
+cell_meta_curve$cell <- rownames(cell_meta_curve)
+
+cell_meta_curve <- cell_meta_curve %>%
+  dplyr::mutate(
+    celltype = factor(
+      as.character(celltype),
+      levels = celltype_levels_curve
+    ),
+    theta_hour = (
+      theta_pred /
+        (2 * pi) *
+        24
+    ) %%
+      24
+  ) %>%
+  dplyr::filter(
+    is.finite(theta_pred),
+    is.finite(theta_hour),
+    !is.na(celltype)
+  )
+
+stopifnot(
+  all(cell_meta_curve$cell %in% colnames(count_mat))
+)
+
+curve_library_size <- Matrix::colSums(count_mat)
+
+stopifnot(
+  all(curve_library_size > 0)
+)
+
+expr_data <- count_mat[
+  focus_genes_final,
+  ,
+  drop = FALSE
+]
+
+norm_diag <- Matrix::Diagonal(
+  n = ncol(count_mat),
+  x = 10000 / curve_library_size
+)
+
+expr_data <- expr_data %*% norm_diag
+expr_data <- methods::as(expr_data, "dgCMatrix")
+
+rownames(expr_data) <- focus_genes_final
+colnames(expr_data) <- colnames(count_mat)
+
+expr_data@x <- log1p(expr_data@x)
+
+cell_idx <- match(
+  cell_meta_curve$cell,
+  colnames(expr_data)
+)
+
+stopifnot(
+  !anyNA(cell_idx),
+  all(focus_genes_final %in% rownames(expr_data)),
+  identical(colnames(expr_data), colnames(count_mat))
+)
+
+rm(norm_diag)
+gc()
+
+fit_one_curve <- function(
+  df_sub,
+  n_grid = 300,
+  k = 8
+) {
+
+  grid <- seq(
+    0,
+    24,
+    length.out = n_grid
+  )
+
+  if (
+    nrow(df_sub) < 20 ||
+    dplyr::n_distinct(
+      round(df_sub$theta_hour, 4)
+    ) < 6
+  ) {
+    return(
+      tibble::tibble(
+        theta_hour = numeric(),
+        theta_pred = numeric(),
+        expr_fit = numeric()
+      )
+    )
+  }
+
+  fit <- try(
+    mgcv::gam(
+      expr ~ s(
+        theta_hour,
+        bs = "cc",
+        k = k
+      ),
+      data = df_sub,
+      method = "REML",
+      knots = list(
+        theta_hour = c(0, 24)
+      )
+    ),
+    silent = TRUE
+  )
+
+  if (inherits(fit, "try-error")) {
+    return(
+      tibble::tibble(
+        theta_hour = numeric(),
+        theta_pred = numeric(),
+        expr_fit = numeric()
+      )
+    )
+  }
+
+  pred <- tryCatch(
+    as.numeric(
+      stats::predict(
+        fit,
+        newdata = data.frame(
+          theta_hour = grid
+        )
+      )
+    ),
+    error = function(e) {
+      rep(
+        NA_real_,
+        length(grid)
+      )
+    }
+  )
+
+  tibble::tibble(
+    theta_hour = grid,
+    theta_pred = grid / 24 * 2 * pi,
+    expr_fit = pred
+  )
+}
+
+for (gene_use in focus_genes_final) {
+
+  message(
+    "Running gene curve: ",
+    gene_use
+  )
+
+  gene_values <- as.numeric(
+    expr_data[
+      gene_use,
+      cell_idx,
+      drop = TRUE
+    ]
+  )
+
+  gene_df <- cell_meta_curve %>%
+    dplyr::mutate(
+      expr = gene_values
+    )
+
+  cosinor_df <- gene_df %>%
+    dplyr::group_by(celltype) %>%
+    dplyr::group_modify(
+      ~ fit_one_curve(
+        .x,
+        n_grid = 300,
+        k = 8
+      )
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::filter(
+      is.finite(expr_fit)
+    ) %>%
+    dplyr::mutate(
+      celltype = factor(
+        as.character(celltype),
+        levels = celltype_levels_curve
+      )
+    )
+
+  if (nrow(cosinor_df) == 0) {
+    message(
+      "Skip empty fitted curve: ",
+      gene_use
+    )
+    next
+  }
+
+  gene_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    gene_use
+  )
+
+  readr::write_tsv(
+    cosinor_df,
+    file.path(
+      curve_dir,
+      paste0(
+        gene_tag,
+        "_curve_source.tsv"
+      )
+    )
+  )
+
+  p_gene <- ggplot(
+    cosinor_df,
+    aes(
+      x = theta_pred,
+      y = expr_fit,
+      colour = celltype
+    )
+  ) +
+    geom_line(
+      linewidth = 1.7,
+      lineend = "round"
+    ) +
+    scale_colour_manual(
+      values = celltype_pal_curve,
+      drop = FALSE,
+      guide = "none"
+    ) +
+    scale_x_continuous(
+      limits = c(
+        0,
+        2 * pi
+      ),
+      breaks = c(
+        0,
+        pi / 2,
+        pi,
+        3 * pi / 2,
+        2 * pi
+      ),
+      labels = c(
+        "0",
+        "π/2",
+        "π",
+        "3π/2",
+        "2π"
+      ),
+      expand = expansion(
+        mult = c(
+          0.01,
+          0.02
+        )
+      )
+    ) +
+    scale_y_continuous(
+      expand = expansion(
+        mult = c(
+          0.04,
+          0.10
+        )
+      )
+    ) +
+    labs(
+      title = gene_use,
+      x = expression(
+        "Predicted phase " * phi
+      ),
+      y = "Normalized expression"
+    ) +
+    theme_classic(
+      base_size = 11,
+      base_family = "sans"
+    ) +
+    theme(
+      plot.title = element_text(
+        face = "bold",
+        hjust = 0.5,
+        size = 22,
+        margin = margin(b = 5)
+      ),
+      axis.title.x = element_text(
+        size = 12,
+        face = "bold",
+        margin = margin(t = 5)
+      ),
+      axis.title.y = element_text(
+        size = 12,
+        face = "bold",
+        margin = margin(r = 5)
+      ),
+      axis.text.x = element_text(
+        size = 10,
+        colour = "black"
+      ),
+      axis.text.y = element_text(
+        size = 10,
+        colour = "black"
+      ),
+      axis.line = element_line(
+        linewidth = 0.6,
+        colour = "black"
+      ),
+      axis.ticks = element_line(
+        linewidth = 0.5,
+        colour = "black"
+      ),
+      legend.position = "none",
+      plot.margin = margin(
+        7,
+        7,
+        7,
+        7
+      )
+    )
+
+  print(p_gene)
+
+  pdf_file_gene <- file.path(
+    curve_dir,
+    paste0(
+      "OVR_7celltypes_",
+      gene_tag,
+      "_curve.pdf"
+    )
+  )
+
+  png_file_gene <- file.path(
+    curve_dir,
+    paste0(
+      "OVR_7celltypes_",
+      gene_tag,
+      "_curve.png"
+    )
+  )
+
+  ggsave(
+    pdf_file_gene,
+    p_gene,
+    width = 3.8,
+    height = 3.8,
+    units = "in",
+    device = grDevices::pdf,
+    bg = "white",
+    useDingbats = FALSE
+  )
+
+  ggsave(
+    png_file_gene,
+    p_gene,
+    width = 3.8,
+    height = 3.8,
+    units = "in",
+    dpi = 300,
+    device = ragg::agg_png,
+    bg = "white"
+  )
+}
+
+cat(
+  "\nGene curves saved to:\n",
+  curve_dir,
+  "\n",
+  sep = ""
+)
+
+cat(
+  "Candidate genes plotted: ",
+  length(focus_genes_final),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "PDF files: ",
+  length(
+    list.files(
+      curve_dir,
+      pattern = "_curve[.]pdf$"
+    )
+  ),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "PNG files: ",
+  length(
+    list.files(
+      curve_dir,
+      pattern = "_curve[.]png$"
+    )
+  ),
+  "\n",
+  sep = ""
+)
+
+rm(
+  expr_data,
+  curve_library_size
+)
+
+gc()
+
+```
+
+
+
+
+
+
+## Panel F: representative rhythmic curves
+
+```{r panel-F-gene-curves}
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(Matrix)
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(ggplot2)
+  library(mgcv)
+  library(ragg)
+})
+
+curve_dir <- file.path(
+  figure_dir,
+  "panel_F_gene_curves_all7_top15"
+)
+
+dir.create(
+  curve_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+celltype_levels_curve <- c(
+  "Hep.PV",
+  "Hep.CV",
+  "Kupffer cells",
+  "Fibroblasts",
+  "Endothelial",
+  "Lymphocytes",
+  "Cholangiocytes"
+)
+
+celltype_pal_curve <- c(
+  "Hep.PV" = "#E84D33",
+  "Hep.CV" = "#55B3CF",
+  "Kupffer cells" = "#455A8B",
+  "Fibroblasts" = "#9ED3C9",
+  "Endothelial" = "#13A88E",
+  "Lymphocytes" = "#F29C7E",
+  "Cholangiocytes" = "#6A78A8"
+)
+
+celltype_marker_count <- baseline_stability %>%
+  dplyr::count(
+    celltype,
+    name = "n_marker"
+  ) %>%
+  dplyr::mutate(
+    celltype = factor(
+      as.character(celltype),
+      levels = celltype_levels_curve
+    )
+  ) %>%
+  dplyr::arrange(celltype)
+
+print(
+  celltype_marker_count
+)
+
+candidate_top15 <- baseline_stability %>%
+  dplyr::filter(
+    celltype %in% celltype_levels_curve
+  ) %>%
+  dplyr::mutate(
+    celltype = factor(
+      as.character(celltype),
+      levels = celltype_levels_curve
+    ),
+    delta_rank = dplyr::coalesce(
+      Delta_Amp,
+      -Inf
+    )
+  ) %>%
+  dplyr::group_by(celltype) %>%
+  dplyr::arrange(
+    desc(support_n),
+    FDR_target,
+    desc(FDR_rest),
+    desc(delta_rank),
+    desc(Amplitude_target),
+    Amplitude_rest,
+    gene,
+    .by_group = TRUE
+  ) %>%
+  dplyr::slice_head(
+    n = 15
+  ) %>%
+  dplyr::mutate(
+    rank_in_celltype = dplyr::row_number()
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(
+    celltype = as.character(celltype)
+  ) %>%
+  dplyr::select(
+    celltype,
+    rank_in_celltype,
+    gene,
+    support_n,
+    n_tested_loco,
+    Amplitude_target,
+    Amplitude_rest,
+    Delta_Amp,
+    Phase_target,
+    Phase_rest,
+    FDR_target,
+    FDR_rest
+  )
+
+candidate_top15_summary <- candidate_top15 %>%
+  dplyr::count(
+    celltype,
+    name = "n_selected"
+  ) %>%
+  dplyr::mutate(
+    celltype = factor(
+      celltype,
+      levels = celltype_levels_curve
+    )
+  ) %>%
+  dplyr::arrange(celltype)
+
+print(
+  candidate_top15_summary
+)
+
+focus_genes_final <- unique(
+  candidate_top15$gene
+)
+
+focus_genes_final <- focus_genes_final[
+  focus_genes_final %in%
+    rownames(count_mat)
+]
+
+readr::write_tsv(
+  celltype_marker_count,
+  file.path(
+    curve_dir,
+    "all7_celltypes_baseline_marker_count.tsv"
+  )
+)
+
+readr::write_tsv(
+  candidate_top15,
+  file.path(
+    curve_dir,
+    "candidate_top15_all7_celltypes.tsv"
+  )
+)
+
+readr::write_tsv(
+  candidate_top15_summary,
+  file.path(
+    curve_dir,
+    "candidate_top15_all7_summary.tsv"
+  )
+)
+
+readr::write_tsv(
+  tibble::tibble(
+    gene = focus_genes_final
+  ),
+  file.path(
+    curve_dir,
+    "focus_genes_final_all7.tsv"
+  )
+)
+
+readr::write_tsv(
+  tibble::tibble(
+    celltype = names(
+      celltype_pal_curve
+    ),
+    color = unname(
+      celltype_pal_curve
+    )
+  ),
+  file.path(
+    curve_dir,
+    "celltype_color_key.tsv"
+  )
+)
+
+gene_manifest <- candidate_top15 %>%
+  dplyr::group_by(gene) %>%
+  dplyr::summarise(
+    candidate_for = paste(
+      as.character(celltype),
+      collapse = ";"
+    ),
+    rank_for = paste(
+      rank_in_celltype,
+      collapse = ";"
+    ),
+    best_support = max(
+      support_n,
+      na.rm = TRUE
+    ),
+    best_FDR_target = min(
+      FDR_target,
+      na.rm = TRUE
+    ),
+    best_FDR_rest = max(
+      FDR_rest,
+      na.rm = TRUE
+    ),
+    max_Delta_Amp = max(
+      Delta_Amp,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+
+readr::write_tsv(
+  gene_manifest,
+  file.path(
+    curve_dir,
+    "gene_curve_manifest_all7.tsv"
+  )
+)
+
+cat(
+  "\nCandidate records: ",
+  nrow(candidate_top15),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "Unique genes to plot: ",
+  length(focus_genes_final),
+  "\n\n",
+  sep = ""
+)
+
+phase_file_curve <- file.path(
+  out_dir,
+  "liver_phase.rds"
+)
+
+phase_obj_curve <- readRDS(
+  phase_file_curve
+)
+
+cell_meta_curve <- meta
+
+if (!"cell" %in% colnames(cell_meta_curve)) {
+  cell_meta_curve$cell <- rownames(
+    cell_meta_curve
+  )
+}
+
+rownames(cell_meta_curve) <- as.character(
+  cell_meta_curve$cell
+)
+
+cell_meta_curve <- cell_meta_curve[
+  colnames(count_mat),
+  ,
+  drop = FALSE
+]
+
+phase_id_curve <- match(
+  rownames(cell_meta_curve),
+  as.character(
+    phase_obj_curve$cell
+  )
+)
+
+stopifnot(
+  !anyNA(phase_id_curve)
+)
+
+cell_meta_curve$theta_pred <- as.numeric(
+  phase_obj_curve$theta_pred[
+    phase_id_curve
+  ]
+)
+
+cell_meta_curve$cell <- rownames(
+  cell_meta_curve
+)
+
+cell_meta_curve <- cell_meta_curve %>%
+  dplyr::mutate(
+    celltype = factor(
+      as.character(celltype),
+      levels = celltype_levels_curve
+    ),
+    theta_hour = (
+      theta_pred /
+        (2 * pi) *
+        24
+    ) %%
+      24
+  ) %>%
+  dplyr::filter(
+    is.finite(theta_pred),
+    is.finite(theta_hour),
+    !is.na(celltype)
+  )
+
+stopifnot(
+  all(
+    cell_meta_curve$cell %in%
+      colnames(count_mat)
+  )
+)
+
+curve_library_size <- Matrix::colSums(
+  count_mat
+)
+
+stopifnot(
+  all(
+    curve_library_size > 0
+  )
+)
+
+expr_data <- count_mat[
+  focus_genes_final,
+  ,
+  drop = FALSE
+]
+
+norm_diag <- Matrix::Diagonal(
+  n = ncol(count_mat),
+  x = 10000 /
+    curve_library_size
+)
+
+expr_data <- expr_data %*%
+  norm_diag
+
+expr_data <- methods::as(
+  expr_data,
+  "dgCMatrix"
+)
+
+rownames(expr_data) <- focus_genes_final
+colnames(expr_data) <- colnames(count_mat)
+
+expr_data@x <- log1p(
+  expr_data@x
+)
+
+cell_idx <- match(
+  cell_meta_curve$cell,
+  colnames(expr_data)
+)
+
+stopifnot(
+  !anyNA(cell_idx),
+  all(
+    focus_genes_final %in%
+      rownames(expr_data)
+  ),
+  identical(
+    colnames(expr_data),
+    colnames(count_mat)
+  )
+)
+
+rm(norm_diag)
+
+gc()
+
+fit_one_curve <- function(
+  df_sub,
+  n_grid = 300,
+  k = 8
+) {
+
+  grid <- seq(
+    0,
+    24,
+    length.out = n_grid
+  )
+
+  if (
+    nrow(df_sub) < 20 ||
+    dplyr::n_distinct(
+      round(
+        df_sub$theta_hour,
+        4
+      )
+    ) < 6
+  ) {
+    return(
+      tibble::tibble(
+        theta_hour = numeric(),
+        theta_pred = numeric(),
+        expr_fit = numeric()
+      )
+    )
+  }
+
+  fit <- try(
+    mgcv::gam(
+      expr ~ s(
+        theta_hour,
+        bs = "cc",
+        k = k
+      ),
+      data = df_sub,
+      method = "REML",
+      knots = list(
+        theta_hour = c(
+          0,
+          24
+        )
+      )
+    ),
+    silent = TRUE
+  )
+
+  if (
+    inherits(
+      fit,
+      "try-error"
+    )
+  ) {
+    return(
+      tibble::tibble(
+        theta_hour = numeric(),
+        theta_pred = numeric(),
+        expr_fit = numeric()
+      )
+    )
+  }
+
+  pred <- tryCatch(
+    as.numeric(
+      stats::predict(
+        fit,
+        newdata = data.frame(
+          theta_hour = grid
+        )
+      )
+    ),
+    error = function(e) {
+      rep(
+        NA_real_,
+        length(grid)
+      )
+    }
+  )
+
+  tibble::tibble(
+    theta_hour = grid,
+    theta_pred = grid /
+      24 *
+      2 *
+      pi,
+    expr_fit = pred
+  )
+}
+
+for (
+  gene_use in
+  focus_genes_final
+) {
+
+  message(
+    "Running gene curve: ",
+    gene_use
+  )
+
+  gene_values <- as.numeric(
+    expr_data[
+      gene_use,
+      cell_idx,
+      drop = TRUE
+    ]
+  )
+
+  gene_df <- cell_meta_curve %>%
+    dplyr::mutate(
+      expr = gene_values
+    )
+
+  cosinor_df <- gene_df %>%
+    dplyr::group_by(
+      celltype
+    ) %>%
+    dplyr::group_modify(
+      ~ fit_one_curve(
+        .x,
+        n_grid = 300,
+        k = 8
+      )
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::filter(
+      is.finite(
+        expr_fit
+      )
+    ) %>%
+    dplyr::mutate(
+      celltype = factor(
+        as.character(celltype),
+        levels =
+          celltype_levels_curve
+      )
+    )
+
+  if (
+    nrow(cosinor_df) == 0
+  ) {
+    message(
+      "Skip empty fitted curve: ",
+      gene_use
+    )
+    next
+  }
+
+  gene_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    gene_use
+  )
+
+  readr::write_tsv(
+    cosinor_df,
+    file.path(
+      curve_dir,
+      paste0(
+        gene_tag,
+        "_curve_source.tsv"
+      )
+    )
+  )
+
+  candidate_info_gene <- candidate_top15 %>%
+    dplyr::filter(
+      gene == gene_use
+    )
+
+  readr::write_tsv(
+    candidate_info_gene,
+    file.path(
+      curve_dir,
+      paste0(
+        gene_tag,
+        "_candidate_info.tsv"
+      )
+    )
+  )
+
+  p_gene <- ggplot(
+    cosinor_df,
+    aes(
+      x = theta_pred,
+      y = expr_fit,
+      colour = celltype
+    )
+  ) +
+    geom_line(
+      linewidth = 1.7,
+      lineend = "round"
+    ) +
+    scale_colour_manual(
+      values =
+        celltype_pal_curve,
+      drop = FALSE,
+      guide = "none"
+    ) +
+    scale_x_continuous(
+      limits = c(
+        0,
+        2 * pi
+      ),
+      breaks = c(
+        0,
+        pi / 2,
+        pi,
+        3 * pi / 2,
+        2 * pi
+      ),
+      labels = c(
+        "0",
+        "π/2",
+        "π",
+        "3π/2",
+        "2π"
+      ),
+      expand = expansion(
+        mult = c(
+          0.01,
+          0.02
+        )
+      )
+    ) +
+    scale_y_continuous(
+      expand = expansion(
+        mult = c(
+          0.04,
+          0.10
+        )
+      )
+    ) +
+    labs(
+      title = gene_use,
+      x = expression(
+        "Predicted phase " *
+          phi
+      ),
+      y = "Normalized expression"
+    ) +
+    theme_classic(
+      base_size = 11,
+      base_family = "sans"
+    ) +
+    theme(
+      plot.title = element_text(
+        face = "bold",
+        hjust = 0.5,
+        size = 22,
+        margin = margin(
+          b = 5
+        )
+      ),
+      axis.title.x = element_text(
+        size = 12,
+        face = "bold",
+        margin = margin(
+          t = 5
+        )
+      ),
+      axis.title.y = element_text(
+        size = 12,
+        face = "bold",
+        margin = margin(
+          r = 5
+        )
+      ),
+      axis.text.x = element_text(
+        size = 10,
+        colour = "black"
+      ),
+      axis.text.y = element_text(
+        size = 10,
+        colour = "black"
+      ),
+      axis.line = element_line(
+        linewidth = 0.6,
+        colour = "black"
+      ),
+      axis.ticks = element_line(
+        linewidth = 0.5,
+        colour = "black"
+      ),
+      legend.position = "none",
+      plot.margin = margin(
+        7,
+        7,
+        7,
+        7
+      )
+    )
+
+  print(
+    p_gene
+  )
+
+  pdf_file_gene <- file.path(
+    curve_dir,
+    paste0(
+      "OVR_7celltypes_",
+      gene_tag,
+      "_curve.pdf"
+    )
+  )
+
+  png_file_gene <- file.path(
+    curve_dir,
+    paste0(
+      "OVR_7celltypes_",
+      gene_tag,
+      "_curve.png"
+    )
+  )
+
+  ggsave(
+    pdf_file_gene,
+    p_gene,
+    width = 3.8,
+    height = 3.8,
+    units = "in",
+    device = grDevices::pdf,
+    bg = "white",
+    useDingbats = FALSE
+  )
+
+  ggsave(
+    png_file_gene,
+    p_gene,
+    width = 3.8,
+    height = 3.8,
+    units = "in",
+    dpi = 300,
+    device = ragg::agg_png,
+    bg = "white"
+  )
+}
+
+cat(
+  "\nGene curves saved to:\n",
+  curve_dir,
+  "\n",
+  sep = ""
+)
+
+cat(
+  "Cell types included: ",
+  length(
+    celltype_levels_curve
+  ),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "Candidate records: ",
+  nrow(
+    candidate_top15
+  ),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "Unique genes plotted: ",
+  length(
+    focus_genes_final
+  ),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "PDF files: ",
+  length(
+    list.files(
+      curve_dir,
+      pattern =
+        "_curve[.]pdf$"
+    )
+  ),
+  "\n",
+  sep = ""
+)
+
+cat(
+  "PNG files: ",
+  length(
+    list.files(
+      curve_dir,
+      pattern =
+        "_curve[.]png$"
+    )
+  ),
+  "\n",
+  sep = ""
+)
+
+rm(
+  expr_data,
+  curve_library_size
+)
+
+gc()
+
+
+```
+
+
+## Panel F: Target vs pooled Rest rhythmic curves
+
+```{r panel-F-target-vs-rest-curves}
+
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(Matrix)
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(ggplot2)
+  library(mgcv)
+  library(ragg)
+})
+
+curve_dir <- file.path(figure_dir, "panel_F_target_vs_rest_top15")
+dir.create(curve_dir, recursive = TRUE, showWarnings = FALSE)
+
+celltype_levels_curve <- c(
+  "Hep.PV",
+  "Hep.CV",
+  "Kupffer cells",
+  "Fibroblasts",
+  "Endothelial",
+  "Lymphocytes",
+  "Cholangiocytes"
+)
+
+celltype_pal_curve <- c(
+  "Hep.PV" = "#E84D33",
+  "Hep.CV" = "#55B3CF",
+  "Kupffer cells" = "#455A8B",
+  "Fibroblasts" = "#9ED3C9",
+  "Endothelial" = "#13A88E",
+  "Lymphocytes" = "#F29C7E",
+  "Cholangiocytes" = "#6A78A8"
+)
+
+candidate_top15 <- baseline_stability %>%
+  dplyr::filter(celltype %in% celltype_levels_curve) %>%
+  dplyr::mutate(
+    celltype = factor(as.character(celltype), levels = celltype_levels_curve)
+  ) %>%
+  dplyr::group_by(celltype) %>%
+  dplyr::arrange(
+    desc(support_n),
+    FDR_target,
+    desc(FDR_rest),
+    gene,
+    .by_group = TRUE
+  ) %>%
+  dplyr::slice_head(n = 15) %>%
+  dplyr::mutate(rank_in_celltype = dplyr::row_number()) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(celltype = as.character(celltype)) %>%
+  dplyr::select(
+    celltype,
+    rank_in_celltype,
+    gene,
+    support_n,
+    n_tested_loco,
+    FDR_target,
+    FDR_rest,
+    Amplitude_target,
+    Amplitude_rest,
+    Delta_Amp,
+    Phase_target,
+    Phase_rest
+  )
+
+top1_statistical <- candidate_top15 %>%
+  dplyr::filter(rank_in_celltype == 1) %>%
+  dplyr::mutate(
+    celltype = factor(celltype, levels = celltype_levels_curve)
+  ) %>%
+  dplyr::arrange(celltype)
+
+print(
+  top1_statistical %>%
+    dplyr::select(
+      celltype,
+      gene,
+      support_n,
+      FDR_target,
+      FDR_rest,
+      Amplitude_target,
+      Amplitude_rest
+    ),
+  n = Inf
+)
+
+readr::write_tsv(
+  candidate_top15,
+  file.path(curve_dir, "candidate_top15_statistical.tsv")
+)
+
+readr::write_tsv(
+  top1_statistical,
+  file.path(curve_dir, "top1_statistical_gene_by_celltype.tsv")
+)
+
+phase_obj_curve <- readRDS(file.path(out_dir, "liver_phase.rds"))
+
+cell_meta_curve <- meta
+
+if (!"cell" %in% colnames(cell_meta_curve)) {
+  cell_meta_curve$cell <- rownames(cell_meta_curve)
+}
+
+rownames(cell_meta_curve) <- as.character(cell_meta_curve$cell)
+
+cell_meta_curve <- cell_meta_curve[
+  colnames(count_mat),
+  ,
+  drop = FALSE
+]
+
+phase_id_curve <- match(
+  rownames(cell_meta_curve),
+  as.character(phase_obj_curve$cell)
+)
+
+stopifnot(!anyNA(phase_id_curve))
+
+cell_meta_curve$theta_pred <- as.numeric(
+  phase_obj_curve$theta_pred[phase_id_curve]
+)
+
+cell_meta_curve$cell <- rownames(cell_meta_curve)
+
+cell_meta_curve <- cell_meta_curve %>%
+  dplyr::mutate(
+    celltype = as.character(celltype),
+    theta_hour = (theta_pred / (2 * pi) * 24) %% 24
+  ) %>%
+  dplyr::filter(
+    is.finite(theta_pred),
+    is.finite(theta_hour),
+    celltype %in% celltype_levels_curve
+  )
+
+curve_library_size <- Matrix::colSums(count_mat)
+
+stopifnot(all(curve_library_size > 0))
+
+focus_genes <- unique(candidate_top15$gene)
+focus_genes <- focus_genes[focus_genes %in% rownames(count_mat)]
+
+expr_data <- count_mat[
+  focus_genes,
+  ,
+  drop = FALSE
+]
+
+norm_diag <- Matrix::Diagonal(
+  n = ncol(count_mat),
+  x = 10000 / curve_library_size
+)
+
+expr_data <- expr_data %*% norm_diag
+expr_data <- methods::as(expr_data, "dgCMatrix")
+
+rownames(expr_data) <- focus_genes
+colnames(expr_data) <- colnames(count_mat)
+
+expr_data@x <- log1p(expr_data@x)
+
+cell_idx <- match(
+  cell_meta_curve$cell,
+  colnames(expr_data)
+)
+
+stopifnot(!anyNA(cell_idx))
+
+rm(norm_diag)
+gc()
+
+fit_curve <- function(df_sub, n_grid = 300, k = 8) {
+
+  grid <- seq(0, 24, length.out = n_grid)
+
+  if (
+    nrow(df_sub) < 20 ||
+    dplyr::n_distinct(round(df_sub$theta_hour, 4)) < 6
+  ) {
+    return(
+      tibble::tibble(
+        theta_hour = numeric(),
+        expr_fit = numeric()
+      )
+    )
+  }
+
+  fit <- try(
+    mgcv::gam(
+      expr ~ s(theta_hour, bs = "cc", k = k),
+      data = df_sub,
+      method = "REML",
+      knots = list(theta_hour = c(0, 24))
+    ),
+    silent = TRUE
+  )
+
+  if (inherits(fit, "try-error")) {
+    return(
+      tibble::tibble(
+        theta_hour = numeric(),
+        expr_fit = numeric()
+      )
+    )
+  }
+
+  pred <- tryCatch(
+    as.numeric(
+      stats::predict(
+        fit,
+        newdata = data.frame(theta_hour = grid)
+      )
+    ),
+    error = function(e) rep(NA_real_, length(grid))
+  )
+
+  tibble::tibble(
+    theta_hour = grid,
+    expr_fit = pred
+  )
+}
+
+for (i in seq_len(nrow(candidate_top15))) {
+
+  gene_use <- candidate_top15$gene[i]
+  target_ct <- candidate_top15$celltype[i]
+  rank_use <- candidate_top15$rank_in_celltype[i]
+
+  message(
+    "Running: ",
+    target_ct,
+    " | rank ",
+    rank_use,
+    " | ",
+    gene_use
+  )
+
+  gene_values <- as.numeric(
+    expr_data[
+      gene_use,
+      cell_idx,
+      drop = TRUE
+    ]
+  )
+
+  gene_df <- cell_meta_curve %>%
+    dplyr::mutate(
+      expr = gene_values,
+      group_plot = ifelse(
+        celltype == target_ct,
+        "Target",
+        "Rest"
+      )
+    )
+
+  curve_df <- gene_df %>%
+    dplyr::group_by(group_plot) %>%
+    dplyr::group_modify(
+      ~ fit_curve(
+        .x,
+        n_grid = 300,
+        k = 8
+      )
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::filter(is.finite(expr_fit))
+
+  if (nrow(curve_df) == 0) next
+
+  target_color <- unname(
+    celltype_pal_curve[target_ct]
+  )
+
+  curve_df$group_plot <- factor(
+    curve_df$group_plot,
+    levels = c("Rest", "Target")
+  )
+
+  p_gene <- ggplot() +
+    geom_line(
+      data = dplyr::filter(
+        curve_df,
+        group_plot == "Rest"
+      ),
+      aes(
+        x = theta_hour,
+        y = expr_fit
+      ),
+      colour = "#6F6F6F",
+      linewidth = 1.3,
+      linetype = "22",
+      lineend = "round"
+    ) +
+    geom_line(
+      data = dplyr::filter(
+        curve_df,
+        group_plot == "Target"
+      ),
+      aes(
+        x = theta_hour,
+        y = expr_fit
+      ),
+      colour = target_color,
+      linewidth = 2.0,
+      lineend = "round"
+    ) +
+    scale_x_continuous(
+      limits = c(0, 24),
+      breaks = c(0, 6, 12, 18, 24),
+      expand = expansion(mult = c(0.01, 0.02))
+    ) +
+    scale_y_continuous(
+      expand = expansion(mult = c(0.04, 0.12))
+    ) +
+    labs(
+      title = gene_use,
+      subtitle = target_ct,
+      x = "Predicted phase (h)",
+      y = "Normalized expression"
+    ) +
+    theme_classic(
+      base_size = 11,
+      base_family = "sans"
+    ) +
+    theme(
+      plot.title = element_text(
+        face = "bold",
+        hjust = 0.5,
+        size = 22,
+        margin = margin(b = 1)
+      ),
+      plot.subtitle = element_text(
+        face = "bold",
+        colour = target_color,
+        hjust = 0.5,
+        size = 11,
+        margin = margin(b = 4)
+      ),
+      axis.title.x = element_text(
+        size = 11.5,
+        face = "bold",
+        margin = margin(t = 5)
+      ),
+      axis.title.y = element_text(
+        size = 11.5,
+        face = "bold",
+        margin = margin(r = 5)
+      ),
+      axis.text = element_text(
+        size = 10,
+        colour = "black"
+      ),
+      axis.line = element_line(
+        linewidth = 0.6,
+        colour = "black"
+      ),
+      axis.ticks = element_line(
+        linewidth = 0.5,
+        colour = "black"
+      ),
+      legend.position = "none",
+      plot.margin = margin(7, 7, 7, 7)
+    )
+
+  gene_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    gene_use
+  )
+
+  ct_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    target_ct
+  )
+
+  file_stub <- paste0(
+    sprintf("%02d", rank_use),
+    "_",
+    ct_tag,
+    "_",
+    gene_tag
+  )
+
+  readr::write_tsv(
+    curve_df,
+    file.path(
+      curve_dir,
+      paste0(
+        file_stub,
+        "_curve_source.tsv"
+      )
+    )
+  )
+
+  ggsave(
+    file.path(
+      curve_dir,
+      paste0(
+        file_stub,
+        "_Target_vs_Rest.pdf"
+      )
+    ),
+    p_gene,
+    width = 3.8,
+    height = 3.8,
+    units = "in",
+    device = grDevices::pdf,
+    bg = "white",
+    useDingbats = FALSE
+  )
+
+  ggsave(
+    file.path(
+      curve_dir,
+      paste0(
+        file_stub,
+        "_Target_vs_Rest.png"
+      )
+    ),
+    p_gene,
+    width = 3.8,
+    height = 3.8,
+    units = "in",
+    dpi = 300,
+    device = ragg::agg_png,
+    bg = "white"
+  )
+
+  print(p_gene)
+}
+
+cat(
+  "\nTarget-vs-Rest curves saved to:\n",
+  curve_dir,
+  "\n",
+  sep = ""
+)
+
+cat(
+  "Candidate records plotted: ",
+  nrow(candidate_top15),
+  "\n",
+  sep = ""
+)
+
+rm(
+  expr_data,
+  curve_library_size
+)
+
+gc()
+```
+
+## Panel F: model-fitted Target vs pooled Rest rhythmic curves
+
+```{r panel-F-model-fitted-target-vs-rest}
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tibble)
+  library(readr)
+  library(ggplot2)
+  library(ragg)
+  library(magick)
+})
+
+curve_dir <- file.path(
+  figure_dir,
+  "panel_F_model_fitted_target_vs_rest"
+)
+
+dir.create(
+  curve_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+overview_dir <- file.path(
+  curve_dir,
+  "overview"
+)
+
+dir.create(
+  overview_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+celltype_levels_curve <- c(
+  "Hep.PV",
+  "Hep.CV",
+  "Kupffer cells",
+  "Fibroblasts",
+  "Endothelial",
+  "Lymphocytes",
+  "Cholangiocytes"
+)
+
+celltype_pal_curve <- c(
+  "Hep.PV" = "#E84D33",
+  "Hep.CV" = "#55B3CF",
+  "Kupffer cells" = "#455A8B",
+  "Fibroblasts" = "#9ED3C9",
+  "Endothelial" = "#13A88E",
+  "Lymphocytes" = "#F29C7E",
+  "Cholangiocytes" = "#6A78A8"
+)
+
+candidate_top15 <- baseline_stability %>%
+  dplyr::filter(
+    celltype %in% celltype_levels_curve,
+    is.finite(FDR_target),
+    is.finite(FDR_rest),
+    is.finite(Amplitude_target),
+    is.finite(Amplitude_rest),
+    is.finite(Phase_target),
+    is.finite(Phase_rest)
+  ) %>%
+  dplyr::mutate(
+    celltype = factor(
+      as.character(celltype),
+      levels = celltype_levels_curve
+    )
+  ) %>%
+  dplyr::group_by(celltype) %>%
+  dplyr::arrange(
+    desc(support_n),
+    FDR_target,
+    desc(FDR_rest),
+    gene,
+    .by_group = TRUE
+  ) %>%
+  dplyr::slice_head(
+    n = 15
+  ) %>%
+  dplyr::mutate(
+    rank_in_celltype = dplyr::row_number()
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(
+    celltype = as.character(celltype)
+  ) %>%
+  dplyr::select(
+    celltype,
+    rank_in_celltype,
+    gene,
+    support_n,
+    n_tested_loco,
+    FDR_target,
+    FDR_rest,
+    Amplitude_target,
+    Amplitude_rest,
+    Delta_Amp,
+    Amplitude_shrunk_target,
+    Amplitude_shrunk_rest,
+    Delta_Amp_shrunk,
+    Phase_target,
+    Phase_rest
+  )
+
+candidate_summary <- candidate_top15 %>%
+  dplyr::count(
+    celltype,
+    name = "n_selected"
+  ) %>%
+  dplyr::mutate(
+    celltype = factor(
+      celltype,
+      levels = celltype_levels_curve
+    )
+  ) %>%
+  dplyr::arrange(celltype)
+
+print(
+  candidate_summary,
+  n = Inf
+)
+
+readr::write_tsv(
+  candidate_top15,
+  file.path(
+    curve_dir,
+    "candidate_top15_statistical.tsv"
+  )
+)
+
+top1_statistical <- candidate_top15 %>%
+  dplyr::filter(
+    rank_in_celltype == 1
+  ) %>%
+  dplyr::mutate(
+    celltype = factor(
+      celltype,
+      levels = celltype_levels_curve
+    )
+  ) %>%
+  dplyr::arrange(celltype)
+
+readr::write_tsv(
+  top1_statistical,
+  file.path(
+    curve_dir,
+    "top1_statistical_gene_by_celltype.tsv"
+  )
+)
+
+top3_statistical <- candidate_top15 %>%
+  dplyr::filter(
+    rank_in_celltype <= 3
+  ) %>%
+  dplyr::mutate(
+    celltype = factor(
+      celltype,
+      levels = celltype_levels_curve
+    )
+  ) %>%
+  dplyr::arrange(
+    celltype,
+    rank_in_celltype
+  )
+
+readr::write_tsv(
+  top3_statistical,
+  file.path(
+    curve_dir,
+    "top3_statistical_gene_by_celltype.tsv"
+  )
+)
+
+print(
+  top1_statistical %>%
+    dplyr::select(
+      celltype,
+      gene,
+      support_n,
+      FDR_target,
+      FDR_rest,
+      Amplitude_target,
+      Amplitude_rest,
+      Phase_target,
+      Phase_rest
+    ),
+  n = Inf,
+  width = Inf
+)
+
+make_model_curve <- function(
+  amplitude,
+  phase,
+  n_grid = 400
+) {
+
+  theta_hour <- seq(
+    0,
+    24,
+    length.out = n_grid
+  )
+
+  theta_rad <- theta_hour /
+    24 *
+    2 *
+    pi
+
+  eta_relative <- amplitude *
+    cos(
+      theta_rad -
+        phase
+    )
+
+  expression_relative <- exp(
+    eta_relative
+  )
+
+  expression_relative <- expression_relative /
+    mean(
+      expression_relative
+    )
+
+  tibble::tibble(
+    theta_hour = theta_hour,
+    expr_fit = expression_relative
+  )
+}
+
+curve_manifest <- vector(
+  "list",
+  nrow(candidate_top15)
+)
+
+for (i in seq_len(nrow(candidate_top15))) {
+
+  row_use <- candidate_top15[i, ]
+
+  gene_use <- row_use$gene
+  target_ct <- row_use$celltype
+  rank_use <- row_use$rank_in_celltype
+
+  message(
+    "Plotting ",
+    target_ct,
+    " | #",
+    rank_use,
+    " | ",
+    gene_use
+  )
+
+  target_curve <- make_model_curve(
+    amplitude = row_use$Amplitude_target,
+    phase = row_use$Phase_target
+  ) %>%
+    dplyr::mutate(
+      group_plot = "Target"
+    )
+
+  rest_curve <- make_model_curve(
+    amplitude = row_use$Amplitude_rest,
+    phase = row_use$Phase_rest
+  ) %>%
+    dplyr::mutate(
+      group_plot = "Rest"
+    )
+
+  curve_df <- dplyr::bind_rows(
+    target_curve,
+    rest_curve
+  ) %>%
+    dplyr::mutate(
+      group_plot = factor(
+        group_plot,
+        levels = c(
+          "Rest",
+          "Target"
+        )
+      )
+    )
+
+  target_color <- unname(
+    celltype_pal_curve[
+      target_ct
+    ]
+  )
+
+  gene_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    gene_use
+  )
+
+  ct_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    target_ct
+  )
+
+  file_stub <- paste0(
+    sprintf(
+      "%02d",
+      rank_use
+    ),
+    "_",
+    ct_tag,
+    "_",
+    gene_tag
+  )
+
+  p_gene <- ggplot() +
+    geom_hline(
+      yintercept = 1,
+      linewidth = 0.35,
+      colour = "#D9D9D9"
+    ) +
+    geom_line(
+      data = dplyr::filter(
+        curve_df,
+        group_plot == "Rest"
+      ),
+      aes(
+        x = theta_hour,
+        y = expr_fit
+      ),
+      colour = "#707070",
+      linewidth = 1.25,
+      linetype = "22",
+      lineend = "round"
+    ) +
+    geom_line(
+      data = dplyr::filter(
+        curve_df,
+        group_plot == "Target"
+      ),
+      aes(
+        x = theta_hour,
+        y = expr_fit
+      ),
+      colour = target_color,
+      linewidth = 2.1,
+      lineend = "round"
+    ) +
+    scale_x_continuous(
+      limits = c(
+        0,
+        24
+      ),
+      breaks = c(
+        0,
+        6,
+        12,
+        18,
+        24
+      ),
+      expand = expansion(
+        mult = c(
+          0.01,
+          0.02
+        )
+      )
+    ) +
+    scale_y_continuous(
+      expand = expansion(
+        mult = c(
+          0.05,
+          0.12
+        )
+      )
+    ) +
+    labs(
+      title = gene_use,
+      subtitle = target_ct,
+      x = "Predicted phase (h)",
+      y = "Model-fitted relative expression"
+    ) +
+    theme_classic(
+      base_size = 11,
+      base_family = "sans"
+    ) +
+    theme(
+      plot.title = element_text(
+        face = "bold",
+        hjust = 0.5,
+        size = 20,
+        margin = margin(
+          b = 1
+        )
+      ),
+      plot.subtitle = element_text(
+        face = "bold",
+        colour = target_color,
+        hjust = 0.5,
+        size = 10.5,
+        margin = margin(
+          b = 4
+        )
+      ),
+      axis.title.x = element_text(
+        size = 10.5,
+        face = "bold",
+        margin = margin(
+          t = 5
+        )
+      ),
+      axis.title.y = element_text(
+        size = 10.5,
+        face = "bold",
+        margin = margin(
+          r = 5
+        )
+      ),
+      axis.text.x = element_text(
+        size = 9,
+        colour = "black"
+      ),
+      axis.text.y = element_text(
+        size = 9,
+        colour = "black"
+      ),
+      axis.line = element_line(
+        linewidth = 0.6,
+        colour = "black"
+      ),
+      axis.ticks = element_line(
+        linewidth = 0.5,
+        colour = "black"
+      ),
+      legend.position = "none",
+      plot.margin = margin(
+        7,
+        7,
+        7,
+        7
+      )
+    )
+
+  readr::write_tsv(
+    curve_df,
+    file.path(
+      curve_dir,
+      paste0(
+        file_stub,
+        "_curve_source.tsv"
+      )
+    )
+  )
+
+  png_file <- file.path(
+    curve_dir,
+    paste0(
+      file_stub,
+      "_Target_vs_Rest.png"
+    )
+  )
+
+  pdf_file <- file.path(
+    curve_dir,
+    paste0(
+      file_stub,
+      "_Target_vs_Rest.pdf"
+    )
+  )
+
+  ggsave(
+    png_file,
+    p_gene,
+    width = 3.8,
+    height = 3.8,
+    units = "in",
+    dpi = 300,
+    device = ragg::agg_png,
+    bg = "white"
+  )
+
+  ggsave(
+    pdf_file,
+    p_gene,
+    width = 3.8,
+    height = 3.8,
+    units = "in",
+    device = grDevices::pdf,
+    bg = "white",
+    useDingbats = FALSE
+  )
+
+  curve_manifest[[i]] <- tibble::tibble(
+    celltype = target_ct,
+    rank_in_celltype = rank_use,
+    gene = gene_use,
+    support_n = row_use$support_n,
+    FDR_target = row_use$FDR_target,
+    FDR_rest = row_use$FDR_rest,
+    Amplitude_target = row_use$Amplitude_target,
+    Amplitude_rest = row_use$Amplitude_rest,
+    Phase_target = row_use$Phase_target,
+    Phase_rest = row_use$Phase_rest,
+    png_file = png_file,
+    pdf_file = pdf_file
+  )
+}
+
+curve_manifest <- dplyr::bind_rows(
+  curve_manifest
+)
+
+readr::write_tsv(
+  curve_manifest,
+  file.path(
+    curve_dir,
+    "curve_manifest.tsv"
+  )
+)
+
+get_curve_file <- function(
+  gene,
+  celltype,
+  rank
+) {
+
+  gene_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    gene
+  )
+
+  ct_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    celltype
+  )
+
+  file.path(
+    curve_dir,
+    paste0(
+      sprintf(
+        "%02d",
+        rank
+      ),
+      "_",
+      ct_tag,
+      "_",
+      gene_tag,
+      "_Target_vs_Rest.png"
+    )
+  )
+}
+
+candidate_overview <- candidate_top15 %>%
+  dplyr::mutate(
+    celltype = factor(
+      celltype,
+      levels = celltype_levels_curve
+    ),
+    image_file = mapply(
+      get_curve_file,
+      gene,
+      as.character(celltype),
+      rank_in_celltype,
+      USE.NAMES = FALSE
+    )
+  ) %>%
+  dplyr::arrange(
+    celltype,
+    rank_in_celltype
+  )
+
+missing_file <- candidate_overview %>%
+  dplyr::filter(
+    !file.exists(
+      image_file
+    )
+  )
+
+if (nrow(missing_file) > 0) {
+
+  print(
+    missing_file %>%
+      dplyr::select(
+        celltype,
+        rank_in_celltype,
+        gene,
+        image_file
+      )
+  )
+
+  stop(
+    "Some Target-vs-Rest PNG files are missing."
+  )
+}
+
+make_one_overview_panel <- function(
+  image_file,
+  rank
+) {
+
+  img <- magick::image_read(
+    image_file
+  )
+
+  img <- magick::image_resize(
+    img,
+    "420x420!"
+  )
+
+  img <- magick::image_extent(
+    img,
+    geometry = "440x440",
+    gravity = "center",
+    color = "white"
+  )
+
+  img <- magick::image_annotate(
+    img,
+    paste0(
+      "#",
+      rank
+    ),
+    gravity = "northwest",
+    location = "+8+8",
+    size = 24,
+    weight = 700,
+    color = "black",
+    boxcolor = "white"
+  )
+
+  img
+}
+
+make_celltype_column <- function(
+  ct
+) {
+
+  df_ct <- candidate_overview %>%
+    dplyr::filter(
+      as.character(celltype) == ct
+    ) %>%
+    dplyr::arrange(
+      rank_in_celltype
+    )
+
+  imgs <- lapply(
+    seq_len(
+      nrow(df_ct)
+    ),
+    function(i) {
+
+      make_one_overview_panel(
+        df_ct$image_file[i],
+        df_ct$rank_in_celltype[i]
+      )
+    }
+  )
+
+  body <- magick::image_append(
+    do.call(
+      c,
+      imgs
+    ),
+    stack = TRUE
+  )
+
+  header <- magick::image_blank(
+    width = magick::image_info(
+      body
+    )$width,
+    height = 80,
+    color = "white"
+  )
+
+  header <- magick::image_annotate(
+    header,
+    ct,
+    gravity = "center",
+    size = 34,
+    weight = 700,
+    color = "black"
+  )
+
+  magick::image_append(
+    c(
+      header,
+      body
+    ),
+    stack = TRUE
+  )
+}
+
+celltype_columns <- lapply(
+  celltype_levels_curve,
+  make_celltype_column
+)
+
+overview_all105 <- magick::image_append(
+  do.call(
+    c,
+    celltype_columns
+  ),
+  stack = FALSE
+)
+
+overview_all105 <- magick::image_border(
+  overview_all105,
+  color = "white",
+  geometry = "25x25"
+)
+
+overview_png <- file.path(
+  overview_dir,
+  "PanelF_model_fitted_Target_vs_Rest_all7_top15_overview.png"
+)
+
+magick::image_write(
+  overview_all105,
+  path = overview_png,
+  format = "png"
+)
+
+print(
+  overview_all105
+)
+
+for (ct in celltype_levels_curve) {
+
+  df_ct <- candidate_overview %>%
+    dplyr::filter(
+      as.character(celltype) == ct
+    ) %>%
+    dplyr::arrange(
+      rank_in_celltype
+    )
+
+  imgs_ct <- lapply(
+    seq_len(
+      nrow(df_ct)
+    ),
+    function(i) {
+
+      make_one_overview_panel(
+        df_ct$image_file[i],
+        df_ct$rank_in_celltype[i]
+      )
+    }
+  )
+
+  sheet_ct <- magick::image_append(
+    do.call(
+      c,
+      imgs_ct
+    ),
+    stack = TRUE
+  )
+
+  header_ct <- magick::image_blank(
+    width = magick::image_info(
+      sheet_ct
+    )$width,
+    height = 90,
+    color = "white"
+  )
+
+  header_ct <- magick::image_annotate(
+    header_ct,
+    paste0(
+      ct,
+      " — statistical Top 15"
+    ),
+    gravity = "center",
+    size = 38,
+    weight = 700,
+    color = "black"
+  )
+
+  sheet_ct <- magick::image_append(
+    c(
+      header_ct,
+      sheet_ct
+    ),
+    stack = TRUE
+  )
+
+  ct_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    ct
+  )
+
+  magick::image_write(
+    sheet_ct,
+    path = file.path(
+      overview_dir,
+      paste0(
+        "PanelF_",
+        ct_tag,
+        "_statistical_Top15.png"
+      )
+    ),
+    format = "png"
+  )
+}
+
+readr::write_tsv(
+  candidate_overview %>%
+    dplyr::select(
+      celltype,
+      rank_in_celltype,
+      gene,
+      support_n,
+      FDR_target,
+      FDR_rest,
+      Amplitude_target,
+      Amplitude_rest,
+      Delta_Amp,
+      Phase_target,
+      Phase_rest
+    ),
+  file.path(
+    overview_dir,
+    "PanelF_overview_gene_key.tsv"
+  )
+)
+
+cat(
+  "\nPanel F model-fitted curves completed.\n",
+  "Candidate records: ",
+  nrow(candidate_top15),
+  "\n",
+  "Main overview:\n",
+  overview_png,
+  "\n",
+  sep = ""
+)
+```
+
+
+##all one
+```{r}
+## Panel F overview: 7 cell types × Top15 Target-vs-Rest curves
+
+suppressPackageStartupMessages({
+  library(magick)
+  library(dplyr)
+})
+
+overview_dir <- file.path(
+  curve_dir,
+  "overview"
+)
+
+dir.create(
+  overview_dir,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+overview_celltypes <- c(
+  "Hep.PV",
+  "Hep.CV",
+  "Kupffer cells",
+  "Fibroblasts",
+  "Endothelial",
+  "Lymphocytes",
+  "Cholangiocytes"
+)
+
+candidate_overview <- candidate_top15 %>%
+  dplyr::mutate(
+    celltype = factor(
+      celltype,
+      levels = overview_celltypes
+    )
+  ) %>%
+  dplyr::arrange(
+    celltype,
+    rank_in_celltype
+  )
+
+get_curve_file <- function(
+  gene,
+  celltype,
+  rank
+) {
+
+  gene_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    gene
+  )
+
+  ct_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    celltype
+  )
+
+  file.path(
+    curve_dir,
+    paste0(
+      sprintf("%02d", rank),
+      "_",
+      ct_tag,
+      "_",
+      gene_tag,
+      "_Target_vs_Rest.png"
+    )
+  )
+}
+
+candidate_overview$image_file <- mapply(
+  get_curve_file,
+  candidate_overview$gene,
+  as.character(candidate_overview$celltype),
+  candidate_overview$rank_in_celltype,
+  USE.NAMES = FALSE
+)
+
+missing_file <- candidate_overview %>%
+  dplyr::filter(
+    !file.exists(image_file)
+  )
+
+if (nrow(missing_file) > 0) {
+
+  print(
+    missing_file %>%
+      dplyr::select(
+        celltype,
+        rank_in_celltype,
+        gene,
+        image_file
+      )
+  )
+
+  stop(
+    "Some Target-vs-Rest curve PNG files are missing."
+  )
+}
+
+make_one_panel <- function(
+  image_file,
+  rank
+) {
+
+  img <- magick::image_read(
+    image_file
+  )
+
+  img <- magick::image_resize(
+    img,
+    "420x420!"
+  )
+
+  img <- magick::image_extent(
+    img,
+    geometry = "440x440",
+    gravity = "center",
+    color = "white"
+  )
+
+  img <- magick::image_annotate(
+    img,
+    paste0("#", rank),
+    gravity = "northwest",
+    location = "+8+8",
+    size = 24,
+    weight = 700,
+    color = "black",
+    boxcolor = "white"
+  )
+
+  img
+}
+
+make_celltype_column <- function(ct) {
+
+  df_ct <- candidate_overview %>%
+    dplyr::filter(
+      as.character(celltype) == ct
+    ) %>%
+    dplyr::arrange(
+      rank_in_celltype
+    )
+
+  imgs <- lapply(
+    seq_len(nrow(df_ct)),
+    function(i) {
+
+      make_one_panel(
+        df_ct$image_file[i],
+        df_ct$rank_in_celltype[i]
+      )
+    }
+  )
+
+  body <- magick::image_append(
+    do.call(c, imgs),
+    stack = TRUE
+  )
+
+  header <- magick::image_blank(
+    width = magick::image_info(body)$width,
+    height = 80,
+    color = "white"
+  )
+
+  header <- magick::image_annotate(
+    header,
+    ct,
+    gravity = "center",
+    size = 34,
+    weight = 700,
+    color = "black"
+  )
+
+  whole_column <- magick::image_append(
+    c(
+      header,
+      body
+    ),
+    stack = TRUE
+  )
+
+  whole_column
+}
+
+celltype_columns <- lapply(
+  overview_celltypes,
+  make_celltype_column
+)
+
+overview_all105 <- magick::image_append(
+  do.call(
+    c,
+    celltype_columns
+  ),
+  stack = FALSE
+)
+
+overview_all105 <- magick::image_border(
+  overview_all105,
+  color = "white",
+  geometry = "25x25"
+)
+
+overview_png <- file.path(
+  overview_dir,
+  "PanelF_Target_vs_Rest_all7_top15_overview.png"
+)
+
+magick::image_write(
+  overview_all105,
+  path = overview_png,
+  format = "png"
+)
+
+cat(
+  "\nAll-105 overview saved to:\n",
+  overview_png,
+  "\n\n",
+  sep = ""
+)
+
+print(
+  overview_all105
+)
+
+for (ct in overview_celltypes) {
+
+  df_ct <- candidate_overview %>%
+    dplyr::filter(
+      as.character(celltype) == ct
+    ) %>%
+    dplyr::arrange(
+      rank_in_celltype
+    )
+
+  imgs_ct <- lapply(
+    seq_len(nrow(df_ct)),
+    function(i) {
+
+      make_one_panel(
+        df_ct$image_file[i],
+        df_ct$rank_in_celltype[i]
+      )
+    }
+  )
+
+  sheet_ct <- magick::image_append(
+    do.call(
+      c,
+      imgs_ct
+    ),
+    stack = TRUE
+  )
+
+  header_ct <- magick::image_blank(
+    width = magick::image_info(sheet_ct)$width,
+    height = 90,
+    color = "white"
+  )
+
+  header_ct <- magick::image_annotate(
+    header_ct,
+    paste0(
+      ct,
+      " — Top 15"
+    ),
+    gravity = "center",
+    size = 38,
+    weight = 700,
+    color = "black"
+  )
+
+  sheet_ct <- magick::image_append(
+    c(
+      header_ct,
+      sheet_ct
+    ),
+    stack = TRUE
+  )
+
+  ct_tag <- gsub(
+    "[^A-Za-z0-9]+",
+    "_",
+    ct
+  )
+
+  ct_file <- file.path(
+    overview_dir,
+    paste0(
+      "PanelF_",
+      ct_tag,
+      "_Top15_Target_vs_Rest.png"
+    )
+  )
+
+  magick::image_write(
+    sheet_ct,
+    path = ct_file,
+    format = "png"
+  )
+}
+
+readr::write_tsv(
+  candidate_overview %>%
+    dplyr::select(
+      celltype,
+      rank_in_celltype,
+      gene,
+      support_n,
+      FDR_target,
+      FDR_rest,
+      Amplitude_target,
+      Amplitude_rest,
+      Delta_Amp
+    ),
+  file.path(
+    overview_dir,
+    "PanelF_Target_vs_Rest_overview_gene_key.tsv"
+  )
+)
+
+cat(
+  "Overview directory:\n",
+  overview_dir,
+  "\n",
+  sep = ""
+)
+```
+
+
+
+##all
+```{r}
+suppressPackageStartupMessages({
+  library(magick)
+  library(dplyr)
+})
+
+overview_dir <- file.path(curve_dir, "overview")
+dir.create(overview_dir, recursive = TRUE, showWarnings = FALSE)
+
+overview_celltypes <- c(
+  "Hep.PV",
+  "Hep.CV",
+  "Kupffer cells",
+  "Fibroblasts",
+  "Endothelial",
+  "Lymphocytes",
+  "Cholangiocytes"
+)
+
+make_gene_file <- function(gene) {
+  gene_tag <- gsub("[^A-Za-z0-9]+", "_", gene)
+
+  file.path(
+    curve_dir,
+    paste0(
+      "OVR_7celltypes_",
+      gene_tag,
+      "_curve.png"
+    )
+  )
+}
+
+candidate_images <- candidate_top15 %>%
+  mutate(
+    celltype = factor(
+      celltype,
+      levels = overview_celltypes
+    ),
+    image_file = vapply(
+      gene,
+      make_gene_file,
+      character(1)
+    )
+  ) %>%
+  arrange(
+    celltype,
+    rank_in_celltype
+  )
+
+stopifnot(
+  all(
+    file.exists(
+      candidate_images$image_file
+    )
+  )
+)
+
+make_celltype_strip <- function(ct) {
+
+  df_ct <- candidate_images %>%
+    filter(celltype == ct) %>%
+    arrange(rank_in_celltype)
+
+  imgs <- lapply(
+    seq_len(nrow(df_ct)),
+    function(i) {
+
+      img <- image_read(
+        df_ct$image_file[i]
+      )
+
+      img <- image_resize(
+        img,
+        "420x420"
+      )
+
+      img <- image_border(
+        img,
+        color = "white",
+        geometry = "4x4"
+      )
+
+      img
+    }
+  )
+
+  body <- image_append(
+    do.call(c, imgs),
+    stack = TRUE
+  )
+
+  header <- image_blank(
+    width = image_info(body)$width,
+    height = 70,
+    color = "white"
+  ) %>%
+    image_annotate(
+      ct,
+      gravity = "center",
+      size = 34,
+      weight = 700,
+      color = "black"
+    )
+
+  image_append(
+    c(
+      header,
+      body
+    ),
+    stack = TRUE
+  )
+}
+
+celltype_strips <- lapply(
+  overview_celltypes,
+  make_celltype_strip
+)
+
+overview_all105 <- image_append(
+  do.call(
+    c,
+    celltype_strips
+  ),
+  stack = FALSE
+)
+
+overview_all105 <- image_border(
+  overview_all105,
+  color = "white",
+  geometry = "20x20"
+)
+
+overview_png <- file.path(
+  overview_dir,
+  "PanelF_all7_top15_gene_curves_overview.png"
+)
+
+overview_pdf <- file.path(
+  overview_dir,
+  "PanelF_all7_top15_gene_curves_overview.pdf"
+)
+
+image_write(
+  overview_all105,
+  path = overview_png,
+  format = "png"
+)
+
+image_write(
+  overview_all105,
+  path = overview_pdf,
+  format = "pdf"
+)
+
+cat(
+  "Overview PNG:\n",
+  overview_png,
+  "\n\n",
+  sep = ""
+)
+
+cat(
+  "Overview PDF:\n",
+  overview_pdf,
+  "\n",
+  sep = ""
+)
+
+print(
+  overview_all105
+)
+```
+
+## Reactome enrichment
+
+```{r reactome-enrichment}
+reactome_pkgs <- c("clusterProfiler", "org.Mm.eg.db", "ReactomePA")
+if (!all(vapply(reactome_pkgs, requireNamespace, logical(1), quietly = TRUE))) {
+  message("Reactome chunk skipped. Install missing Bioconductor packages: ", paste(reactome_pkgs[!vapply(reactome_pkgs, requireNamespace, logical(1), quietly = TRUE)], collapse = ", "))
+} else {
+  reactome_dir <- file.path(figure_dir, "Reactome_baseline_OVR_by_celltype"); dir.create(reactome_dir, recursive = TRUE, showWarnings = FALSE)
+  ovr_reactome <- baseline_all %>% dplyr::transmute(TargetCellType = as.character(celltype), gene = as.character(gene), Module3_flag = as.logical(ovr_marker)) %>% dplyr::filter(!is.na(TargetCellType), !is.na(gene), gene != "")
+  celltype_order_reactome <- ovr_reactome %>% dplyr::filter(Module3_flag) %>% dplyr::count(TargetCellType, name = "n_M3") %>% dplyr::arrange(dplyr::desc(n_M3)) %>% dplyr::pull(TargetCellType) %>% unique()
+
+  symbol_to_entrez <- function(gene_vec) {
+    gene_vec <- unique(as.character(gene_vec)); gene_vec <- gene_vec[!is.na(gene_vec) & gene_vec != ""]
+    if (length(gene_vec) == 0) return(tibble::tibble(SYMBOL = character(0), ENTREZID = character(0)))
+    out <- tryCatch(suppressWarnings(clusterProfiler::bitr(gene_vec, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Mm.eg.db::org.Mm.eg.db)), error = function(e) tibble::tibble(SYMBOL = character(0), ENTREZID = character(0)))
+    out %>% dplyr::distinct(SYMBOL, ENTREZID)
+  }
+  reactome_stat_cache <- file.path(reactome_dir, "Reactome_celltype_gene_stat_all.tsv"); reactome_summary_cache <- file.path(reactome_dir, "Reactome_celltype_summary.tsv"); reactome_all_cache <- file.path(reactome_dir, "Reactome_celltype_all.tsv")
+  reactome_cache_ready <- all(file.exists(c(reactome_stat_cache, reactome_summary_cache, reactome_all_cache))) && !ovr_force_recompute
+  symbol_map_all <- if (reactome_cache_ready) NULL else symbol_to_entrez(unique(ovr_reactome$gene))
+
+  run_one_celltype_reactome <- function(ct_use) {
+    message("Running Reactome for: ", ct_use)
+    df_ct <- ovr_reactome %>% dplyr::filter(TargetCellType == ct_use)
+    genes_fg_symbol <- df_ct %>% dplyr::filter(Module3_flag) %>% dplyr::pull(gene) %>% unique() %>% sort()
+    genes_bg_symbol <- df_ct %>% dplyr::pull(gene) %>% unique() %>% sort()
+    fg_map <- symbol_map_all %>% dplyr::filter(SYMBOL %in% genes_fg_symbol); bg_map <- symbol_map_all %>% dplyr::filter(SYMBOL %in% genes_bg_symbol)
+    genes_fg_entrez <- unique(fg_map$ENTREZID); genes_bg_entrez <- unique(bg_map$ENTREZID)
+    stat_df <- tibble::tibble(TargetCellType = ct_use, n_fg_symbol = length(genes_fg_symbol), n_bg_symbol = length(genes_bg_symbol), n_fg_entrez = length(genes_fg_entrez), n_bg_entrez = length(genes_bg_entrez))
+    readr::write_tsv(stat_df, file.path(reactome_dir, paste0(gsub("[^A-Za-z0-9]+", "_", ct_use), "_gene_stat.tsv")))
+    if (length(genes_fg_entrez) < 10 || length(genes_bg_entrez) < 10) {
+      summary_df <- stat_df %>% dplyr::mutate(n_terms_raw_p_lt_0_05 = 0L, n_terms_padj_lt_0_05 = 0L, status = "too_few_genes")
+      return(list(stat = stat_df, summary = summary_df, reactome = tibble::tibble()))
+    }
+    ego_rt <- tryCatch(ReactomePA::enrichPathway(gene = genes_fg_entrez, organism = "mouse", pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.20, universe = genes_bg_entrez, readable = TRUE), error = function(e) NULL)
+    if (is.null(ego_rt)) {
+      summary_df <- stat_df %>% dplyr::mutate(n_terms_raw_p_lt_0_05 = 0L, n_terms_padj_lt_0_05 = 0L, status = "enrichPathway_failed")
+      return(list(stat = stat_df, summary = summary_df, reactome = tibble::tibble()))
+    }
+    res_rt <- ego_rt@result %>% tibble::as_tibble()
+    if (nrow(res_rt) == 0) {
+      summary_df <- stat_df %>% dplyr::mutate(n_terms_raw_p_lt_0_05 = 0L, n_terms_padj_lt_0_05 = 0L, status = "no_terms")
+      return(list(stat = stat_df, summary = summary_df, reactome = tibble::tibble()))
+    }
+    res_rt <- res_rt %>% dplyr::mutate(TargetCellType = ct_use)
+    readr::write_tsv(res_rt, file.path(reactome_dir, paste0(gsub("[^A-Za-z0-9]+", "_", ct_use), "_Reactome_full.tsv")))
+    summary_df <- stat_df %>% dplyr::mutate(n_terms_raw_p_lt_0_05 = sum(res_rt$pvalue < 0.05, na.rm = TRUE), n_terms_padj_lt_0_05 = sum(res_rt$p.adjust < 0.05, na.rm = TRUE), status = "ok")
+    list(stat = stat_df, summary = summary_df, reactome = res_rt)
+  }
+
+  if (reactome_cache_ready) {
+    stat_all <- readr::read_tsv(reactome_stat_cache, show_col_types = FALSE); summary_all <- readr::read_tsv(reactome_summary_cache, show_col_types = FALSE); reactome_all_df <- readr::read_tsv(reactome_all_cache, show_col_types = FALSE)
+  } else {
+    res_list <- setNames(lapply(celltype_order_reactome, run_one_celltype_reactome), celltype_order_reactome)
+    stat_all <- dplyr::bind_rows(lapply(res_list, function(x) x$stat)); summary_all <- dplyr::bind_rows(lapply(res_list, function(x) x$summary)); reactome_all_df <- dplyr::bind_rows(lapply(res_list, function(x) x$reactome))
+    readr::write_tsv(stat_all, reactome_stat_cache); readr::write_tsv(summary_all, reactome_summary_cache)
+    if (nrow(reactome_all_df) > 0) readr::write_tsv(reactome_all_df, reactome_all_cache) else readr::write_tsv(tibble::tibble(TargetCellType = character()), reactome_all_cache)
+  }
+
+  if (nrow(reactome_all_df) == 0) {
+    message("No significant Reactome pathways found for plotting.")
+  } else {
+    use_pathway <- reactome_all_df %>% dplyr::group_by(TargetCellType) %>% dplyr::arrange(p.adjust, dplyr::desc(Count), .by_group = TRUE) %>% dplyr::slice_head(n = 5) %>% dplyr::ungroup() %>% dplyr::mutate(celltype_show = TargetCellType, neglog10_p = -log10(pmax(pvalue, .Machine$double.xmin)), Description_wrapped = stringr::str_wrap(Description, width = 60))
+    readr::write_tsv(use_pathway, file.path(reactome_dir, "Reactome_celltype_top5_for_plot.tsv"))
+    celltype_plot_order <- setdiff(celltype_order_reactome, "Cholangiocytes")
+    use_pathway <- use_pathway %>% dplyr::filter(celltype_show %in% celltype_plot_order) %>% dplyr::mutate(celltype_show = factor(celltype_show, levels = celltype_plot_order)) %>% dplyr::arrange(celltype_show, p.adjust, dplyr::desc(Count)) %>% dplyr::mutate(y_show_chr = make.unique(as.character(Description_wrapped)), y_show = factor(y_show_chr, levels = rev(y_show_chr)))
+    if (nrow(use_pathway) == 0) {
+      message("Reactome terms were found, but none remained after the original Cholangiocytes display exclusion.")
+    } else {
+      width <- 0.55; xaxis_max <- ceiling(max(use_pathway$neglog10_p, na.rm = TRUE) + 1)
+      rect.data <- use_pathway %>% dplyr::count(celltype_show, name = "n", .drop = FALSE) %>% dplyr::filter(n > 0) %>% dplyr::arrange(dplyr::desc(celltype_show)) %>% dplyr::mutate(xmin = -3.2 * width, xmax = -2.0 * width, ymax = cumsum(n), ymin = dplyr::lag(ymax, default = 0) + 0.8, ymax = ymax + 0.6)
+      p_celltype_all <- ggplot(use_pathway, aes(x = neglog10_p, y = y_show, fill = celltype_show)) + geom_col(width = 1, alpha = 0.5) + geom_text(aes(x = 0.08, label = Description_wrapped), hjust = 0, vjust = 0.5, size = 5.2, fontface = "bold", color = "black") + geom_point(aes(x = -width, size = Count), shape = 21, stroke = 0.6, fill = "white", color = "black") + geom_text(aes(x = -width, label = Count), vjust = 0.5, size = 4, fontface = "bold") + scale_size_continuous(name = "Count", range = c(4.5, 12)) + geom_rect(data = rect.data, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = celltype_show), alpha = 0.5, inherit.aes = FALSE) + geom_text(data = rect.data, aes(x = (xmin + xmax) / 2, y = (ymin + ymax) / 2, label = celltype_show), inherit.aes = FALSE, size = 4.2, fontface = "bold", angle = 90) + geom_segment(x = 0, y = 0, xend = xaxis_max, yend = 0, linewidth = 1.2, inherit.aes = FALSE) + labs(x = expression(-log[10](pvalue)), y = NULL, title = "Top enriched Reactome pathways across liver cell types") + scale_fill_manual(name = "Cell type", values = celltype_pal[celltype_plot_order]) + scale_x_continuous(breaks = seq(0, xaxis_max, by = 2), expand = expansion(mult = c(0, 0.08))) + coord_cartesian(clip = "off") + theme_bw() + theme(axis.text.y = element_blank(), axis.title.x = element_text(size = 16, face = "bold"), axis.text.x = element_text(size = 13, face = "bold"), axis.line.y = element_blank(), axis.ticks.y = element_blank(), legend.title = element_text(size = 15, face = "bold"), legend.text = element_text(size = 13), plot.title = element_text(size = 28, face = "bold", hjust = 0.5), plot.margin = margin(15, 20, 40, 20))
+      print(p_celltype_all); save_gg(p_celltype_all, file.path(reactome_dir, "Reactome_celltype_all_top5_summary"), 16.8, 15)
+    }
+  }
+}
+```
