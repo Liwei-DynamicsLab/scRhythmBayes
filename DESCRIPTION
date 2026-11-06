@@ -40,6 +40,7 @@ RoxygenNote: 7.3.3
 Depends:
     R (>= 4.2.0)
 Imports:
+    Seurat (>= 4.0.0),
     Matrix,
     MASS,
     dplyr,
@@ -65,7 +66,6 @@ Imports:
     circular,
     rlang
 Suggests:
-    Seurat (>= 4.0.0),
     SeuratObject (>= 4.0.0),
     testthat (>= 3.0.0),
     knitr,
